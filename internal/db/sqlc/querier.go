@@ -29,6 +29,10 @@ type Querier interface {
 	// ON DELETE CASCADE en household_members → limpia la membresía automáticamente.
 	DeleteHousehold(ctx context.Context, id uuid.UUID) error
 	GetHouseholdByID(ctx context.Context, id uuid.UUID) (Household, error)
+	// Devuelve el rol del user en el household. Usada para chequear owner
+	// antes de operaciones privilegiadas (editar/borrar hogar, invitar).
+	// Si no es miembro devuelve pgx.ErrNoRows (el repo lo mapea a ErrNotFound).
+	GetHouseholdMemberRole(ctx context.Context, arg GetHouseholdMemberRoleParams) (string, error)
 	// Usado en login. Devuelve pgx.ErrNoRows si no existe → mapeamos a error de dominio.
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)

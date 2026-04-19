@@ -98,6 +98,27 @@ func (q *Queries) GetHouseholdByID(ctx context.Context, id uuid.UUID) (Household
 	return i, err
 }
 
+const getHouseholdMemberRole = `-- name: GetHouseholdMemberRole :one
+SELECT role
+FROM household_members
+WHERE household_id = $1 AND user_id = $2
+`
+
+type GetHouseholdMemberRoleParams struct {
+	HouseholdID uuid.UUID `json:"household_id"`
+	UserID      uuid.UUID `json:"user_id"`
+}
+
+// Devuelve el rol del user en el household. Usada para chequear owner
+// antes de operaciones privilegiadas (editar/borrar hogar, invitar).
+// Si no es miembro devuelve pgx.ErrNoRows (el repo lo mapea a ErrNotFound).
+func (q *Queries) GetHouseholdMemberRole(ctx context.Context, arg GetHouseholdMemberRoleParams) (string, error) {
+	row := q.db.QueryRow(ctx, getHouseholdMemberRole, arg.HouseholdID, arg.UserID)
+	var role string
+	err := row.Scan(&role)
+	return role, err
+}
+
 const isHouseholdMember = `-- name: IsHouseholdMember :one
 SELECT EXISTS (
     SELECT 1 FROM household_members

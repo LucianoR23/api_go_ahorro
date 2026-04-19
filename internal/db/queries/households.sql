@@ -68,3 +68,12 @@ SELECT EXISTS (
     SELECT 1 FROM household_members
     WHERE household_id = $1 AND user_id = $2
 ) AS is_member;
+
+
+-- name: GetHouseholdMemberRole :one
+-- Devuelve el rol del user en el household. Usada para chequear owner
+-- antes de operaciones privilegiadas (editar/borrar hogar, invitar).
+-- Si no es miembro devuelve pgx.ErrNoRows (el repo lo mapea a ErrNotFound).
+SELECT role
+FROM household_members
+WHERE household_id = $1 AND user_id = $2;
