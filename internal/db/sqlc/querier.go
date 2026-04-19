@@ -8,6 +8,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
@@ -35,6 +36,7 @@ type Querier interface {
 	// (Efectivo no se puede desactivar si es el último).
 	CountActivePaymentMethodsByOwner(ctx context.Context, ownerUserID uuid.UUID) (int64, error)
 	CountExpensesByHousehold(ctx context.Context, arg CountExpensesByHouseholdParams) (int64, error)
+	CountIncomesByHousehold(ctx context.Context, arg CountIncomesByHouseholdParams) (int64, error)
 	// Queries de banks. Los bancos son del user (owner_user_id),
 	// nunca se borran: toggle de is_active.
 	CreateBank(ctx context.Context, arg CreateBankParams) (Bank, error)
@@ -45,6 +47,8 @@ type Querier interface {
 	CreateExpense(ctx context.Context, arg CreateExpenseParams) (Expense, error)
 	// Queries de households y household_members.
 	CreateHousehold(ctx context.Context, arg CreateHouseholdParams) (Household, error)
+	// ===================== incomes =====================
+	CreateIncome(ctx context.Context, arg CreateIncomeParams) (Income, error)
 	// ===== installments =====
 	CreateInstallment(ctx context.Context, arg CreateInstallmentParams) (ExpenseInstallment, error)
 	// ===== shares =====
@@ -54,6 +58,8 @@ type Querier interface {
 	// Usado tanto por el endpoint público como por Register (para crear Efectivo).
 	// El CHECK del schema valida la combinación kind/allows_installments.
 	CreatePaymentMethod(ctx context.Context, arg CreatePaymentMethodParams) (PaymentMethod, error)
+	// ===================== recurring_incomes =====================
+	CreateRecurringIncome(ctx context.Context, arg CreateRecurringIncomeParams) (RecurringIncome, error)
 	CreateSettlement(ctx context.Context, arg CreateSettlementParams) (SettlementPayment, error)
 	// Queries sobre la tabla users.
 	// Formato sqlc: cada query tiene una línea "-- name: NombreFuncion :tipo"
@@ -69,6 +75,8 @@ type Querier interface {
 	DeleteExpense(ctx context.Context, id uuid.UUID) error
 	// ON DELETE CASCADE en household_members → limpia la membresía automáticamente.
 	DeleteHousehold(ctx context.Context, id uuid.UUID) error
+	DeleteIncome(ctx context.Context, id uuid.UUID) error
+	DeleteRecurringIncome(ctx context.Context, id uuid.UUID) error
 	DeleteSettlement(ctx context.Context, id uuid.UUID) error
 	// Normalmente no se usa (al sacar miembro el CASCADE lo limpia), pero
 	// lo expongo por simetría con el resto del CRUD.
@@ -85,10 +93,12 @@ type Querier interface {
 	// antes de operaciones privilegiadas (editar/borrar hogar, invitar).
 	// Si no es miembro devuelve pgx.ErrNoRows (el repo lo mapea a ErrNotFound).
 	GetHouseholdMemberRole(ctx context.Context, arg GetHouseholdMemberRoleParams) (string, error)
+	GetIncomeByID(ctx context.Context, id uuid.UUID) (Income, error)
 	GetInstallmentByExpenseAndNumber(ctx context.Context, arg GetInstallmentByExpenseAndNumberParams) (ExpenseInstallment, error)
 	GetLatestCreditCardPeriod(ctx context.Context, creditCardID uuid.UUID) (CreditCardPeriod, error)
 	GetLatestExchangeRate(ctx context.Context, arg GetLatestExchangeRateParams) (ExchangeRate, error)
 	GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (PaymentMethod, error)
+	GetRecurringIncomeByID(ctx context.Context, id uuid.UUID) (RecurringIncome, error)
 	GetSettlementByID(ctx context.Context, id uuid.UUID) (SettlementPayment, error)
 	GetSplitRule(ctx context.Context, arg GetSplitRuleParams) (HouseholdSplitRule, error)
 	// Usado en login. Devuelve pgx.ErrNoRows si no existe → mapeamos a error de dominio.
@@ -96,6 +106,10 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	// Devuelve true si el user pertenece al hogar. Usada por el middleware de autz.
 	IsHouseholdMember(ctx context.Context, arg IsHouseholdMemberParams) (bool, error)
+	// Lo usa el worker cada tick: todas las plantillas activas cuyo rango
+	// (starts_at/ends_at) cubre la fecha target. El filtro fino de "toca hoy
+	// según frequency/day_of_*" se resuelve en Go para no complicar la query.
+	ListActiveRecurringIncomes(ctx context.Context, dollar_1 pgtype.Date) ([]RecurringIncome, error)
 	// Lista los bancos activos del user, orden estable por nombre.
 	// Si algún día hace falta mostrar los desactivados, se agrega otra query.
 	ListBanksByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]Bank, error)
@@ -116,6 +130,8 @@ type Querier interface {
 	// Lista todos los hogares a los que pertenece un user.
 	// JOIN con household_members para filtrar por membresía.
 	ListHouseholdsForUser(ctx context.Context, userID uuid.UUID) ([]Household, error)
+	// Filtros opcionales: receivedBy, paymentMethodId, source, desde/hasta.
+	ListIncomesByHousehold(ctx context.Context, arg ListIncomesByHouseholdParams) ([]Income, error)
 	ListInstallmentsByExpense(ctx context.Context, expenseID uuid.UUID) ([]ExpenseInstallment, error)
 	// Devuelve la última fila por (currency, source) usando DISTINCT ON.
 	// Útil para el endpoint /current y para rehidratar el caché al arrancar.
@@ -123,12 +139,16 @@ type Querier interface {
 	// Lista los métodos activos del user. Orden: primero por kind (para
 	// agrupar visualmente), después por nombre.
 	ListPaymentMethodsByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]PaymentMethod, error)
+	ListRecurringIncomesByHousehold(ctx context.Context, householdID uuid.UUID) ([]RecurringIncome, error)
 	// Filtros opcionales: from_user, to_user (para ver pagos entre dos miembros
 	// específicos), desde/hasta. Paginación por offset/limit.
 	ListSettlementsByHousehold(ctx context.Context, arg ListSettlementsByHouseholdParams) ([]SettlementPayment, error)
 	ListSharesByExpense(ctx context.Context, expenseID uuid.UUID) ([]ExpenseInstallmentShare, error)
 	ListSharesByInstallment(ctx context.Context, installmentID uuid.UUID) ([]ExpenseInstallmentShare, error)
 	ListSplitRulesByHousehold(ctx context.Context, householdID uuid.UUID) ([]HouseholdSplitRule, error)
+	// Lo llama el worker después de crear el income real. Marca last_generated
+	// para que el próximo tick del mismo día no vuelva a crear.
+	MarkRecurringIncomeGenerated(ctx context.Context, arg MarkRecurringIncomeGeneratedParams) error
 	RemoveHouseholdMember(ctx context.Context, arg RemoveHouseholdMemberParams) error
 	// Activa o desactiva un banco. El ON DELETE SET NULL en payment_methods.bank_id
 	// NO se dispara acá (no borramos la fila), así que los métodos siguen
@@ -136,8 +156,13 @@ type Querier interface {
 	SetBankActive(ctx context.Context, arg SetBankActiveParams) (Bank, error)
 	SetInstallmentPaid(ctx context.Context, arg SetInstallmentPaidParams) (ExpenseInstallment, error)
 	SetPaymentMethodActive(ctx context.Context, arg SetPaymentMethodActiveParams) (PaymentMethod, error)
+	SetRecurringIncomeActive(ctx context.Context, arg SetRecurringIncomeActiveParams) error
 	// Agrega settlements por par (from, to) para la matriz.
 	SettlementsByHouseholdAggregated(ctx context.Context, householdID uuid.UUID) ([]SettlementsByHouseholdAggregatedRow, error)
+	// Para /totals/income: suma amount_base de todos los ingresos del hogar
+	// entre received_at >= from y received_at <= to. COALESCE a 0 si no hay
+	// filas (evita NULL en el tipo Numeric).
+	SumIncomesByHouseholdInRange(ctx context.Context, arg SumIncomesByHouseholdInRangeParams) (pgtype.Numeric, error)
 	// Solo permite cambiar el nombre (único campo editable del modelo).
 	UpdateBankName(ctx context.Context, arg UpdateBankNameParams) (Bank, error)
 	UpdateCategory(ctx context.Context, arg UpdateCategoryParams) (Category, error)
@@ -149,12 +174,16 @@ type Querier interface {
 	// amount/currency/installments NO se editan (borrar y recrear).
 	UpdateExpense(ctx context.Context, arg UpdateExpenseParams) (Expense, error)
 	UpdateHousehold(ctx context.Context, arg UpdateHouseholdParams) (Household, error)
+	// Solo editamos lo "meta": source/description/received_at. El amount/currency
+	// quedan fijos — si está mal, borrar y recrear (misma regla que expenses).
+	UpdateIncome(ctx context.Context, arg UpdateIncomeParams) (Income, error)
 	UpdateInstallmentDates(ctx context.Context, arg UpdateInstallmentDatesParams) (ExpenseInstallment, error)
 	// Solo nombre, bank_id y allows_installments son editables.
 	// kind y owner_user_id son inmutables (cambiarlos rompería historial).
 	// El CHECK del schema se reevalúa en el UPDATE, así que intentar poner
 	// allows_installments=true en un debit/cash/transfer falla en DB.
 	UpdatePaymentMethod(ctx context.Context, arg UpdatePaymentMethodParams) (PaymentMethod, error)
+	UpdateRecurringIncome(ctx context.Context, arg UpdateRecurringIncomeParams) (RecurringIncome, error)
 	// Actualiza nombre y apellido juntos (si se edita uno se reenvían ambos).
 	UpdateUserName(ctx context.Context, arg UpdateUserNameParams) (User, error)
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error

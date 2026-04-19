@@ -24,6 +24,7 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/fxrates"
 	"github.com/LucianoR23/api_go_ahorra/internal/households"
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
+	"github.com/LucianoR23/api_go_ahorra/internal/incomes"
 	"github.com/LucianoR23/api_go_ahorra/internal/paymethods"
 	"github.com/LucianoR23/api_go_ahorra/internal/settlements"
 	"github.com/LucianoR23/api_go_ahorra/internal/splitrules"
@@ -134,6 +135,17 @@ func main() {
 	settlementsSvc := settlements.NewService(settlementsRepo, householdsRepo, balancesSvc)
 	settlementsHandler := settlements.NewHandler(settlementsSvc, authMW, householdsMW, logger)
 
+	// incomes: ingresos cobrados + plantillas recurrentes. No tiene shares
+	// (la plata entra y ya), pero sí FX (congela rate al recibir igual que
+	// expenses). El worker de recurring_incomes se agrega en CP8.4.
+	incomesRepo := incomes.NewRepository(pool)
+	incomesSvc := incomes.NewService(incomesRepo, householdsRepo, fxSvc)
+	incomesHandler := incomes.NewHandler(incomesSvc, authMW, householdsMW, logger)
+	// Worker diario 00:30 local — genera ingresos recurrentes.
+	incomesWorker := incomes.NewWorker(incomesSvc, 0, 30, logger)
+	stopIncomesWorker := incomesWorker.Start(context.Background())
+	defer stopIncomesWorker()
+
 	// ---------- router ----------
 	r := chi.NewRouter()
 
@@ -196,6 +208,9 @@ func main() {
 
 	// Split rules (auth + household member; Update valida owner en service).
 	splitRulesHandler.Mount(r)
+
+	// Incomes + recurring-incomes + /totals/income (auth + household member).
+	incomesHandler.Mount(r)
 
 	// Banner de startup (tipo Fiber) — solo en dev para no ensuciar logs prod.
 	if cfg.Env != "prod" {

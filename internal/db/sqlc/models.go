@@ -120,6 +120,23 @@ type HouseholdSplitRule struct {
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
+type Income struct {
+	ID              uuid.UUID          `json:"id"`
+	HouseholdID     uuid.UUID          `json:"household_id"`
+	ReceivedBy      uuid.UUID          `json:"received_by"`
+	PaymentMethodID *uuid.UUID         `json:"payment_method_id"`
+	Amount          pgtype.Numeric     `json:"amount"`
+	Currency        string             `json:"currency"`
+	AmountBase      pgtype.Numeric     `json:"amount_base"`
+	BaseCurrency    string             `json:"base_currency"`
+	RateUsed        pgtype.Numeric     `json:"rate_used"`
+	RateAt          pgtype.Timestamptz `json:"rate_at"`
+	Source          string             `json:"source"`
+	Description     string             `json:"description"`
+	ReceivedAt      pgtype.Date        `json:"received_at"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
 type PaymentMethod struct {
 	ID                 uuid.UUID          `json:"id"`
 	OwnerUserID        uuid.UUID          `json:"owner_user_id"`
@@ -129,6 +146,26 @@ type PaymentMethod struct {
 	AllowsInstallments bool               `json:"allows_installments"`
 	IsActive           bool               `json:"is_active"`
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+}
+
+type RecurringIncome struct {
+	ID              uuid.UUID          `json:"id"`
+	HouseholdID     uuid.UUID          `json:"household_id"`
+	ReceivedBy      uuid.UUID          `json:"received_by"`
+	PaymentMethodID *uuid.UUID         `json:"payment_method_id"`
+	Amount          pgtype.Numeric     `json:"amount"`
+	Currency        string             `json:"currency"`
+	Description     string             `json:"description"`
+	Source          string             `json:"source"`
+	Frequency       string             `json:"frequency"`
+	DayOfMonth      pgtype.Int4        `json:"day_of_month"`
+	DayOfWeek       pgtype.Int4        `json:"day_of_week"`
+	MonthOfYear     pgtype.Int4        `json:"month_of_year"`
+	IsActive        bool               `json:"is_active"`
+	StartsAt        pgtype.Date        `json:"starts_at"`
+	EndsAt          pgtype.Date        `json:"ends_at"`
+	LastGenerated   pgtype.Date        `json:"last_generated"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
 type SettlementPayment struct {
