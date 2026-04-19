@@ -26,6 +26,7 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
 	"github.com/LucianoR23/api_go_ahorra/internal/incomes"
 	"github.com/LucianoR23/api_go_ahorra/internal/paymethods"
+	"github.com/LucianoR23/api_go_ahorra/internal/recurringexpenses"
 	"github.com/LucianoR23/api_go_ahorra/internal/settlements"
 	"github.com/LucianoR23/api_go_ahorra/internal/splitrules"
 	"github.com/LucianoR23/api_go_ahorra/internal/users"
@@ -146,6 +147,16 @@ func main() {
 	stopIncomesWorker := incomesWorker.Start(context.Background())
 	defer stopIncomesWorker()
 
+	// recurring_expenses: plantillas de gastos fijos. El generator delega
+	// en expensesSvc.Create para heredar toda la lógica (cuotas, shares,
+	// FX, credit_card_periods). Worker 00:30 también.
+	recurringExpensesRepo := recurringexpenses.NewRepository(pool)
+	recurringExpensesSvc := recurringexpenses.NewService(recurringExpensesRepo, householdsRepo, expensesSvc, logger)
+	recurringExpensesHandler := recurringexpenses.NewHandler(recurringExpensesSvc, authMW, householdsMW, logger)
+	recurringExpensesWorker := recurringexpenses.NewWorker(recurringExpensesSvc, 0, 30, logger)
+	stopRecurringExpensesWorker := recurringExpensesWorker.Start(context.Background())
+	defer stopRecurringExpensesWorker()
+
 	// ---------- router ----------
 	r := chi.NewRouter()
 
@@ -211,6 +222,9 @@ func main() {
 
 	// Incomes + recurring-incomes + /totals/income (auth + household member).
 	incomesHandler.Mount(r)
+
+	// Recurring expenses (auth + household member).
+	recurringExpensesHandler.Mount(r)
 
 	// Banner de startup (tipo Fiber) — solo en dev para no ensuciar logs prod.
 	if cfg.Env != "prod" {

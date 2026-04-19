@@ -58,6 +58,8 @@ type Querier interface {
 	// Usado tanto por el endpoint público como por Register (para crear Efectivo).
 	// El CHECK del schema valida la combinación kind/allows_installments.
 	CreatePaymentMethod(ctx context.Context, arg CreatePaymentMethodParams) (PaymentMethod, error)
+	// ===================== recurring_expenses =====================
+	CreateRecurringExpense(ctx context.Context, arg CreateRecurringExpenseParams) (RecurringExpense, error)
 	// ===================== recurring_incomes =====================
 	CreateRecurringIncome(ctx context.Context, arg CreateRecurringIncomeParams) (RecurringIncome, error)
 	CreateSettlement(ctx context.Context, arg CreateSettlementParams) (SettlementPayment, error)
@@ -76,6 +78,7 @@ type Querier interface {
 	// ON DELETE CASCADE en household_members → limpia la membresía automáticamente.
 	DeleteHousehold(ctx context.Context, id uuid.UUID) error
 	DeleteIncome(ctx context.Context, id uuid.UUID) error
+	DeleteRecurringExpense(ctx context.Context, id uuid.UUID) error
 	DeleteRecurringIncome(ctx context.Context, id uuid.UUID) error
 	DeleteSettlement(ctx context.Context, id uuid.UUID) error
 	// Normalmente no se usa (al sacar miembro el CASCADE lo limpia), pero
@@ -98,6 +101,7 @@ type Querier interface {
 	GetLatestCreditCardPeriod(ctx context.Context, creditCardID uuid.UUID) (CreditCardPeriod, error)
 	GetLatestExchangeRate(ctx context.Context, arg GetLatestExchangeRateParams) (ExchangeRate, error)
 	GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (PaymentMethod, error)
+	GetRecurringExpenseByID(ctx context.Context, id uuid.UUID) (RecurringExpense, error)
 	GetRecurringIncomeByID(ctx context.Context, id uuid.UUID) (RecurringIncome, error)
 	GetSettlementByID(ctx context.Context, id uuid.UUID) (SettlementPayment, error)
 	GetSplitRule(ctx context.Context, arg GetSplitRuleParams) (HouseholdSplitRule, error)
@@ -106,6 +110,9 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	// Devuelve true si el user pertenece al hogar. Usada por el middleware de autz.
 	IsHouseholdMember(ctx context.Context, arg IsHouseholdMemberParams) (bool, error)
+	// Lo usa el worker: plantillas activas cuyo rango cubre `date`. Filtro fino
+	// por frequency/day_of_* se resuelve en Go (mismo patrón que recurring_incomes).
+	ListActiveRecurringExpenses(ctx context.Context, dollar_1 pgtype.Date) ([]RecurringExpense, error)
 	// Lo usa el worker cada tick: todas las plantillas activas cuyo rango
 	// (starts_at/ends_at) cubre la fecha target. El filtro fino de "toca hoy
 	// según frequency/day_of_*" se resuelve en Go para no complicar la query.
@@ -139,6 +146,7 @@ type Querier interface {
 	// Lista los métodos activos del user. Orden: primero por kind (para
 	// agrupar visualmente), después por nombre.
 	ListPaymentMethodsByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]PaymentMethod, error)
+	ListRecurringExpensesByHousehold(ctx context.Context, householdID uuid.UUID) ([]RecurringExpense, error)
 	ListRecurringIncomesByHousehold(ctx context.Context, householdID uuid.UUID) ([]RecurringIncome, error)
 	// Filtros opcionales: from_user, to_user (para ver pagos entre dos miembros
 	// específicos), desde/hasta. Paginación por offset/limit.
@@ -146,6 +154,7 @@ type Querier interface {
 	ListSharesByExpense(ctx context.Context, expenseID uuid.UUID) ([]ExpenseInstallmentShare, error)
 	ListSharesByInstallment(ctx context.Context, installmentID uuid.UUID) ([]ExpenseInstallmentShare, error)
 	ListSplitRulesByHousehold(ctx context.Context, householdID uuid.UUID) ([]HouseholdSplitRule, error)
+	MarkRecurringExpenseGenerated(ctx context.Context, arg MarkRecurringExpenseGeneratedParams) error
 	// Lo llama el worker después de crear el income real. Marca last_generated
 	// para que el próximo tick del mismo día no vuelva a crear.
 	MarkRecurringIncomeGenerated(ctx context.Context, arg MarkRecurringIncomeGeneratedParams) error
@@ -156,6 +165,7 @@ type Querier interface {
 	SetBankActive(ctx context.Context, arg SetBankActiveParams) (Bank, error)
 	SetInstallmentPaid(ctx context.Context, arg SetInstallmentPaidParams) (ExpenseInstallment, error)
 	SetPaymentMethodActive(ctx context.Context, arg SetPaymentMethodActiveParams) (PaymentMethod, error)
+	SetRecurringExpenseActive(ctx context.Context, arg SetRecurringExpenseActiveParams) error
 	SetRecurringIncomeActive(ctx context.Context, arg SetRecurringIncomeActiveParams) error
 	// Agrega settlements por par (from, to) para la matriz.
 	SettlementsByHouseholdAggregated(ctx context.Context, householdID uuid.UUID) ([]SettlementsByHouseholdAggregatedRow, error)
@@ -183,6 +193,7 @@ type Querier interface {
 	// El CHECK del schema se reevalúa en el UPDATE, así que intentar poner
 	// allows_installments=true en un debit/cash/transfer falla en DB.
 	UpdatePaymentMethod(ctx context.Context, arg UpdatePaymentMethodParams) (PaymentMethod, error)
+	UpdateRecurringExpense(ctx context.Context, arg UpdateRecurringExpenseParams) (RecurringExpense, error)
 	UpdateRecurringIncome(ctx context.Context, arg UpdateRecurringIncomeParams) (RecurringIncome, error)
 	// Actualiza nombre y apellido juntos (si se edita uno se reenvían ambos).
 	UpdateUserName(ctx context.Context, arg UpdateUserNameParams) (User, error)

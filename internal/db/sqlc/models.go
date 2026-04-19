@@ -148,6 +148,28 @@ type PaymentMethod struct {
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 }
 
+type RecurringExpense struct {
+	ID              uuid.UUID          `json:"id"`
+	HouseholdID     uuid.UUID          `json:"household_id"`
+	CreatedBy       uuid.UUID          `json:"created_by"`
+	CategoryID      *uuid.UUID         `json:"category_id"`
+	PaymentMethodID uuid.UUID          `json:"payment_method_id"`
+	Amount          pgtype.Numeric     `json:"amount"`
+	Currency        string             `json:"currency"`
+	Description     string             `json:"description"`
+	Installments    int32              `json:"installments"`
+	IsShared        bool               `json:"is_shared"`
+	Frequency       string             `json:"frequency"`
+	DayOfMonth      pgtype.Int4        `json:"day_of_month"`
+	DayOfWeek       pgtype.Int4        `json:"day_of_week"`
+	MonthOfYear     pgtype.Int4        `json:"month_of_year"`
+	IsActive        bool               `json:"is_active"`
+	StartsAt        pgtype.Date        `json:"starts_at"`
+	EndsAt          pgtype.Date        `json:"ends_at"`
+	LastGenerated   pgtype.Date        `json:"last_generated"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
 type RecurringIncome struct {
 	ID              uuid.UUID          `json:"id"`
 	HouseholdID     uuid.UUID          `json:"household_id"`
