@@ -1,0 +1,37 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    # Los .sql con queries anotadas (-- name: ...)
+    queries: "internal/db/queries"
+    # Las migraciones son la fuente de verdad del schema.
+    # sqlc las lee para inferir tipos de columnas.
+    schema:   "migrations"
+    gen:
+      go:
+        # Código generado va a internal/db/sqlc
+        out:     "internal/db/sqlc"
+        package: "sqlcgen"
+        # sql_package: pgx/v5 — generamos código que usa pgx directamente
+        # en lugar de database/sql. Más rápido y con mejor soporte de tipos PG.
+        sql_package: "pgx/v5"
+        # emit_json_tags: agrega `json:"..."` a los structs generados
+        # para que puedan serializarse directo en responses HTTP si hace falta.
+        emit_json_tags: true
+        # emit_prepared_queries: false — pgx ya prepara automáticamente.
+        emit_prepared_queries: false
+        # emit_interface: genera una interface Querier{} además del struct Queries.
+        # Útil para mockear en tests.
+        emit_interface: true
+        # emit_empty_slices: devolvés []T{} en lugar de nil cuando no hay filas.
+        # Más amigable para JSON (nil serializa como null, slice vacío como []).
+        emit_empty_slices: true
+        # overrides: mapeamos tipos PG a tipos Go que nos gusten más.
+        # UUID → google/uuid en vez de pgtype.UUID (más ergonómico).
+        overrides:
+          - db_type: "uuid"
+            go_type: "github.com/google/uuid.UUID"
+          - db_type: "uuid"
+            nullable: true
+            go_type:
+              type: "uuid.UUID"
+              pointer: true

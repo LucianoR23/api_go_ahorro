@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: supabase/postgres:17.4.1.032
+    container_name: ahorra-postgres-dev
+    restart: unless-stopped
+    environment:
+      # supabase/postgres solo respeta POSTGRES_PASSWORD (para el superuser 'postgres').
+      # El rol 'ahorra' y la DB 'ahorra' se crean vía docker/initdb/01-ahorra.sql
+      POSTGRES_PASSWORD: ahorra_dev_pw
+    ports:
+      - "5433:5432"
+    volumes:
+      - ahorra_pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  ahorra_pgdata:
