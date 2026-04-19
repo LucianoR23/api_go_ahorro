@@ -40,6 +40,8 @@ type Querier interface {
 	// Queries de banks. Los bancos son del user (owner_user_id),
 	// nunca se borran: toggle de is_active.
 	CreateBank(ctx context.Context, arg CreateBankParams) (Bank, error)
+	// ===================== budget_goals =====================
+	CreateBudgetGoal(ctx context.Context, arg CreateBudgetGoalParams) (BudgetGoal, error)
 	CreateCategory(ctx context.Context, arg CreateCategoryParams) (Category, error)
 	// Queries de credit_cards. 1-a-1 con payment_methods de kind='credit'.
 	// Se crean siempre en la misma transacción que el payment_method (opción A).
@@ -72,6 +74,7 @@ type Querier interface {
 	//   :execrows  ejecuta y devuelve filas afectadas
 	// Crea un usuario nuevo y devuelve la fila completa (para obtener id + timestamps).
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	DeleteBudgetGoal(ctx context.Context, id uuid.UUID) error
 	DeleteCategory(ctx context.Context, id uuid.UUID) error
 	DeleteCreditCardPeriod(ctx context.Context, arg DeleteCreditCardPeriodParams) error
 	DeleteExpense(ctx context.Context, id uuid.UUID) error
@@ -85,6 +88,7 @@ type Querier interface {
 	// lo expongo por simetría con el resto del CRUD.
 	DeleteSplitRule(ctx context.Context, arg DeleteSplitRuleParams) error
 	GetBankByID(ctx context.Context, id uuid.UUID) (Bank, error)
+	GetBudgetGoalByID(ctx context.Context, id uuid.UUID) (BudgetGoal, error)
 	GetCategoryByID(ctx context.Context, id uuid.UUID) (Category, error)
 	// Devuelve el detalle de tarjeta asociado al payment_method dado.
 	// Si no existe (método no es credit) → pgx.ErrNoRows → repo mapea a ErrNotFound.
@@ -120,6 +124,8 @@ type Querier interface {
 	// Lista los bancos activos del user, orden estable por nombre.
 	// Si algún día hace falta mostrar los desactivados, se agrega otra query.
 	ListBanksByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]Bank, error)
+	// Filtros opcionales: scope, user_id (cuando scope='user'), is_active.
+	ListBudgetGoalsByHousehold(ctx context.Context, arg ListBudgetGoalsByHouseholdParams) ([]BudgetGoal, error)
 	ListCategoriesByHousehold(ctx context.Context, householdID uuid.UUID) ([]Category, error)
 	ListCreditCardPeriods(ctx context.Context, creditCardID uuid.UUID) ([]CreditCardPeriod, error)
 	// Lista las tarjetas activas del user con el payment_method embebido,
@@ -163,6 +169,7 @@ type Querier interface {
 	// NO se dispara acá (no borramos la fila), así que los métodos siguen
 	// asociados al banco aunque el banco esté inactivo.
 	SetBankActive(ctx context.Context, arg SetBankActiveParams) (Bank, error)
+	SetBudgetGoalActive(ctx context.Context, arg SetBudgetGoalActiveParams) error
 	SetInstallmentPaid(ctx context.Context, arg SetInstallmentPaidParams) (ExpenseInstallment, error)
 	SetPaymentMethodActive(ctx context.Context, arg SetPaymentMethodActiveParams) (PaymentMethod, error)
 	SetRecurringExpenseActive(ctx context.Context, arg SetRecurringExpenseActiveParams) error
@@ -173,8 +180,22 @@ type Querier interface {
 	// entre received_at >= from y received_at <= to. COALESCE a 0 si no hay
 	// filas (evita NULL en el tipo Numeric).
 	SumIncomesByHouseholdInRange(ctx context.Context, arg SumIncomesByHouseholdInRangeParams) (pgtype.Numeric, error)
+	// Para savings scope=user: total de ingresos de un usuario en el período.
+	SumIncomesByUserInRange(ctx context.Context, arg SumIncomesByUserInRangeParams) (pgtype.Numeric, error)
+	// ===================== progress helpers =====================
+	// Suma base de cuotas del hogar dentro del período, filtrando por categoría
+	// opcional. Usa COALESCE(due_date, billing_date): crédito cuenta cuando vence,
+	// el resto cuando se pagó (billing_date = spent_at).
+	SumInstallmentsForHouseholdGoal(ctx context.Context, arg SumInstallmentsForHouseholdGoalParams) (pgtype.Numeric, error)
+	// Suma la porción del usuario en cuotas del hogar dentro del período.
+	// Para gastos compartidos: usa expense_installment_shares.
+	// Para gastos NO compartidos (is_shared=false): cuenta el total si el usuario
+	// es created_by, porque no hay filas de shares.
+	SumInstallmentsForUserGoal(ctx context.Context, arg SumInstallmentsForUserGoalParams) (pgtype.Numeric, error)
 	// Solo permite cambiar el nombre (único campo editable del modelo).
 	UpdateBankName(ctx context.Context, arg UpdateBankNameParams) (Bank, error)
+	// No dejamos cambiar scope/user_id/goal_type — si hay que migrar, borrar y crear.
+	UpdateBudgetGoal(ctx context.Context, arg UpdateBudgetGoalParams) (BudgetGoal, error)
 	UpdateCategory(ctx context.Context, arg UpdateCategoryParams) (Category, error)
 	// Alias, last_four y ciclo son editables. payment_method_id es inmutable.
 	// debit_payment_method_id cambiable (ej: cambiás la cuenta de débito automático).

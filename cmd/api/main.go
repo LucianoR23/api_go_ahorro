@@ -22,6 +22,7 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/db"
 	"github.com/LucianoR23/api_go_ahorra/internal/expenses"
 	"github.com/LucianoR23/api_go_ahorra/internal/fxrates"
+	"github.com/LucianoR23/api_go_ahorra/internal/goals"
 	"github.com/LucianoR23/api_go_ahorra/internal/households"
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
 	"github.com/LucianoR23/api_go_ahorra/internal/incomes"
@@ -157,6 +158,13 @@ func main() {
 	stopRecurringExpensesWorker := recurringExpensesWorker.Start(context.Background())
 	defer stopRecurringExpensesWorker()
 
+	// goals: metas presupuestarias (category_limit / total_limit / savings),
+	// scope household o user. El progreso se calcula vivo contra expense_installments
+	// e incomes — no cachea nada.
+	goalsRepo := goals.NewRepository(pool)
+	goalsSvc := goals.NewService(goalsRepo, householdsRepo)
+	goalsHandler := goals.NewHandler(goalsSvc, authMW, householdsMW, logger)
+
 	// ---------- router ----------
 	r := chi.NewRouter()
 
@@ -225,6 +233,9 @@ func main() {
 
 	// Recurring expenses (auth + household member).
 	recurringExpensesHandler.Mount(r)
+
+	// Goals (auth + household member).
+	goalsHandler.Mount(r)
 
 	// Banner de startup (tipo Fiber) — solo en dev para no ensuciar logs prod.
 	if cfg.Env != "prod" {

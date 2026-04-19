@@ -17,6 +17,20 @@ type Bank struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
+type BudgetGoal struct {
+	ID           uuid.UUID          `json:"id"`
+	HouseholdID  uuid.UUID          `json:"household_id"`
+	Scope        string             `json:"scope"`
+	UserID       *uuid.UUID         `json:"user_id"`
+	CategoryID   *uuid.UUID         `json:"category_id"`
+	GoalType     string             `json:"goal_type"`
+	TargetAmount pgtype.Numeric     `json:"target_amount"`
+	Currency     string             `json:"currency"`
+	Period       string             `json:"period"`
+	IsActive     bool               `json:"is_active"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
 type Category struct {
 	ID          uuid.UUID          `json:"id"`
 	HouseholdID uuid.UUID          `json:"household_id"`
@@ -45,6 +59,20 @@ type CreditCardPeriod struct {
 	DueDate      pgtype.Date        `json:"due_date"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
+type DailyInsight struct {
+	ID          uuid.UUID          `json:"id"`
+	HouseholdID uuid.UUID          `json:"household_id"`
+	UserID      *uuid.UUID         `json:"user_id"`
+	InsightDate pgtype.Date        `json:"insight_date"`
+	InsightType string             `json:"insight_type"`
+	Title       string             `json:"title"`
+	Body        string             `json:"body"`
+	Severity    string             `json:"severity"`
+	IsRead      bool               `json:"is_read"`
+	Metadata    []byte             `json:"metadata"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
 type ExchangeRate struct {
