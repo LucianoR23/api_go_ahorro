@@ -14,15 +14,16 @@ import (
 const createUser = `-- name: CreateUser :one
 
 
-INSERT INTO users (email, password_hash, name)
-VALUES ($1, $2, $3)
-RETURNING id, email, password_hash, name, created_at, updated_at
+INSERT INTO users (email, password_hash, first_name, last_name)
+VALUES ($1, $2, $3, $4)
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name
 `
 
 type CreateUserParams struct {
 	Email        string `json:"email"`
 	PasswordHash string `json:"password_hash"`
-	Name         string `json:"name"`
+	FirstName    string `json:"first_name"`
+	LastName     string `json:"last_name"`
 }
 
 // Queries sobre la tabla users.
@@ -36,21 +37,27 @@ type CreateUserParams struct {
 //
 // Crea un usuario nuevo y devuelve la fila completa (para obtener id + timestamps).
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
-	row := q.db.QueryRow(ctx, createUser, arg.Email, arg.PasswordHash, arg.Name)
+	row := q.db.QueryRow(ctx, createUser,
+		arg.Email,
+		arg.PasswordHash,
+		arg.FirstName,
+		arg.LastName,
+	)
 	var i User
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
 		&i.PasswordHash,
-		&i.Name,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FirstName,
+		&i.LastName,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, password_hash, name, created_at, updated_at FROM users WHERE email = $1
+SELECT id, email, password_hash, created_at, updated_at, first_name, last_name FROM users WHERE email = $1
 `
 
 // Usado en login. Devuelve pgx.ErrNoRows si no existe → mapeamos a error de dominio.
@@ -61,15 +68,16 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.ID,
 		&i.Email,
 		&i.PasswordHash,
-		&i.Name,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FirstName,
+		&i.LastName,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, password_hash, name, created_at, updated_at FROM users WHERE id = $1
+SELECT id, email, password_hash, created_at, updated_at, first_name, last_name FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
@@ -79,36 +87,41 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.ID,
 		&i.Email,
 		&i.PasswordHash,
-		&i.Name,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FirstName,
+		&i.LastName,
 	)
 	return i, err
 }
 
 const updateUserName = `-- name: UpdateUserName :one
 UPDATE users
-SET name = $2,
+SET first_name = $2,
+    last_name  = $3,
     updated_at = now()
 WHERE id = $1
-RETURNING id, email, password_hash, name, created_at, updated_at
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name
 `
 
 type UpdateUserNameParams struct {
-	ID   uuid.UUID `json:"id"`
-	Name string    `json:"name"`
+	ID        uuid.UUID `json:"id"`
+	FirstName string    `json:"first_name"`
+	LastName  string    `json:"last_name"`
 }
 
+// Actualiza nombre y apellido juntos (si se edita uno se reenvían ambos).
 func (q *Queries) UpdateUserName(ctx context.Context, arg UpdateUserNameParams) (User, error) {
-	row := q.db.QueryRow(ctx, updateUserName, arg.ID, arg.Name)
+	row := q.db.QueryRow(ctx, updateUserName, arg.ID, arg.FirstName, arg.LastName)
 	var i User
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
 		&i.PasswordHash,
-		&i.Name,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FirstName,
+		&i.LastName,
 	)
 	return i, err
 }

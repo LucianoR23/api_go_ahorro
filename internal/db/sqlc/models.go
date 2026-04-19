@@ -9,6 +9,94 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Bank struct {
+	ID          uuid.UUID          `json:"id"`
+	OwnerUserID uuid.UUID          `json:"owner_user_id"`
+	Name        string             `json:"name"`
+	IsActive    bool               `json:"is_active"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type Category struct {
+	ID          uuid.UUID          `json:"id"`
+	HouseholdID uuid.UUID          `json:"household_id"`
+	Name        string             `json:"name"`
+	Icon        string             `json:"icon"`
+	Color       string             `json:"color"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type CreditCard struct {
+	ID                   uuid.UUID          `json:"id"`
+	PaymentMethodID      uuid.UUID          `json:"payment_method_id"`
+	Alias                string             `json:"alias"`
+	LastFour             pgtype.Text        `json:"last_four"`
+	DefaultClosingDay    int32              `json:"default_closing_day"`
+	DefaultDueDay        int32              `json:"default_due_day"`
+	DebitPaymentMethodID *uuid.UUID         `json:"debit_payment_method_id"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+}
+
+type CreditCardPeriod struct {
+	CreditCardID uuid.UUID          `json:"credit_card_id"`
+	PeriodYm     string             `json:"period_ym"`
+	ClosingDate  pgtype.Date        `json:"closing_date"`
+	DueDate      pgtype.Date        `json:"due_date"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ExchangeRate struct {
+	Currency   string             `json:"currency"`
+	Source     string             `json:"source"`
+	LastUpdate pgtype.Timestamptz `json:"last_update"`
+	RateAvg    pgtype.Numeric     `json:"rate_avg"`
+	RateBuy    pgtype.Numeric     `json:"rate_buy"`
+	RateSell   pgtype.Numeric     `json:"rate_sell"`
+	FetchedAt  pgtype.Timestamptz `json:"fetched_at"`
+}
+
+type Expense struct {
+	ID              uuid.UUID          `json:"id"`
+	HouseholdID     uuid.UUID          `json:"household_id"`
+	CreatedBy       uuid.UUID          `json:"created_by"`
+	CategoryID      *uuid.UUID         `json:"category_id"`
+	PaymentMethodID uuid.UUID          `json:"payment_method_id"`
+	Amount          pgtype.Numeric     `json:"amount"`
+	Currency        string             `json:"currency"`
+	AmountBase      pgtype.Numeric     `json:"amount_base"`
+	BaseCurrency    string             `json:"base_currency"`
+	RateUsed        pgtype.Numeric     `json:"rate_used"`
+	RateAt          pgtype.Timestamptz `json:"rate_at"`
+	Description     string             `json:"description"`
+	SpentAt         pgtype.Date        `json:"spent_at"`
+	Installments    int32              `json:"installments"`
+	IsShared        bool               `json:"is_shared"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ExpenseInstallment struct {
+	ID                    uuid.UUID          `json:"id"`
+	ExpenseID             uuid.UUID          `json:"expense_id"`
+	InstallmentNumber     int32              `json:"installment_number"`
+	InstallmentAmount     pgtype.Numeric     `json:"installment_amount"`
+	InstallmentAmountBase pgtype.Numeric     `json:"installment_amount_base"`
+	BillingDate           pgtype.Date        `json:"billing_date"`
+	DueDate               pgtype.Date        `json:"due_date"`
+	IsPaid                bool               `json:"is_paid"`
+	PaidAt                pgtype.Timestamptz `json:"paid_at"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ExpenseInstallmentShare struct {
+	InstallmentID  uuid.UUID      `json:"installment_id"`
+	UserID         uuid.UUID      `json:"user_id"`
+	AmountBaseOwed pgtype.Numeric `json:"amount_base_owed"`
+}
+
 type Household struct {
 	ID           uuid.UUID          `json:"id"`
 	Name         string             `json:"name"`
@@ -25,11 +113,42 @@ type HouseholdMember struct {
 	JoinedAt    pgtype.Timestamptz `json:"joined_at"`
 }
 
+type HouseholdSplitRule struct {
+	HouseholdID uuid.UUID          `json:"household_id"`
+	UserID      uuid.UUID          `json:"user_id"`
+	Weight      pgtype.Numeric     `json:"weight"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type PaymentMethod struct {
+	ID                 uuid.UUID          `json:"id"`
+	OwnerUserID        uuid.UUID          `json:"owner_user_id"`
+	BankID             *uuid.UUID         `json:"bank_id"`
+	Name               string             `json:"name"`
+	Kind               string             `json:"kind"`
+	AllowsInstallments bool               `json:"allows_installments"`
+	IsActive           bool               `json:"is_active"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+}
+
+type SettlementPayment struct {
+	ID           uuid.UUID          `json:"id"`
+	HouseholdID  uuid.UUID          `json:"household_id"`
+	FromUser     uuid.UUID          `json:"from_user"`
+	ToUser       uuid.UUID          `json:"to_user"`
+	AmountBase   pgtype.Numeric     `json:"amount_base"`
+	BaseCurrency string             `json:"base_currency"`
+	Note         pgtype.Text        `json:"note"`
+	PaidAt       pgtype.Date        `json:"paid_at"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
 type User struct {
 	ID           uuid.UUID          `json:"id"`
 	Email        string             `json:"email"`
 	PasswordHash string             `json:"password_hash"`
-	Name         string             `json:"name"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	FirstName    string             `json:"first_name"`
+	LastName     string             `json:"last_name"`
 }

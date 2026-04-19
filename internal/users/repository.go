@@ -40,11 +40,12 @@ type Credentials struct {
 
 // Create inserta un usuario y devuelve la fila mapeada a dominio.
 // El caller ya debe haber hasheado el password — el repo no conoce bcrypt.
-func (r *Repository) Create(ctx context.Context, email, passwordHash, name string) (domain.User, error) {
+func (r *Repository) Create(ctx context.Context, email, passwordHash, firstName, lastName string) (domain.User, error) {
 	row, err := r.q.CreateUser(ctx, sqlcgen.CreateUserParams{
 		Email:        email,
 		PasswordHash: passwordHash,
-		Name:         name,
+		FirstName:    firstName,
+		LastName:     lastName,
 	})
 	if err != nil {
 		// Unique violation del email → ErrConflict.
@@ -112,7 +113,8 @@ func toDomain(u sqlcgen.User) domain.User {
 	return domain.User{
 		ID:        u.ID,
 		Email:     string(u.Email),
-		Name:      u.Name,
+		FirstName: u.FirstName,
+		LastName:  u.LastName,
 		CreatedAt: u.CreatedAt.Time,
 		UpdatedAt: u.UpdatedAt.Time,
 	}

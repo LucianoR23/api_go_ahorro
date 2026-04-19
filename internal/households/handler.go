@@ -61,11 +61,12 @@ type householdDTO struct {
 }
 
 type memberDTO struct {
-	UserID   string    `json:"userId"`
-	Email    string    `json:"email"`
-	Name     string    `json:"name"`
-	Role     string    `json:"role"`
-	JoinedAt time.Time `json:"joinedAt"`
+	UserID    string    `json:"userId"`
+	Email     string    `json:"email"`
+	FirstName string    `json:"firstName"`
+	LastName  string    `json:"lastName"`
+	Role      string    `json:"role"`
+	JoinedAt  time.Time `json:"joinedAt"`
 }
 
 type createRequest struct {
@@ -204,11 +205,12 @@ func (h *Handler) ListMembers(w http.ResponseWriter, r *http.Request) {
 	out := make([]memberDTO, len(members))
 	for i, m := range members {
 		out[i] = memberDTO{
-			UserID:   m.User.ID.String(),
-			Email:    m.User.Email,
-			Name:     m.User.Name,
-			Role:     string(m.Role),
-			JoinedAt: m.JoinedAt,
+			UserID:    m.User.ID.String(),
+			Email:     m.User.Email,
+			FirstName: m.User.FirstName,
+			LastName:  m.User.LastName,
+			Role:      string(m.Role),
+			JoinedAt:  m.JoinedAt,
 		}
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)

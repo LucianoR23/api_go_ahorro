@@ -9,8 +9,8 @@
 
 -- name: CreateUser :one
 -- Crea un usuario nuevo y devuelve la fila completa (para obtener id + timestamps).
-INSERT INTO users (email, password_hash, name)
-VALUES ($1, $2, $3)
+INSERT INTO users (email, password_hash, first_name, last_name)
+VALUES ($1, $2, $3, $4)
 RETURNING *;
 
 
@@ -24,8 +24,10 @@ SELECT * FROM users WHERE email = $1;
 
 
 -- name: UpdateUserName :one
+-- Actualiza nombre y apellido juntos (si se edita uno se reenvían ambos).
 UPDATE users
-SET name = $2,
+SET first_name = $2,
+    last_name  = $3,
     updated_at = now()
 WHERE id = $1
 RETURNING *;

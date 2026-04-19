@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/mail"
 	"strings"
 	"time"
@@ -18,19 +19,32 @@ import (
 // Definirla acá (y no en el paquete users) es el patrón "interface en el
 // consumidor": permite mockear en tests sin acoplar users al mock.
 type userRepository interface {
-	Create(ctx context.Context, email, passwordHash, name string) (domain.User, error)
+	Create(ctx context.Context, email, passwordHash, firstName, lastName string) (domain.User, error)
 	GetByID(ctx context.Context, id uuid.UUID) (domain.User, error)
 	GetCredentialsByEmail(ctx context.Context, email string) (users.Credentials, error)
 }
 
-// Service orquesta register/login. No toca HTTP.
-type Service struct {
-	repo   userRepository
-	tokens *TokenIssuer
+// registerBootstrap es lo mínimo que el service necesita para poblar los
+// defaults de un user recién creado (Efectivo, y en futuros CPs: hogar
+// "Mi hogar" + split_rule + categorías default).
+//
+// Interface en el consumidor → el concreto vive en paymethods. Si falla,
+// logueamos pero no abortamos Register: el user sigue existiendo y puede
+// crear el medio de pago manualmente.
+type registerBootstrap interface {
+	CreateEfectivoFor(ctx context.Context, userID uuid.UUID) (domain.PaymentMethod, error)
 }
 
-func NewService(repo userRepository, tokens *TokenIssuer) *Service {
-	return &Service{repo: repo, tokens: tokens}
+// Service orquesta register/login. No toca HTTP.
+type Service struct {
+	repo      userRepository
+	tokens    *TokenIssuer
+	bootstrap registerBootstrap
+	logger    *slog.Logger
+}
+
+func NewService(repo userRepository, tokens *TokenIssuer, bootstrap registerBootstrap, logger *slog.Logger) *Service {
+	return &Service{repo: repo, tokens: tokens, bootstrap: bootstrap, logger: logger}
 }
 
 // TokenPair agrupa los dos tokens + sus expiraciones para que el handler
@@ -51,12 +65,14 @@ type AuthResult struct {
 // Register crea un user nuevo con password hasheado y devuelve tokens
 // listos para la sesión. Valida formato de email y largo mínimo de password.
 //
-// Nota: en CPs futuros este método va a crear también "Efectivo" como
-// payment_method default, el household "Mi hogar" + split_rule, y las
-// categorías default. Por ahora sólo el user (las tablas aún no existen).
-func (s *Service) Register(ctx context.Context, email, password, name string) (AuthResult, error) {
+// Después de crear el user dispara el bootstrap (Efectivo por ahora; en CPs
+// futuros sumará "Mi hogar" + split_rule + categorías default). No es
+// transaccional con el INSERT del user — si el bootstrap falla, logueamos
+// y seguimos: el user puede completar el setup manualmente.
+func (s *Service) Register(ctx context.Context, email, password, firstName, lastName string) (AuthResult, error) {
 	email = normalizeEmail(email)
-	name = strings.TrimSpace(name)
+	firstName = strings.TrimSpace(firstName)
+	lastName = strings.TrimSpace(lastName)
 
 	if err := validateEmail(email); err != nil {
 		return AuthResult{}, err
@@ -64,8 +80,12 @@ func (s *Service) Register(ctx context.Context, email, password, name string) (A
 	if err := validatePassword(password); err != nil {
 		return AuthResult{}, err
 	}
-	if name == "" {
-		return AuthResult{}, domain.NewValidationError("name", "no puede estar vacío")
+	if err := validateName("firstName", firstName, true); err != nil {
+		return AuthResult{}, err
+	}
+	// lastName opcional: aceptamos vacío (mononombres, apodos).
+	if err := validateName("lastName", lastName, false); err != nil {
+		return AuthResult{}, err
 	}
 
 	hash, err := HashPassword(password)
@@ -73,11 +93,19 @@ func (s *Service) Register(ctx context.Context, email, password, name string) (A
 		return AuthResult{}, fmt.Errorf("auth.Register: %w", err)
 	}
 
-	user, err := s.repo.Create(ctx, email, hash, name)
+	user, err := s.repo.Create(ctx, email, hash, firstName, lastName)
 	if err != nil {
 		// Si el email ya existe, el repo devuelve ErrConflict envuelto.
 		// Lo pasamos tal cual para que el handler lo mapee a 409.
 		return AuthResult{}, err
+	}
+
+	if s.bootstrap != nil {
+		if _, err := s.bootstrap.CreateEfectivoFor(ctx, user.ID); err != nil {
+			// No abortamos: el user ya existe. Logueamos para detectarlo.
+			s.logger.Warn("bootstrap de registro falló, user sin Efectivo",
+				"user_id", user.ID, "error", err)
+		}
 	}
 
 	tokens, err := s.issueTokens(user.ID)
@@ -171,6 +199,23 @@ func validateEmail(email string) error {
 	}
 	if _, err := mail.ParseAddress(email); err != nil {
 		return domain.NewValidationError("email", "formato inválido")
+	}
+	return nil
+}
+
+// validateName chequea que el nombre/apellido sea razonable.
+// required=true rechaza el vacío; required=false lo acepta.
+// Cota superior 100 es arbitraria pero suficiente para nombres reales
+// (el más largo registrado está en el orden de 50 chars).
+func validateName(field, value string, required bool) error {
+	if value == "" {
+		if required {
+			return domain.NewValidationError(field, "no puede estar vacío")
+		}
+		return nil
+	}
+	if len(value) > 100 {
+		return domain.NewValidationError(field, "demasiado largo (máx 100)")
 	}
 	return nil
 }

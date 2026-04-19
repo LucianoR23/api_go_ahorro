@@ -59,9 +59,10 @@ func (h *Handler) Mount(r chi.Router) {
 // ===================== Register =====================
 
 type registerRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Name     string `json:"name"`
+	Email     string `json:"email"`
+	Password  string `json:"password"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
 }
 
 type authResponse struct {
@@ -71,9 +72,10 @@ type authResponse struct {
 }
 
 type userDTO struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Name  string `json:"name"`
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
 }
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +85,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.svc.Register(r.Context(), req.Email, req.Password, req.Name)
+	result, err := h.svc.Register(r.Context(), req.Email, req.Password, req.FirstName, req.LastName)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -91,7 +93,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	h.setRefreshCookie(w, result.Tokens.RefreshToken, result.Tokens.RefreshExpiresAt)
 	httpx.WriteJSON(w, http.StatusCreated, authResponse{
-		User:            toUserDTO(result.User.ID.String(), result.User.Email, result.User.Name),
+		User:            toUserDTO(result.User),
 		AccessToken:     result.Tokens.AccessToken,
 		AccessExpiresAt: result.Tokens.AccessExpiresAt,
 	})
@@ -119,7 +121,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	h.setRefreshCookie(w, result.Tokens.RefreshToken, result.Tokens.RefreshExpiresAt)
 	httpx.WriteJSON(w, http.StatusOK, authResponse{
-		User:            toUserDTO(result.User.ID.String(), result.User.Email, result.User.Name),
+		User:            toUserDTO(result.User),
 		AccessToken:     result.Tokens.AccessToken,
 		AccessExpiresAt: result.Tokens.AccessExpiresAt,
 	})
@@ -144,7 +146,7 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, toUserDTO(user.ID.String(), user.Email, user.Name))
+	httpx.WriteJSON(w, http.StatusOK, toUserDTO(user))
 }
 
 // ===================== Refresh =====================
@@ -216,8 +218,13 @@ func (h *Handler) clearRefreshCookie(w http.ResponseWriter) {
 	})
 }
 
-func toUserDTO(id, email, name string) userDTO {
-	return userDTO{ID: id, Email: email, Name: name}
+func toUserDTO(u domain.User) userDTO {
+	return userDTO{
+		ID:        u.ID.String(),
+		Email:     u.Email,
+		FirstName: u.FirstName,
+		LastName:  u.LastName,
+	}
 }
 
 // decodeJSON: decoder estricto que rechaza campos desconocidos. Así un

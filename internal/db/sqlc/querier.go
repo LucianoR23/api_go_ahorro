@@ -15,8 +15,46 @@ type Querier interface {
 	// household_members
 	// ============================================================
 	AddHouseholdMember(ctx context.Context, arg AddHouseholdMemberParams) (HouseholdMember, error)
+	// Para la vista de matriz completa del hogar. Devuelve una fila por cada
+	// par (debtor, creditor) con shares billed y settlements ya agregados.
+	// El service combina las direcciones y netea.
+	BalanceMatrixByHousehold(ctx context.Context, householdID uuid.UUID) ([]BalanceMatrixByHouseholdRow, error)
+	// ===== balances (on-demand) =====
+	// Devuelve cuánto debe `from_user` a `to_user` en el hogar, calculado on-demand.
+	// Fórmula (ver sección 6 del plan):
+	//   owed_by_from = SUM(shares.amount_base_owed) sobre expenses creados por to_user
+	//                  con installment.billing_date <= CURRENT_DATE y share.user_id = from_user
+	//   owed_by_to   = análoga en sentido inverso
+	//   settled_fwd  = SUM(settlements from_user → to_user)
+	//   settled_bwd  = SUM(settlements to_user → from_user)
+	//   balance      = owed_by_from - owed_by_to - settled_fwd + settled_bwd
+	// > 0 → from_user debe ese monto a to_user
+	// < 0 → to_user debe a from_user (el signo lo resuelve el service)
+	BalanceOwedBetween(ctx context.Context, arg BalanceOwedBetweenParams) (BalanceOwedBetweenRow, error)
+	// Usada en validaciones: no dejar al user sin ningún método activo
+	// (Efectivo no se puede desactivar si es el último).
+	CountActivePaymentMethodsByOwner(ctx context.Context, ownerUserID uuid.UUID) (int64, error)
+	CountExpensesByHousehold(ctx context.Context, arg CountExpensesByHouseholdParams) (int64, error)
+	// Queries de banks. Los bancos son del user (owner_user_id),
+	// nunca se borran: toggle de is_active.
+	CreateBank(ctx context.Context, arg CreateBankParams) (Bank, error)
+	CreateCategory(ctx context.Context, arg CreateCategoryParams) (Category, error)
+	// Queries de credit_cards. 1-a-1 con payment_methods de kind='credit'.
+	// Se crean siempre en la misma transacción que el payment_method (opción A).
+	CreateCreditCard(ctx context.Context, arg CreateCreditCardParams) (CreditCard, error)
+	CreateExpense(ctx context.Context, arg CreateExpenseParams) (Expense, error)
 	// Queries de households y household_members.
 	CreateHousehold(ctx context.Context, arg CreateHouseholdParams) (Household, error)
+	// ===== installments =====
+	CreateInstallment(ctx context.Context, arg CreateInstallmentParams) (ExpenseInstallment, error)
+	// ===== shares =====
+	CreateInstallmentShare(ctx context.Context, arg CreateInstallmentShareParams) error
+	// Queries de payment_methods. Métodos de pago del user.
+	// Nunca se borran: toggle de is_active.
+	// Usado tanto por el endpoint público como por Register (para crear Efectivo).
+	// El CHECK del schema valida la combinación kind/allows_installments.
+	CreatePaymentMethod(ctx context.Context, arg CreatePaymentMethodParams) (PaymentMethod, error)
+	CreateSettlement(ctx context.Context, arg CreateSettlementParams) (SettlementPayment, error)
 	// Queries sobre la tabla users.
 	// Formato sqlc: cada query tiene una línea "-- name: NombreFuncion :tipo"
 	// donde :tipo puede ser:
@@ -26,18 +64,51 @@ type Querier interface {
 	//   :execrows  ejecuta y devuelve filas afectadas
 	// Crea un usuario nuevo y devuelve la fila completa (para obtener id + timestamps).
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	DeleteCategory(ctx context.Context, id uuid.UUID) error
+	DeleteCreditCardPeriod(ctx context.Context, arg DeleteCreditCardPeriodParams) error
+	DeleteExpense(ctx context.Context, id uuid.UUID) error
 	// ON DELETE CASCADE en household_members → limpia la membresía automáticamente.
 	DeleteHousehold(ctx context.Context, id uuid.UUID) error
+	DeleteSettlement(ctx context.Context, id uuid.UUID) error
+	// Normalmente no se usa (al sacar miembro el CASCADE lo limpia), pero
+	// lo expongo por simetría con el resto del CRUD.
+	DeleteSplitRule(ctx context.Context, arg DeleteSplitRuleParams) error
+	GetBankByID(ctx context.Context, id uuid.UUID) (Bank, error)
+	GetCategoryByID(ctx context.Context, id uuid.UUID) (Category, error)
+	// Devuelve el detalle de tarjeta asociado al payment_method dado.
+	// Si no existe (método no es credit) → pgx.ErrNoRows → repo mapea a ErrNotFound.
+	GetCreditCardByPaymentMethodID(ctx context.Context, paymentMethodID uuid.UUID) (CreditCard, error)
+	GetCreditCardPeriod(ctx context.Context, arg GetCreditCardPeriodParams) (CreditCardPeriod, error)
+	GetExpenseByID(ctx context.Context, id uuid.UUID) (Expense, error)
 	GetHouseholdByID(ctx context.Context, id uuid.UUID) (Household, error)
 	// Devuelve el rol del user en el household. Usada para chequear owner
 	// antes de operaciones privilegiadas (editar/borrar hogar, invitar).
 	// Si no es miembro devuelve pgx.ErrNoRows (el repo lo mapea a ErrNotFound).
 	GetHouseholdMemberRole(ctx context.Context, arg GetHouseholdMemberRoleParams) (string, error)
+	GetInstallmentByExpenseAndNumber(ctx context.Context, arg GetInstallmentByExpenseAndNumberParams) (ExpenseInstallment, error)
+	GetLatestCreditCardPeriod(ctx context.Context, creditCardID uuid.UUID) (CreditCardPeriod, error)
+	GetLatestExchangeRate(ctx context.Context, arg GetLatestExchangeRateParams) (ExchangeRate, error)
+	GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (PaymentMethod, error)
+	GetSettlementByID(ctx context.Context, id uuid.UUID) (SettlementPayment, error)
+	GetSplitRule(ctx context.Context, arg GetSplitRuleParams) (HouseholdSplitRule, error)
 	// Usado en login. Devuelve pgx.ErrNoRows si no existe → mapeamos a error de dominio.
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	// Devuelve true si el user pertenece al hogar. Usada por el middleware de autz.
 	IsHouseholdMember(ctx context.Context, arg IsHouseholdMemberParams) (bool, error)
+	// Lista los bancos activos del user, orden estable por nombre.
+	// Si algún día hace falta mostrar los desactivados, se agrega otra query.
+	ListBanksByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]Bank, error)
+	ListCategoriesByHousehold(ctx context.Context, householdID uuid.UUID) ([]Category, error)
+	ListCreditCardPeriods(ctx context.Context, creditCardID uuid.UUID) ([]CreditCardPeriod, error)
+	// Lista las tarjetas activas del user con el payment_method embebido,
+	// para evitar N+1 en el frontend (una sola llamada devuelve todo).
+	// Filtra por payment_method.is_active = true: una tarjeta sin método
+	// activo no se muestra.
+	ListCreditCardsByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]ListCreditCardsByOwnerRow, error)
+	// Filtros opcionales: categoryId, paymentMethodId, desde/hasta (fechas).
+	// Paginación por offset/limit simple. Cuando el volumen crezca, migrar a keyset.
+	ListExpensesByHousehold(ctx context.Context, arg ListExpensesByHouseholdParams) ([]Expense, error)
 	// Devuelve los miembros con el nombre/email del user (JOIN).
 	// Usamos sqlc.embed(u) para que genere un struct anidado con todo user,
 	// así el handler puede devolver la info combinada sin queries extra.
@@ -45,10 +116,55 @@ type Querier interface {
 	// Lista todos los hogares a los que pertenece un user.
 	// JOIN con household_members para filtrar por membresía.
 	ListHouseholdsForUser(ctx context.Context, userID uuid.UUID) ([]Household, error)
+	ListInstallmentsByExpense(ctx context.Context, expenseID uuid.UUID) ([]ExpenseInstallment, error)
+	// Devuelve la última fila por (currency, source) usando DISTINCT ON.
+	// Útil para el endpoint /current y para rehidratar el caché al arrancar.
+	ListLatestExchangeRates(ctx context.Context) ([]ExchangeRate, error)
+	// Lista los métodos activos del user. Orden: primero por kind (para
+	// agrupar visualmente), después por nombre.
+	ListPaymentMethodsByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]PaymentMethod, error)
+	// Filtros opcionales: from_user, to_user (para ver pagos entre dos miembros
+	// específicos), desde/hasta. Paginación por offset/limit.
+	ListSettlementsByHousehold(ctx context.Context, arg ListSettlementsByHouseholdParams) ([]SettlementPayment, error)
+	ListSharesByExpense(ctx context.Context, expenseID uuid.UUID) ([]ExpenseInstallmentShare, error)
+	ListSharesByInstallment(ctx context.Context, installmentID uuid.UUID) ([]ExpenseInstallmentShare, error)
+	ListSplitRulesByHousehold(ctx context.Context, householdID uuid.UUID) ([]HouseholdSplitRule, error)
 	RemoveHouseholdMember(ctx context.Context, arg RemoveHouseholdMemberParams) error
+	// Activa o desactiva un banco. El ON DELETE SET NULL en payment_methods.bank_id
+	// NO se dispara acá (no borramos la fila), así que los métodos siguen
+	// asociados al banco aunque el banco esté inactivo.
+	SetBankActive(ctx context.Context, arg SetBankActiveParams) (Bank, error)
+	SetInstallmentPaid(ctx context.Context, arg SetInstallmentPaidParams) (ExpenseInstallment, error)
+	SetPaymentMethodActive(ctx context.Context, arg SetPaymentMethodActiveParams) (PaymentMethod, error)
+	// Agrega settlements por par (from, to) para la matriz.
+	SettlementsByHouseholdAggregated(ctx context.Context, householdID uuid.UUID) ([]SettlementsByHouseholdAggregatedRow, error)
+	// Solo permite cambiar el nombre (único campo editable del modelo).
+	UpdateBankName(ctx context.Context, arg UpdateBankNameParams) (Bank, error)
+	UpdateCategory(ctx context.Context, arg UpdateCategoryParams) (Category, error)
+	// Alias, last_four y ciclo son editables. payment_method_id es inmutable.
+	// debit_payment_method_id cambiable (ej: cambiás la cuenta de débito automático).
+	// La validación "mismo owner / no auto-referencia" se hace en el service.
+	UpdateCreditCard(ctx context.Context, arg UpdateCreditCardParams) (CreditCard, error)
+	// Solo campos editables: description, spent_at, category_id.
+	// amount/currency/installments NO se editan (borrar y recrear).
+	UpdateExpense(ctx context.Context, arg UpdateExpenseParams) (Expense, error)
 	UpdateHousehold(ctx context.Context, arg UpdateHouseholdParams) (Household, error)
+	UpdateInstallmentDates(ctx context.Context, arg UpdateInstallmentDatesParams) (ExpenseInstallment, error)
+	// Solo nombre, bank_id y allows_installments son editables.
+	// kind y owner_user_id son inmutables (cambiarlos rompería historial).
+	// El CHECK del schema se reevalúa en el UPDATE, así que intentar poner
+	// allows_installments=true en un debit/cash/transfer falla en DB.
+	UpdatePaymentMethod(ctx context.Context, arg UpdatePaymentMethodParams) (PaymentMethod, error)
+	// Actualiza nombre y apellido juntos (si se edita uno se reenvían ambos).
 	UpdateUserName(ctx context.Context, arg UpdateUserNameParams) (User, error)
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
+	UpsertCreditCardPeriod(ctx context.Context, arg UpsertCreditCardPeriodParams) (CreditCardPeriod, error)
+	// El worker corre cada 15min aunque bluelytics no tenga dato nuevo
+	// (fines de semana, feriados). ON CONFLICT DO NOTHING evita duplicar.
+	UpsertExchangeRate(ctx context.Context, arg UpsertExchangeRateParams) error
+	// Usado al bootstrappear un hogar (owner) y al sumar miembros (weight=1.0).
+	// También desde PATCH /households/{id}/split cuando el owner edita pesos.
+	UpsertSplitRule(ctx context.Context, arg UpsertSplitRuleParams) (HouseholdSplitRule, error)
 }
 
 var _ Querier = (*Queries)(nil)

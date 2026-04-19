@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,7 +16,17 @@ import (
 type User struct {
 	ID        uuid.UUID `json:"id"`
 	Email     string    `json:"email"`
-	Name      string    `json:"name"`
+	FirstName string    `json:"firstName"`
+	LastName  string    `json:"lastName"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// FullName devuelve "first last" limpio. Si el last está vacío (mononombres),
+// devuelve solo el first. Útil para logs, emails, y displays agregados.
+func (u User) FullName() string {
+	if u.LastName == "" {
+		return u.FirstName
+	}
+	return strings.TrimSpace(u.FirstName + " " + u.LastName)
 }

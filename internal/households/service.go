@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 )
@@ -18,6 +19,21 @@ type userLookup interface {
 	GetByEmail(ctx context.Context, email string) (domain.User, error)
 }
 
+// categoriesSeeder: lo implementa categories.Repository con SeedDefaultsTx.
+// Se usa dentro de la tx de CreateWithOwner para sembrar las 7 categorías
+// default del hogar recién creado, de forma atómica.
+type categoriesSeeder interface {
+	SeedDefaultsTx(ctx context.Context, tx pgx.Tx, householdID uuid.UUID) error
+}
+
+// splitRulesSeeder: lo implementa splitrules.Service con SeedForMemberTx.
+// Se invoca dentro de la tx al crear un hogar (para el owner) y al sumar
+// miembros (para el invitado). Sin él, el split queda incompleto y los
+// shares caerían al fallback equitativo.
+type splitRulesSeeder interface {
+	SeedForMemberTx(ctx context.Context, tx pgx.Tx, householdID, userID uuid.UUID) error
+}
+
 // Monedas soportadas por el sistema (coincide con los fetchers de bluelytics).
 // Si agregamos más, el fetcher y el validador se actualizan juntos.
 var supportedCurrencies = map[string]struct{}{
@@ -27,12 +43,14 @@ var supportedCurrencies = map[string]struct{}{
 }
 
 type Service struct {
-	repo  *Repository
-	users userLookup
+	repo       *Repository
+	users      userLookup
+	categories categoriesSeeder
+	splitRules splitRulesSeeder
 }
 
-func NewService(repo *Repository, users userLookup) *Service {
-	return &Service{repo: repo, users: users}
+func NewService(repo *Repository, users userLookup, categories categoriesSeeder, splitRules splitRulesSeeder) *Service {
+	return &Service{repo: repo, users: users, categories: categories, splitRules: splitRules}
 }
 
 // Create valida input, normaliza currency y crea el hogar con el caller
@@ -47,7 +65,23 @@ func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, name, baseCurre
 	if err := validateCurrency(baseCurrency); err != nil {
 		return domain.Household{}, err
 	}
-	return s.repo.CreateWithOwner(ctx, name, baseCurrency, ownerID)
+
+	// afterCreate: siembra categorías default dentro de la misma tx.
+	// afterMember: siembra split_rule weight=1.0 para el owner.
+	// Ambos seeders son opcionales (útil para tests).
+	var createHook AfterCreateHook
+	if s.categories != nil {
+		createHook = func(ctx context.Context, tx pgx.Tx, householdID uuid.UUID) error {
+			return s.categories.SeedDefaultsTx(ctx, tx, householdID)
+		}
+	}
+	var memberHook AfterMemberHook
+	if s.splitRules != nil {
+		memberHook = func(ctx context.Context, tx pgx.Tx, householdID, userID uuid.UUID) error {
+			return s.splitRules.SeedForMemberTx(ctx, tx, householdID, userID)
+		}
+	}
+	return s.repo.CreateWithOwner(ctx, name, baseCurrency, ownerID, createHook, memberHook)
 }
 
 // List devuelve los hogares del user. Sin filtros por ahora.
@@ -110,7 +144,13 @@ func (s *Service) InviteByEmail(ctx context.Context, inviterID, householdID uuid
 		return domain.HouseholdMember{}, err
 	}
 
-	return s.repo.AddMember(ctx, householdID, user.ID, domain.RoleMember)
+	var memberHook AfterMemberHook
+	if s.splitRules != nil {
+		memberHook = func(ctx context.Context, tx pgx.Tx, hID, uID uuid.UUID) error {
+			return s.splitRules.SeedForMemberTx(ctx, tx, hID, uID)
+		}
+	}
+	return s.repo.AddMember(ctx, householdID, user.ID, domain.RoleMember, memberHook)
 }
 
 // RemoveMember: owner puede sacar a otros. Además, cualquier member puede

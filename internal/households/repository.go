@@ -28,13 +28,26 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool, q: sqlcgen.New(pool)}
 }
 
+// AfterCreateHook corre dentro de la misma transacción que creó el household.
+// Se usa para sembrar datos por defecto (categorías, etc.) de forma atómica:
+// si el hook falla, rollback de todo y el hogar no queda a medio armar.
+type AfterCreateHook func(ctx context.Context, tx pgx.Tx, householdID uuid.UUID) error
+
+// AfterMemberHook corre dentro de la tx justo después de insertar un member.
+// Alcance por-user (a diferencia de AfterCreateHook que es por-household).
+// Se usa para seedear la split_rule del miembro con weight=1.0 en bootstrap
+// y en AddMember.
+type AfterMemberHook func(ctx context.Context, tx pgx.Tx, householdID, userID uuid.UUID) error
+
 // CreateWithOwner inserta household + household_members(owner) en una sola
 // transacción. Si falla cualquiera de los dos inserts, rollback automático.
+// afterCreate (opcional) corre dentro de la misma tx para bootstrap de
+// datos default (categorías); si devuelve error, rollback completo.
 //
 // pgx.BeginFunc maneja el commit/rollback por nosotros: si la función
 // devuelve error, rollback; si devuelve nil, commit. Es el patrón oficial
 // para evitar el clásico bug de olvidar rollback en early-return.
-func (r *Repository) CreateWithOwner(ctx context.Context, name, baseCurrency string, ownerID uuid.UUID) (domain.Household, error) {
+func (r *Repository) CreateWithOwner(ctx context.Context, name, baseCurrency string, ownerID uuid.UUID, afterCreate AfterCreateHook, afterMember AfterMemberHook) (domain.Household, error) {
 	var created domain.Household
 
 	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
@@ -56,6 +69,19 @@ func (r *Repository) CreateWithOwner(ctx context.Context, name, baseCurrency str
 			Role:        string(domain.RoleOwner),
 		}); err != nil {
 			return fmt.Errorf("agregar owner como member: %w", err)
+		}
+
+		// Hook por-member: seed split_rule del owner (weight=1.0).
+		if afterMember != nil {
+			if err := afterMember(ctx, tx, h.ID, ownerID); err != nil {
+				return fmt.Errorf("after-member hook (owner): %w", err)
+			}
+		}
+
+		if afterCreate != nil {
+			if err := afterCreate(ctx, tx, h.ID); err != nil {
+				return fmt.Errorf("after-create hook: %w", err)
+			}
 		}
 
 		created = toDomain(h)
@@ -153,20 +179,36 @@ func (r *Repository) GetMemberRole(ctx context.Context, householdID, userID uuid
 
 // AddMember agrega un user existente al household con rol 'member'.
 // El user lo resuelve el service por email antes de llamar acá.
-func (r *Repository) AddMember(ctx context.Context, householdID, userID uuid.UUID, role domain.Role) (domain.HouseholdMember, error) {
-	row, err := r.q.AddHouseholdMember(ctx, sqlcgen.AddHouseholdMemberParams{
-		HouseholdID: householdID,
-		UserID:      userID,
-		Role:        string(role),
+// afterMember (opcional) corre dentro de la misma tx para bootstrap por-user
+// (split_rule weight=1.0). Si falla, rollback y el miembro no queda insertado.
+func (r *Repository) AddMember(ctx context.Context, householdID, userID uuid.UUID, role domain.Role, afterMember AfterMemberHook) (domain.HouseholdMember, error) {
+	var result domain.HouseholdMember
+	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		qTx := r.q.WithTx(tx)
+		row, err := qTx.AddHouseholdMember(ctx, sqlcgen.AddHouseholdMemberParams{
+			HouseholdID: householdID,
+			UserID:      userID,
+			Role:        string(role),
+		})
+		if err != nil {
+			// UNIQUE violation en (household_id, user_id) → ya es miembro.
+			if isUniqueViolation(err) {
+				return fmt.Errorf("ya es miembro del hogar: %w", domain.ErrConflict)
+			}
+			return fmt.Errorf("households.AddMember: %w", err)
+		}
+		if afterMember != nil {
+			if err := afterMember(ctx, tx, householdID, userID); err != nil {
+				return fmt.Errorf("after-member hook: %w", err)
+			}
+		}
+		result = toDomainMember(row)
+		return nil
 	})
 	if err != nil {
-		// UNIQUE violation en (household_id, user_id) → ya es miembro.
-		if isUniqueViolation(err) {
-			return domain.HouseholdMember{}, fmt.Errorf("ya es miembro del hogar: %w", domain.ErrConflict)
-		}
-		return domain.HouseholdMember{}, fmt.Errorf("households.AddMember: %w", err)
+		return domain.HouseholdMember{}, err
 	}
-	return toDomainMember(row), nil
+	return result, nil
 }
 
 // RemoveMember elimina la membresía. No toca datos del user.
@@ -193,7 +235,8 @@ func (r *Repository) ListMembers(ctx context.Context, householdID uuid.UUID) ([]
 			User: domain.User{
 				ID:        row.User.ID,
 				Email:     string(row.User.Email),
-				Name:      row.User.Name,
+				FirstName: row.User.FirstName,
+				LastName:  row.User.LastName,
 				CreatedAt: row.User.CreatedAt.Time,
 				UpdatedAt: row.User.UpdatedAt.Time,
 			},

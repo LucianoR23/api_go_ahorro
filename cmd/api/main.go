@@ -15,10 +15,18 @@ import (
 	"github.com/go-chi/httplog/v2"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/auth"
+	"github.com/LucianoR23/api_go_ahorra/internal/balances"
+	"github.com/LucianoR23/api_go_ahorra/internal/categories"
 	"github.com/LucianoR23/api_go_ahorra/internal/config"
+	"github.com/LucianoR23/api_go_ahorra/internal/creditperiods"
 	"github.com/LucianoR23/api_go_ahorra/internal/db"
+	"github.com/LucianoR23/api_go_ahorra/internal/expenses"
+	"github.com/LucianoR23/api_go_ahorra/internal/fxrates"
 	"github.com/LucianoR23/api_go_ahorra/internal/households"
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
+	"github.com/LucianoR23/api_go_ahorra/internal/paymethods"
+	"github.com/LucianoR23/api_go_ahorra/internal/settlements"
+	"github.com/LucianoR23/api_go_ahorra/internal/splitrules"
 	"github.com/LucianoR23/api_go_ahorra/internal/users"
 )
 
@@ -57,13 +65,74 @@ func main() {
 		os.Exit(1)
 	}
 
-	authSvc := auth.NewService(userRepo, tokenIssuer)
+	// paymethods: repo primero, service después. El service de auth lo
+	// necesita para crear "Efectivo" automático al registrar un user.
+	paymethodsRepo := paymethods.NewRepository(pool)
+	paymethodsSvc := paymethods.NewService(paymethodsRepo)
+
+	authSvc := auth.NewService(userRepo, tokenIssuer, paymethodsSvc, logger)
 	authMW := auth.NewMiddleware(tokenIssuer, logger)
 	authHandler := auth.NewHandler(authSvc, authMW, logger, cfg.Env == "prod")
 
+	// categories: repo se construye antes que households porque households.Service
+	// lo recibe como categoriesSeeder (bootstrap de las 7 categorías default
+	// al crear un hogar, dentro de la misma tx).
+	categoriesRepo := categories.NewRepository(pool)
+	categoriesSvc := categories.NewService(categoriesRepo)
+
+	// splitrules: reglas de peso por miembro. Se inyecta en households.Service
+	// para seedear weight=1.0 al owner en Create y al invitado en AddMember,
+	// dentro de la misma tx que la membresía (atómico).
+	splitRulesRepo := splitrules.NewRepository(pool)
 	householdsRepo := households.NewRepository(pool)
-	householdsSvc := households.NewService(householdsRepo, userRepo)
+	splitRulesSvc := splitrules.NewService(splitRulesRepo, householdsRepo)
+	householdsSvc := households.NewService(householdsRepo, userRepo, categoriesRepo, splitRulesSvc)
+	householdsMW := households.NewMiddleware(householdsRepo, logger)
 	householdsHandler := households.NewHandler(householdsSvc, authMW, logger)
+	splitRulesHandler := splitrules.NewHandler(splitRulesSvc, authMW, householdsMW, logger)
+
+	paymethodsHandler := paymethods.NewHandler(paymethodsSvc, authMW, logger)
+	categoriesHandler := categories.NewHandler(categoriesSvc, authMW, householdsMW, logger)
+
+	// creditperiods: montado bajo /payment-methods/{id}/credit-card/periods/*.
+	// Reusa paymethodsSvc para validar ownership y resolver credit_card_id.
+	creditPeriodsRepo := creditperiods.NewRepository(pool)
+	creditPeriodsSvc := creditperiods.NewService(creditPeriodsRepo, paymethodsSvc)
+	creditPeriodsHandler := creditperiods.NewHandler(creditPeriodsSvc, authMW, logger)
+
+	// fxrates: tasas ARS/USD/EUR. Hidratamos caché desde DB al arrancar y
+	// levantamos un worker que refresca cada 15min (bluelytics).
+	fxRepo := fxrates.NewRepository(pool)
+	fxFetcher := fxrates.NewFetcher(&http.Client{Timeout: 10 * time.Second})
+	fxSvc := fxrates.NewService(fxRepo, fxFetcher, logger)
+	if err := fxSvc.Hydrate(bootCtx); err != nil {
+		// No es fatal: si DB está vacía (primer arranque) el worker poblará.
+		logger.Warn("fxrates hydrate inicial falló", "error", err)
+	}
+	fxHandler := fxrates.NewHandler(fxSvc, authMW, logger)
+	fxWorker := fxrates.NewWorker(fxSvc, 15*time.Minute, logger)
+	stopFxWorker := fxWorker.Start(context.Background())
+	defer stopFxWorker()
+
+	// expenses: núcleo del producto. Depende de casi todo lo anterior:
+	// households (base_currency + miembros para shares), paymethods (ownership
+	// + credit_card defaults), creditperiods (overrides mensuales), fxrates
+	// (conversión a base currency).
+	expensesRepo := expenses.NewRepository(pool)
+	expensesSvc := expenses.NewService(expensesRepo, householdsRepo, paymethodsSvc, creditPeriodsRepo, fxSvc, splitRulesSvc)
+	expensesHandler := expenses.NewHandler(expensesSvc, authMW, householdsMW, logger)
+
+	// balances: cálculo on-demand de deudas (shares billed - settlements).
+	// No tiene tablas propias: lee de expenses y settlements.
+	balancesRepo := balances.NewRepository(pool)
+	balancesSvc := balances.NewService(balancesRepo)
+	balancesHandler := balances.NewHandler(balancesSvc, authMW, householdsMW, logger)
+
+	// settlements: pagos entre miembros. Valida amount <= deuda_actual usando
+	// balancesSvc.PairNet. No toca payment_methods (la plata se movió afuera).
+	settlementsRepo := settlements.NewRepository(pool)
+	settlementsSvc := settlements.NewService(settlementsRepo, householdsRepo, balancesSvc)
+	settlementsHandler := settlements.NewHandler(settlementsSvc, authMW, householdsMW, logger)
 
 	// ---------- router ----------
 	r := chi.NewRouter()
@@ -103,6 +172,30 @@ func main() {
 
 	// Households (todas las rutas requieren auth — el mount lo aplica).
 	householdsHandler.Mount(r)
+
+	// Payment methods / banks / credit cards (auth requerido).
+	paymethodsHandler.Mount(r)
+
+	// Credit card periods (auth requerido, ownership validado en service).
+	creditPeriodsHandler.Mount(r)
+
+	// Expenses (auth + household member requerido).
+	expensesHandler.Mount(r)
+
+	// Categories (auth + household member requerido).
+	categoriesHandler.Mount(r)
+
+	// Exchange rates (auth requerido).
+	fxHandler.Mount(r)
+
+	// Balances (auth + household member requerido).
+	balancesHandler.Mount(r)
+
+	// Settlements (auth + household member requerido).
+	settlementsHandler.Mount(r)
+
+	// Split rules (auth + household member; Update valida owner en service).
+	splitRulesHandler.Mount(r)
 
 	// Banner de startup (tipo Fiber) — solo en dev para no ensuciar logs prod.
 	if cfg.Env != "prod" {

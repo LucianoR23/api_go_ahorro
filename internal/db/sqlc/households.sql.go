@@ -140,7 +140,7 @@ func (q *Queries) IsHouseholdMember(ctx context.Context, arg IsHouseholdMemberPa
 }
 
 const listHouseholdMembers = `-- name: ListHouseholdMembers :many
-SELECT u.id, u.email, u.password_hash, u.name, u.created_at, u.updated_at, hm.role, hm.joined_at
+SELECT u.id, u.email, u.password_hash, u.created_at, u.updated_at, u.first_name, u.last_name, hm.role, hm.joined_at
 FROM household_members hm
 INNER JOIN users u ON u.id = hm.user_id
 WHERE hm.household_id = $1
@@ -169,9 +169,10 @@ func (q *Queries) ListHouseholdMembers(ctx context.Context, householdID uuid.UUI
 			&i.User.ID,
 			&i.User.Email,
 			&i.User.PasswordHash,
-			&i.User.Name,
 			&i.User.CreatedAt,
 			&i.User.UpdatedAt,
+			&i.User.FirstName,
+			&i.User.LastName,
 			&i.Role,
 			&i.JoinedAt,
 		); err != nil {
