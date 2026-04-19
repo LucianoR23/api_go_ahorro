@@ -36,7 +36,10 @@ type Querier interface {
 	// (Efectivo no se puede desactivar si es el último).
 	CountActivePaymentMethodsByOwner(ctx context.Context, ownerUserID uuid.UUID) (int64, error)
 	CountExpensesByHousehold(ctx context.Context, arg CountExpensesByHouseholdParams) (int64, error)
+	// Cuántas transacciones hubo en el rango. Distinct categorías también.
+	CountExpensesSpentAtRange(ctx context.Context, arg CountExpensesSpentAtRangeParams) (CountExpensesSpentAtRangeRow, error)
 	CountIncomesByHousehold(ctx context.Context, arg CountIncomesByHouseholdParams) (int64, error)
+	CountUnreadInsightsByHousehold(ctx context.Context, arg CountUnreadInsightsByHouseholdParams) (int64, error)
 	// Queries de banks. Los bancos son del user (owner_user_id),
 	// nunca se borran: toggle de is_active.
 	CreateBank(ctx context.Context, arg CreateBankParams) (Bank, error)
@@ -46,6 +49,11 @@ type Querier interface {
 	// Queries de credit_cards. 1-a-1 con payment_methods de kind='credit'.
 	// Se crean siempre en la misma transacción que el payment_method (opción A).
 	CreateCreditCard(ctx context.Context, arg CreateCreditCardParams) (CreditCard, error)
+	// ===================== daily_insights =====================
+	// ON CONFLICT DO NOTHING: si ya existe un insight del mismo (household, user,
+	// date, type) lo dejamos intacto. El RETURNING puede ser vacío — el caller
+	// interpreta eso como "ya existía, skip".
+	CreateDailyInsight(ctx context.Context, arg CreateDailyInsightParams) (DailyInsight, error)
 	CreateExpense(ctx context.Context, arg CreateExpenseParams) (Expense, error)
 	// Queries de households y household_members.
 	CreateHousehold(ctx context.Context, arg CreateHouseholdParams) (Household, error)
@@ -77,6 +85,7 @@ type Querier interface {
 	DeleteBudgetGoal(ctx context.Context, id uuid.UUID) error
 	DeleteCategory(ctx context.Context, id uuid.UUID) error
 	DeleteCreditCardPeriod(ctx context.Context, arg DeleteCreditCardPeriodParams) error
+	DeleteDailyInsight(ctx context.Context, id uuid.UUID) error
 	DeleteExpense(ctx context.Context, id uuid.UUID) error
 	// ON DELETE CASCADE en household_members → limpia la membresía automáticamente.
 	DeleteHousehold(ctx context.Context, id uuid.UUID) error
@@ -94,6 +103,7 @@ type Querier interface {
 	// Si no existe (método no es credit) → pgx.ErrNoRows → repo mapea a ErrNotFound.
 	GetCreditCardByPaymentMethodID(ctx context.Context, paymentMethodID uuid.UUID) (CreditCard, error)
 	GetCreditCardPeriod(ctx context.Context, arg GetCreditCardPeriodParams) (CreditCardPeriod, error)
+	GetDailyInsightByID(ctx context.Context, id uuid.UUID) (DailyInsight, error)
 	GetExpenseByID(ctx context.Context, id uuid.UUID) (Expense, error)
 	GetHouseholdByID(ctx context.Context, id uuid.UUID) (Household, error)
 	// Devuelve el rol del user en el household. Usada para chequear owner
@@ -121,6 +131,8 @@ type Querier interface {
 	// (starts_at/ends_at) cubre la fecha target. El filtro fino de "toca hoy
 	// según frequency/day_of_*" se resuelve en Go para no complicar la query.
 	ListActiveRecurringIncomes(ctx context.Context, dollar_1 pgtype.Date) ([]RecurringIncome, error)
+	// Para workers que iteran todos los hogares (insights, reports).
+	ListAllHouseholdIDs(ctx context.Context) ([]uuid.UUID, error)
 	// Lista los bancos activos del user, orden estable por nombre.
 	// Si algún día hace falta mostrar los desactivados, se agrega otra query.
 	ListBanksByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]Bank, error)
@@ -133,6 +145,9 @@ type Querier interface {
 	// Filtra por payment_method.is_active = true: una tarjeta sin método
 	// activo no se muestra.
 	ListCreditCardsByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]ListCreditCardsByOwnerRow, error)
+	// Filtros opcionales: user_id (null = insights del hogar; uuid = de ese user),
+	// unread_only, rango de fechas, tipo.
+	ListDailyInsightsByHousehold(ctx context.Context, arg ListDailyInsightsByHouseholdParams) ([]DailyInsight, error)
 	// Filtros opcionales: categoryId, paymentMethodId, desde/hasta (fechas).
 	// Paginación por offset/limit simple. Cuando el volumen crezca, migrar a keyset.
 	ListExpensesByHousehold(ctx context.Context, arg ListExpensesByHouseholdParams) ([]Expense, error)
@@ -160,6 +175,8 @@ type Querier interface {
 	ListSharesByExpense(ctx context.Context, expenseID uuid.UUID) ([]ExpenseInstallmentShare, error)
 	ListSharesByInstallment(ctx context.Context, installmentID uuid.UUID) ([]ExpenseInstallmentShare, error)
 	ListSplitRulesByHousehold(ctx context.Context, householdID uuid.UUID) ([]HouseholdSplitRule, error)
+	MarkAllInsightsReadByHousehold(ctx context.Context, arg MarkAllInsightsReadByHouseholdParams) error
+	MarkDailyInsightRead(ctx context.Context, id uuid.UUID) error
 	MarkRecurringExpenseGenerated(ctx context.Context, arg MarkRecurringExpenseGeneratedParams) error
 	// Lo llama el worker después de crear el income real. Marca last_generated
 	// para que el próximo tick del mismo día no vuelva a crear.
@@ -176,12 +193,18 @@ type Querier interface {
 	SetRecurringIncomeActive(ctx context.Context, arg SetRecurringIncomeActiveParams) error
 	// Agrega settlements por par (from, to) para la matriz.
 	SettlementsByHouseholdAggregated(ctx context.Context, householdID uuid.UUID) ([]SettlementsByHouseholdAggregatedRow, error)
+	// ===================== agregaciones para generación =====================
+	// Gasto real (spent_at) del hogar en un rango. Base currency.
+	SumExpensesSpentAtRange(ctx context.Context, arg SumExpensesSpentAtRangeParams) (pgtype.Numeric, error)
 	// Para /totals/income: suma amount_base de todos los ingresos del hogar
 	// entre received_at >= from y received_at <= to. COALESCE a 0 si no hay
 	// filas (evita NULL en el tipo Numeric).
 	SumIncomesByHouseholdInRange(ctx context.Context, arg SumIncomesByHouseholdInRangeParams) (pgtype.Numeric, error)
 	// Para savings scope=user: total de ingresos de un usuario en el período.
 	SumIncomesByUserInRange(ctx context.Context, arg SumIncomesByUserInRangeParams) (pgtype.Numeric, error)
+	// Cuotas cuyo due_date cae en el rango. Usamos COALESCE(due_date, billing_date)
+	// para unificar crédito y el resto.
+	SumInstallmentsDueInRange(ctx context.Context, arg SumInstallmentsDueInRangeParams) (pgtype.Numeric, error)
 	// ===================== progress helpers =====================
 	// Suma base de cuotas del hogar dentro del período, filtrando por categoría
 	// opcional. Usa COALESCE(due_date, billing_date): crédito cuenta cuando vence,
@@ -192,6 +215,9 @@ type Querier interface {
 	// Para gastos NO compartidos (is_shared=false): cuenta el total si el usuario
 	// es created_by, porque no hay filas de shares.
 	SumInstallmentsForUserGoal(ctx context.Context, arg SumInstallmentsForUserGoalParams) (pgtype.Numeric, error)
+	// Categoría con más gasto en el rango (spent_at). Devuelve también el total.
+	// Si no hay gastos, no devuelve filas (el caller lo maneja como "sin datos").
+	TopCategorySpentAtRange(ctx context.Context, arg TopCategorySpentAtRangeParams) (TopCategorySpentAtRangeRow, error)
 	// Solo permite cambiar el nombre (único campo editable del modelo).
 	UpdateBankName(ctx context.Context, arg UpdateBankNameParams) (Bank, error)
 	// No dejamos cambiar scope/user_id/goal_type — si hay que migrar, borrar y crear.

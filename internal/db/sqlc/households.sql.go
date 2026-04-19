@@ -139,6 +139,31 @@ func (q *Queries) IsHouseholdMember(ctx context.Context, arg IsHouseholdMemberPa
 	return is_member, err
 }
 
+const listAllHouseholdIDs = `-- name: ListAllHouseholdIDs :many
+SELECT id FROM households
+`
+
+// Para workers que iteran todos los hogares (insights, reports).
+func (q *Queries) ListAllHouseholdIDs(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listAllHouseholdIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listHouseholdMembers = `-- name: ListHouseholdMembers :many
 SELECT u.id, u.email, u.password_hash, u.created_at, u.updated_at, u.first_name, u.last_name, hm.role, hm.joined_at
 FROM household_members hm

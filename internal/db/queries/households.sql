@@ -21,6 +21,11 @@ WHERE hm.user_id = $1
 ORDER BY h.created_at ASC;
 
 
+-- name: ListAllHouseholdIDs :many
+-- Para workers que iteran todos los hogares (insights, reports).
+SELECT id FROM households;
+
+
 -- name: UpdateHousehold :one
 UPDATE households
 SET name = $2,

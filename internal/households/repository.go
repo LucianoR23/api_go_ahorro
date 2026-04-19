@@ -119,6 +119,16 @@ func (r *Repository) ListForUser(ctx context.Context, userID uuid.UUID) ([]domai
 	return out, nil
 }
 
+// ListAllIDs devuelve todos los IDs de hogares — usado por workers (insights,
+// reports) que iteran el universo entero.
+func (r *Repository) ListAllIDs(ctx context.Context) ([]uuid.UUID, error) {
+	ids, err := r.q.ListAllHouseholdIDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("households.ListAllIDs: %w", err)
+	}
+	return ids, nil
+}
+
 // Update cambia nombre y moneda. created_by y timestamps no se tocan.
 func (r *Repository) Update(ctx context.Context, id uuid.UUID, name, baseCurrency string) (domain.Household, error) {
 	h, err := r.q.UpdateHousehold(ctx, sqlcgen.UpdateHouseholdParams{

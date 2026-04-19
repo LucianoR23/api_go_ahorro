@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httplog/v2"
+	"github.com/google/uuid"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/auth"
 	"github.com/LucianoR23/api_go_ahorra/internal/balances"
@@ -20,12 +21,14 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/config"
 	"github.com/LucianoR23/api_go_ahorra/internal/creditperiods"
 	"github.com/LucianoR23/api_go_ahorra/internal/db"
+	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/LucianoR23/api_go_ahorra/internal/expenses"
 	"github.com/LucianoR23/api_go_ahorra/internal/fxrates"
 	"github.com/LucianoR23/api_go_ahorra/internal/goals"
 	"github.com/LucianoR23/api_go_ahorra/internal/households"
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
 	"github.com/LucianoR23/api_go_ahorra/internal/incomes"
+	"github.com/LucianoR23/api_go_ahorra/internal/insights"
 	"github.com/LucianoR23/api_go_ahorra/internal/paymethods"
 	"github.com/LucianoR23/api_go_ahorra/internal/recurringexpenses"
 	"github.com/LucianoR23/api_go_ahorra/internal/settlements"
@@ -165,6 +168,19 @@ func main() {
 	goalsSvc := goals.NewService(goalsRepo, householdsRepo)
 	goalsHandler := goals.NewHandler(goalsSvc, authMW, householdsMW, logger)
 
+	// insights: genera daily_summary, alerts (goals >=80%) y weekly_review
+	// (domingos). Worker 01:00 local. Idempotente via UNIQUE(hh,user,date,type).
+	// El adapter traduce goalsSvc.ProgressList a la interface que insights usa.
+	insightsRepo := insights.NewRepository(pool)
+	goalsAdapter := insights.GoalsAdapter(func(ctx context.Context, hhID uuid.UUID, onlyActive *bool, at time.Time) ([]domain.BudgetGoalProgress, error) {
+		return goalsSvc.ProgressList(ctx, hhID, goals.ListFilters{OnlyActive: onlyActive}, at)
+	})
+	insightsSvc := insights.NewService(insightsRepo, householdsRepo, goalsAdapter, logger)
+	insightsHandler := insights.NewHandler(insightsSvc, authMW, householdsMW, logger)
+	insightsWorker := insights.NewWorker(insightsSvc, 1, 0, logger)
+	stopInsightsWorker := insightsWorker.Start(context.Background())
+	defer stopInsightsWorker()
+
 	// ---------- router ----------
 	r := chi.NewRouter()
 
@@ -236,6 +252,9 @@ func main() {
 
 	// Goals (auth + household member).
 	goalsHandler.Mount(r)
+
+	// Insights (auth + household member).
+	insightsHandler.Mount(r)
 
 	// Banner de startup (tipo Fiber) — solo en dev para no ensuciar logs prod.
 	if cfg.Env != "prod" {
