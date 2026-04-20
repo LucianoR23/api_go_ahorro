@@ -42,15 +42,26 @@ var supportedCurrencies = map[string]struct{}{
 	"EUR": {},
 }
 
+// pushNotifier: nil-safe. Notifica al invitado cuando se lo agrega a un hogar.
+type pushNotifier interface {
+	NotifyUsers(ctx context.Context, userIDs []uuid.UUID, title, body, url, tag string)
+}
+
 type Service struct {
 	repo       *Repository
 	users      userLookup
 	categories categoriesSeeder
 	splitRules splitRulesSeeder
+	push       pushNotifier
 }
 
 func NewService(repo *Repository, users userLookup, categories categoriesSeeder, splitRules splitRulesSeeder) *Service {
 	return &Service{repo: repo, users: users, categories: categories, splitRules: splitRules}
+}
+
+// SetNotifier cablea push post-construcción.
+func (s *Service) SetNotifier(n pushNotifier) {
+	s.push = n
 }
 
 // Create valida input, normaliza currency y crea el hogar con el caller
@@ -150,7 +161,28 @@ func (s *Service) InviteByEmail(ctx context.Context, inviterID, householdID uuid
 			return s.splitRules.SeedForMemberTx(ctx, tx, hID, uID)
 		}
 	}
-	return s.repo.AddMember(ctx, householdID, user.ID, domain.RoleMember, memberHook)
+	m, err := s.repo.AddMember(ctx, householdID, user.ID, domain.RoleMember, memberHook)
+	if err != nil {
+		return m, err
+	}
+
+	// Notificar al invitado que se lo agregó al hogar.
+	if s.push != nil {
+		hh, hhErr := s.repo.GetByID(ctx, householdID)
+		hhName := "un hogar"
+		if hhErr == nil {
+			hhName = hh.Name
+		}
+		s.push.NotifyUsers(
+			ctx,
+			[]uuid.UUID{user.ID},
+			"Te agregaron a un hogar",
+			"Ahora sos miembro de "+hhName,
+			"/households/"+householdID.String(),
+			"household-invite:"+householdID.String(),
+		)
+	}
+	return m, nil
 }
 
 // RemoveMember: owner puede sacar a otros. Además, cualquier member puede

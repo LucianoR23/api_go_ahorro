@@ -23,6 +23,14 @@ type Config struct {
 	// emails (loguea warning y sigue). Útil para dev sin configurar nada.
 	ResendAPIKey    string
 	ReportFromEmail string // e.g. "Ahorra <reports@ahorra.app>"
+
+	// VAPID: opcional. Si no hay keys, los endpoints de push siguen
+	// funcionando pero Service.NotifyUsers hace no-op. Útil para dev.
+	// Generar una sola vez con `go run ./cmd/vapidgen` y guardar como
+	// secret en Coolify.
+	VAPIDPublicKey  string
+	VAPIDPrivateKey string
+	VAPIDSubject    string // "mailto:admin@ahorra.app"
 }
 
 // Load lee el archivo .env (si existe) al ambiente del proceso y construye
@@ -44,6 +52,9 @@ func Load() (*Config, error) {
 		AllowedOrigins:   splitAndTrim(getOrDefault("ALLOWED_ORIGINS", "http://localhost:3000"), ","),
 		ResendAPIKey:     os.Getenv("RESEND_API_KEY"),
 		ReportFromEmail:  getOrDefault("REPORT_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
+		VAPIDPublicKey:   os.Getenv("VAPID_PUBLIC_KEY"),
+		VAPIDPrivateKey:  os.Getenv("VAPID_PRIVATE_KEY"),
+		VAPIDSubject:     getOrDefault("VAPID_SUBJECT", "mailto:admin@ahorra.app"),
 	}
 
 	if err := cfg.validate(); err != nil {

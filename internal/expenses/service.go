@@ -2,6 +2,7 @@ package expenses
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -41,6 +42,13 @@ type splitRulesReader interface {
 	WeightsForHousehold(ctx context.Context, householdID uuid.UUID) (map[uuid.UUID]float64, error)
 }
 
+// pushNotifier: fire-and-forget notifications a miembros del hogar cuando
+// se crea un gasto compartido. Nil-safe: si es nil, no se envía nada.
+// Definido como interface local para no acoplar expenses → push.
+type pushNotifier interface {
+	NotifyUsers(ctx context.Context, userIDs []uuid.UUID, title, body, url, tag string)
+}
+
 // ShareOverride: monto explícito que un miembro paga en este gasto puntual,
 // expresado en la currency del input. Deben sumar exactamente in.Amount
 // (tolerancia 0.01). Útil cuando el default ponderado no aplica ("esto lo
@@ -60,6 +68,7 @@ type Service struct {
 	periodsReader periodsReader
 	fx            fxConverter
 	splitRules    splitRulesReader
+	push          pushNotifier // opcional; cableado via SetNotifier
 }
 
 func NewService(
@@ -78,6 +87,13 @@ func NewService(
 		fx:            fx,
 		splitRules:    splitRules,
 	}
+}
+
+// SetNotifier enchufa el notifier de push post-construcción. Lo hacemos así
+// (en lugar de pasarlo al constructor) para no romper los call-sites
+// existentes y mantener push como una dep opcional.
+func (s *Service) SetNotifier(n pushNotifier) {
+	s.push = n
 }
 
 // CreateInput: datos que el handler arma a partir del body.
@@ -195,7 +211,66 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.ExpenseDet
 		RecurringExpenseID: in.RecurringExpenseID,
 	}
 
-	return s.repo.CreateTx(ctx, CreateBundle{Expense: expense, Installments: installments})
+	detail, err := s.repo.CreateTx(ctx, CreateBundle{Expense: expense, Installments: installments})
+	if err != nil {
+		return detail, err
+	}
+
+	// Notificar a los otros miembros del hogar si el gasto fue compartido.
+	// Fire-and-forget: si push falla, el gasto ya quedó creado.
+	s.notifySharedExpense(ctx, detail, in.CreatedBy)
+
+	return detail, nil
+}
+
+// notifySharedExpense arma la lista de miembros a notificar (shares del
+// primer installment, excluyendo al creator) y dispara push por cada uno.
+// No-op si IsShared=false o si no hay push wireado.
+func (s *Service) notifySharedExpense(ctx context.Context, d domain.ExpenseDetail, creator uuid.UUID) {
+	if s.push == nil || !d.Expense.IsShared || len(d.Installments) == 0 {
+		return
+	}
+
+	// Destinatarios: cada userID presente en los shares != creator. Dedupe
+	// vía map (si hay N cuotas, cada miembro aparece N veces).
+	recipients := make(map[uuid.UUID]float64)
+	for _, inst := range d.Installments {
+		for _, sh := range inst.Shares {
+			if sh.UserID == creator {
+				continue
+			}
+			recipients[sh.UserID] += sh.AmountBaseOwed
+		}
+	}
+	if len(recipients) == 0 {
+		return
+	}
+
+	// Nombre del creador para el título. Si falla el lookup, usamos "Alguien".
+	creatorName := "Alguien"
+	if members, err := s.households.ListMembers(ctx, d.Expense.HouseholdID); err == nil {
+		for _, m := range members {
+			if m.User.ID == creator {
+				if fn := strings.TrimSpace(m.User.FirstName); fn != "" {
+					creatorName = fn
+				}
+				break
+			}
+		}
+	}
+
+	for uid, owed := range recipients {
+		body := fmt.Sprintf("%s cargó \"%s\" — te toca %.2f %s",
+			creatorName, d.Expense.Description, owed, d.Expense.BaseCurrency)
+		s.push.NotifyUsers(
+			ctx,
+			[]uuid.UUID{uid},
+			"Nuevo gasto compartido",
+			body,
+			"/expenses/"+d.Expense.ID.String(),
+			"expense:"+d.Expense.ID.String(),
+		)
+	}
 }
 
 // weightedUser: par userID + peso ya normalizable. El service los arma

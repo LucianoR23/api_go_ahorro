@@ -26,14 +26,34 @@ type balanceReader interface {
 	PairNet(ctx context.Context, householdID, from, to uuid.UUID) (float64, error)
 }
 
+// pushNotifier: opcional, nil-safe. Se dispara cuando un miembro registra
+// un pago (le avisa al receptor).
+type pushNotifier interface {
+	NotifyUsers(ctx context.Context, userIDs []uuid.UUID, title, body, url, tag string)
+}
+
+// userLookup: para obtener el nombre del from user en el título del push.
+type userLookup interface {
+	GetByID(ctx context.Context, id uuid.UUID) (domain.User, error)
+}
+
 type Service struct {
 	repo       *Repository
 	households householdLookup
 	balances   balanceReader
+	push       pushNotifier
+	users      userLookup
 }
 
 func NewService(repo *Repository, households householdLookup, balances balanceReader) *Service {
 	return &Service{repo: repo, households: households, balances: balances}
+}
+
+// SetNotifier cablea push post-construcción. users es opcional (si es nil,
+// el push usa "Alguien" como nombre del pagador).
+func (s *Service) SetNotifier(n pushNotifier, users userLookup) {
+	s.push = n
+	s.users = users
 }
 
 // CreateInput: payload del endpoint POST /settlements. El handler parsea
@@ -110,7 +130,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Settlement
 		return domain.SettlementPayment{}, domain.NewValidationError("amount", fmt.Sprintf("excede la deuda actual (%.2f %s)", balance, h.BaseCurrency))
 	}
 
-	return s.repo.Create(ctx, CreateParams{
+	sp, err := s.repo.Create(ctx, CreateParams{
 		HouseholdID:  in.HouseholdID,
 		FromUser:     in.FromUser,
 		ToUser:       in.ToUser,
@@ -119,6 +139,36 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Settlement
 		Note:         in.Note,
 		PaidAt:       in.PaidAt,
 	})
+	if err != nil {
+		return sp, err
+	}
+
+	s.notifySettlement(ctx, sp)
+	return sp, nil
+}
+
+// notifySettlement avisa al to_user que from_user registró un pago.
+func (s *Service) notifySettlement(ctx context.Context, sp domain.SettlementPayment) {
+	if s.push == nil {
+		return
+	}
+	fromName := "Alguien"
+	if s.users != nil {
+		if u, err := s.users.GetByID(ctx, sp.FromUser); err == nil {
+			if fn := strings.TrimSpace(u.FirstName); fn != "" {
+				fromName = fn
+			}
+		}
+	}
+	body := fmt.Sprintf("%s registró un pago de %.2f %s", fromName, sp.AmountBase, sp.BaseCurrency)
+	s.push.NotifyUsers(
+		ctx,
+		[]uuid.UUID{sp.ToUser},
+		"Pago registrado",
+		body,
+		"/balances",
+		"settlement:"+sp.ID.String(),
+	)
 }
 
 // Get devuelve el settlement validando que pertenezca al hogar del caller.

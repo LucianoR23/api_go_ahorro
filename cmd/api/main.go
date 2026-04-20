@@ -31,6 +31,7 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/incomes"
 	"github.com/LucianoR23/api_go_ahorra/internal/insights"
 	"github.com/LucianoR23/api_go_ahorra/internal/paymethods"
+	"github.com/LucianoR23/api_go_ahorra/internal/push"
 	"github.com/LucianoR23/api_go_ahorra/internal/recurringexpenses"
 	"github.com/LucianoR23/api_go_ahorra/internal/reports"
 	"github.com/LucianoR23/api_go_ahorra/internal/settlements"
@@ -97,6 +98,19 @@ func main() {
 	householdsSvc := households.NewService(householdsRepo, userRepo, categoriesRepo, splitRulesSvc)
 	householdsMW := households.NewMiddleware(householdsRepo, logger)
 	householdsHandler := households.NewHandler(householdsSvc, authMW, logger)
+
+	// Push: repo + service + handler. Si las VAPID keys no están, el service
+	// acepta suscripciones pero no envía nada (no-op). El notifier se cablea
+	// a expensesSvc / settlementsSvc / householdsSvc más abajo.
+	pushRepo := push.NewRepository(pool)
+	pushSvc := push.NewService(pushRepo, push.Config{
+		PublicKey:  cfg.VAPIDPublicKey,
+		PrivateKey: cfg.VAPIDPrivateKey,
+		Subject:    cfg.VAPIDSubject,
+	}, logger)
+	pushHandler := push.NewHandler(pushSvc, authMW, logger)
+	pushAdapter := pushNotifierAdapter{svc: pushSvc}
+	householdsSvc.SetNotifier(pushAdapter)
 	splitRulesHandler := splitrules.NewHandler(splitRulesSvc, authMW, householdsMW, logger)
 
 	paymethodsHandler := paymethods.NewHandler(paymethodsSvc, authMW, logger)
@@ -128,6 +142,7 @@ func main() {
 	// (conversión a base currency).
 	expensesRepo := expenses.NewRepository(pool)
 	expensesSvc := expenses.NewService(expensesRepo, householdsRepo, paymethodsSvc, creditPeriodsRepo, fxSvc, splitRulesSvc)
+	expensesSvc.SetNotifier(pushAdapter)
 	expensesHandler := expenses.NewHandler(expensesSvc, authMW, householdsMW, logger)
 
 	// balances: cálculo on-demand de deudas (shares billed - settlements).
@@ -140,6 +155,7 @@ func main() {
 	// balancesSvc.PairNet. No toca payment_methods (la plata se movió afuera).
 	settlementsRepo := settlements.NewRepository(pool)
 	settlementsSvc := settlements.NewService(settlementsRepo, householdsRepo, balancesSvc)
+	settlementsSvc.SetNotifier(pushAdapter, userRepo)
 	settlementsHandler := settlements.NewHandler(settlementsSvc, authMW, householdsMW, logger)
 
 	// incomes: ingresos cobrados + plantillas recurrentes. No tiene shares
@@ -288,6 +304,10 @@ func main() {
 	// Reports (auth + household member).
 	reportsHandler.Mount(r)
 
+	// Push subscriptions + VAPID public key (public key sin auth;
+	// subscribe/unsubscribe requieren auth).
+	pushHandler.Mount(r)
+
 	// Banner de startup (tipo Fiber) — solo en dev para no ensuciar logs prod.
 	if cfg.Env != "prod" {
 		httpx.PrintStartupBanner(os.Stdout, cfg.Env, ":"+cfg.Port, r)
@@ -348,6 +368,23 @@ func parseLogLevel(lvl string) slog.Level {
 	default:
 		return slog.LevelInfo
 	}
+}
+
+// pushNotifierAdapter adapta push.Service al shape que expensesSvc,
+// settlementsSvc y householdsSvc esperan (sus interfaces locales). Los
+// services no importan push directamente para mantener el grafo de deps
+// en una sola dirección (main → push).
+type pushNotifierAdapter struct {
+	svc *push.Service
+}
+
+func (a pushNotifierAdapter) NotifyUsers(ctx context.Context, userIDs []uuid.UUID, title, body, url, tag string) {
+	a.svc.NotifyUsers(ctx, userIDs, push.Payload{
+		Title: title,
+		Body:  body,
+		URL:   url,
+		Tag:   tag,
+	})
 }
 
 func newLogger() *slog.Logger {
