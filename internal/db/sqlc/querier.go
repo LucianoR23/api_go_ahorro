@@ -193,6 +193,22 @@ type Querier interface {
 	SetRecurringIncomeActive(ctx context.Context, arg SetRecurringIncomeActiveParams) error
 	// Agrega settlements por par (from, to) para la matriz.
 	SettlementsByHouseholdAggregated(ctx context.Context, householdID uuid.UUID) ([]SettlementsByHouseholdAggregatedRow, error)
+	// ===================== breakdown por categoría =====================
+	// Para el resumen mensual: total por categoría usando spent_at.
+	// Incluye categoría NULL (gastos sin categorizar). El JOIN es LEFT.
+	SumExpensesByCategoryInRange(ctx context.Context, arg SumExpensesByCategoryInRangeParams) ([]SumExpensesByCategoryInRangeRow, error)
+	// ===================== fijos vs variables =====================
+	// Split por origen: gastos con recurring_expense_id NOT NULL son "fijos"
+	// (los generó el worker de CP9); el resto son "variables" (entrada manual).
+	SumExpensesFixedVariableInRange(ctx context.Context, arg SumExpensesFixedVariableInRangeParams) (SumExpensesFixedVariableInRangeRow, error)
+	// ===================== trends por mes =====================
+	// Para gráfico de trends: total por mes en los últimos N meses.
+	// El caller pasa from/to calculados (start del mes más viejo ~ end del actual).
+	// date_trunc normaliza al primer día del mes.
+	SumExpensesSpentAtByMonth(ctx context.Context, arg SumExpensesSpentAtByMonthParams) ([]SumExpensesSpentAtByMonthRow, error)
+	// ===================== reports: triada spent/billed/due =====================
+	// "spent_this_month": lo que se compró/decidió gastar en el rango.
+	SumExpensesSpentAtForReport(ctx context.Context, arg SumExpensesSpentAtForReportParams) (pgtype.Numeric, error)
 	// ===================== agregaciones para generación =====================
 	// Gasto real (spent_at) del hogar en un rango. Base currency.
 	SumExpensesSpentAtRange(ctx context.Context, arg SumExpensesSpentAtRangeParams) (pgtype.Numeric, error)
@@ -202,6 +218,16 @@ type Querier interface {
 	SumIncomesByHouseholdInRange(ctx context.Context, arg SumIncomesByHouseholdInRangeParams) (pgtype.Numeric, error)
 	// Para savings scope=user: total de ingresos de un usuario en el período.
 	SumIncomesByUserInRange(ctx context.Context, arg SumIncomesByUserInRangeParams) (pgtype.Numeric, error)
+	// Ingresos por mes para comparar contra gastos en trends.
+	SumIncomesReceivedByMonth(ctx context.Context, arg SumIncomesReceivedByMonthParams) ([]SumIncomesReceivedByMonthRow, error)
+	// "billed_this_month": lo que apareció en resúmenes de tarjeta en el rango
+	// (billing_date). Para no-crédito es igual a spent_at (la query no distingue).
+	SumInstallmentsBilledForReport(ctx context.Context, arg SumInstallmentsBilledForReportParams) (pgtype.Numeric, error)
+	// Mismo concepto pero por due_date — lo que hay que pagar por mes.
+	SumInstallmentsDueByMonth(ctx context.Context, arg SumInstallmentsDueByMonthParams) ([]SumInstallmentsDueByMonthRow, error)
+	// "due_this_month": lo que hay que pagar en el rango (due_date). Para
+	// no-crédito due_date es NULL, usamos COALESCE con billing_date.
+	SumInstallmentsDueForReport(ctx context.Context, arg SumInstallmentsDueForReportParams) (pgtype.Numeric, error)
 	// Cuotas cuyo due_date cae en el rango. Usamos COALESCE(due_date, billing_date)
 	// para unificar crédito y el resto.
 	SumInstallmentsDueInRange(ctx context.Context, arg SumInstallmentsDueInRangeParams) (pgtype.Numeric, error)

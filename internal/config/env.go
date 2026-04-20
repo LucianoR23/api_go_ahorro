@@ -18,6 +18,11 @@ type Config struct {
 	JWTSecret        string
 	JWTRefreshSecret string
 	AllowedOrigins   []string
+
+	// Resend: opcional. Si no hay API key, el worker de reports no manda
+	// emails (loguea warning y sigue). Útil para dev sin configurar nada.
+	ResendAPIKey    string
+	ReportFromEmail string // e.g. "Ahorra <reports@ahorra.app>"
 }
 
 // Load lee el archivo .env (si existe) al ambiente del proceso y construye
@@ -37,6 +42,8 @@ func Load() (*Config, error) {
 		JWTSecret:        os.Getenv("JWT_SECRET"),
 		JWTRefreshSecret: os.Getenv("JWT_REFRESH_SECRET"),
 		AllowedOrigins:   splitAndTrim(getOrDefault("ALLOWED_ORIGINS", "http://localhost:3000"), ","),
+		ResendAPIKey:     os.Getenv("RESEND_API_KEY"),
+		ReportFromEmail:  getOrDefault("REPORT_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
 	}
 
 	if err := cfg.validate(); err != nil {

@@ -28,6 +28,8 @@ type Expense struct {
 	Installments int
 	IsShared     bool
 
+	RecurringExpenseID *uuid.UUID
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

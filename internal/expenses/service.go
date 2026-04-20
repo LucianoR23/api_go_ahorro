@@ -92,6 +92,9 @@ type CreateInput struct {
 	SpentAt         time.Time
 	Installments    int
 	IsShared        bool
+	// RecurringExpenseID: set solo cuando el worker de recurring genera el
+	// expense. NULL = gasto manual/variable.
+	RecurringExpenseID *uuid.UUID
 	// SharesOverride: opcional, solo válido si IsShared=true. Si viene,
 	// reemplaza al split ponderado del hogar para este gasto puntual.
 	// Debe cubrir a todos los miembros con monto > 0 y sumar in.Amount.
@@ -189,6 +192,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.ExpenseDet
 		SpentAt:         in.SpentAt,
 		Installments:    in.Installments,
 		IsShared:        in.IsShared,
+		RecurringExpenseID: in.RecurringExpenseID,
 	}
 
 	return s.repo.CreateTx(ctx, CreateBundle{Expense: expense, Installments: installments})

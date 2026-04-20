@@ -31,6 +31,7 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/insights"
 	"github.com/LucianoR23/api_go_ahorra/internal/paymethods"
 	"github.com/LucianoR23/api_go_ahorra/internal/recurringexpenses"
+	"github.com/LucianoR23/api_go_ahorra/internal/reports"
 	"github.com/LucianoR23/api_go_ahorra/internal/settlements"
 	"github.com/LucianoR23/api_go_ahorra/internal/splitrules"
 	"github.com/LucianoR23/api_go_ahorra/internal/users"
@@ -181,6 +182,20 @@ func main() {
 	stopInsightsWorker := insightsWorker.Start(context.Background())
 	defer stopInsightsWorker()
 
+	// reports: agregaciones read-only (monthly + trends + ai-export).
+	// No tiene worker por ahora — el email mensual se agrega cuando
+	// configuremos RESEND_API_KEY.
+	reportsRepo := reports.NewRepository(pool)
+	reportsSvc := reports.NewService(reportsRepo, householdsRepo, logger)
+	reportsHandler := reports.NewHandler(reportsSvc, authMW, householdsMW, logger)
+
+	// Resend sender + worker mensual. Si RESEND_API_KEY no está, el worker
+	// arranca igual pero no envía — útil para dev sin credenciales.
+	reportsSender := reports.NewResendSender(cfg.ResendAPIKey, cfg.ReportFromEmail)
+	reportsWorker := reports.NewWorker(reportsSvc, householdsRepo, reportsSender, 8, 0, logger)
+	stopReportsWorker := reportsWorker.Start(context.Background())
+	defer stopReportsWorker()
+
 	// ---------- router ----------
 	r := chi.NewRouter()
 
@@ -255,6 +270,9 @@ func main() {
 
 	// Insights (auth + household member).
 	insightsHandler.Mount(r)
+
+	// Reports (auth + household member).
+	reportsHandler.Mount(r)
 
 	// Banner de startup (tipo Fiber) — solo en dev para no ensuciar logs prod.
 	if cfg.Env != "prod" {

@@ -86,23 +86,24 @@ type ExchangeRate struct {
 }
 
 type Expense struct {
-	ID              uuid.UUID          `json:"id"`
-	HouseholdID     uuid.UUID          `json:"household_id"`
-	CreatedBy       uuid.UUID          `json:"created_by"`
-	CategoryID      *uuid.UUID         `json:"category_id"`
-	PaymentMethodID uuid.UUID          `json:"payment_method_id"`
-	Amount          pgtype.Numeric     `json:"amount"`
-	Currency        string             `json:"currency"`
-	AmountBase      pgtype.Numeric     `json:"amount_base"`
-	BaseCurrency    string             `json:"base_currency"`
-	RateUsed        pgtype.Numeric     `json:"rate_used"`
-	RateAt          pgtype.Timestamptz `json:"rate_at"`
-	Description     string             `json:"description"`
-	SpentAt         pgtype.Date        `json:"spent_at"`
-	Installments    int32              `json:"installments"`
-	IsShared        bool               `json:"is_shared"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	ID                 uuid.UUID          `json:"id"`
+	HouseholdID        uuid.UUID          `json:"household_id"`
+	CreatedBy          uuid.UUID          `json:"created_by"`
+	CategoryID         *uuid.UUID         `json:"category_id"`
+	PaymentMethodID    uuid.UUID          `json:"payment_method_id"`
+	Amount             pgtype.Numeric     `json:"amount"`
+	Currency           string             `json:"currency"`
+	AmountBase         pgtype.Numeric     `json:"amount_base"`
+	BaseCurrency       string             `json:"base_currency"`
+	RateUsed           pgtype.Numeric     `json:"rate_used"`
+	RateAt             pgtype.Timestamptz `json:"rate_at"`
+	Description        string             `json:"description"`
+	SpentAt            pgtype.Date        `json:"spent_at"`
+	Installments       int32              `json:"installments"`
+	IsShared           bool               `json:"is_shared"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	RecurringExpenseID *uuid.UUID         `json:"recurring_expense_id"`
 }
 
 type ExpenseInstallment struct {

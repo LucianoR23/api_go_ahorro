@@ -229,6 +229,7 @@ func (s *Service) GenerateDue(ctx context.Context, date time.Time) (int, int, er
 			SpentAt:         date,
 			Installments:    t.Installments,
 			IsShared:        t.IsShared,
+			RecurringExpenseID: &t.ID,
 		})
 		if err != nil {
 			failed++

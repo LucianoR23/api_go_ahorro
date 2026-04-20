@@ -47,27 +47,28 @@ const createExpense = `-- name: CreateExpense :one
 INSERT INTO expenses (
     household_id, created_by, category_id, payment_method_id,
     amount, currency, amount_base, base_currency, rate_used, rate_at,
-    description, spent_at, installments, is_shared
+    description, spent_at, installments, is_shared, recurring_expense_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id
 `
 
 type CreateExpenseParams struct {
-	HouseholdID     uuid.UUID          `json:"household_id"`
-	CreatedBy       uuid.UUID          `json:"created_by"`
-	CategoryID      *uuid.UUID         `json:"category_id"`
-	PaymentMethodID uuid.UUID          `json:"payment_method_id"`
-	Amount          pgtype.Numeric     `json:"amount"`
-	Currency        string             `json:"currency"`
-	AmountBase      pgtype.Numeric     `json:"amount_base"`
-	BaseCurrency    string             `json:"base_currency"`
-	RateUsed        pgtype.Numeric     `json:"rate_used"`
-	RateAt          pgtype.Timestamptz `json:"rate_at"`
-	Description     string             `json:"description"`
-	SpentAt         pgtype.Date        `json:"spent_at"`
-	Installments    int32              `json:"installments"`
-	IsShared        bool               `json:"is_shared"`
+	HouseholdID        uuid.UUID          `json:"household_id"`
+	CreatedBy          uuid.UUID          `json:"created_by"`
+	CategoryID         *uuid.UUID         `json:"category_id"`
+	PaymentMethodID    uuid.UUID          `json:"payment_method_id"`
+	Amount             pgtype.Numeric     `json:"amount"`
+	Currency           string             `json:"currency"`
+	AmountBase         pgtype.Numeric     `json:"amount_base"`
+	BaseCurrency       string             `json:"base_currency"`
+	RateUsed           pgtype.Numeric     `json:"rate_used"`
+	RateAt             pgtype.Timestamptz `json:"rate_at"`
+	Description        string             `json:"description"`
+	SpentAt            pgtype.Date        `json:"spent_at"`
+	Installments       int32              `json:"installments"`
+	IsShared           bool               `json:"is_shared"`
+	RecurringExpenseID *uuid.UUID         `json:"recurring_expense_id"`
 }
 
 func (q *Queries) CreateExpense(ctx context.Context, arg CreateExpenseParams) (Expense, error) {
@@ -86,6 +87,7 @@ func (q *Queries) CreateExpense(ctx context.Context, arg CreateExpenseParams) (E
 		arg.SpentAt,
 		arg.Installments,
 		arg.IsShared,
+		arg.RecurringExpenseID,
 	)
 	var i Expense
 	err := row.Scan(
@@ -106,6 +108,7 @@ func (q *Queries) CreateExpense(ctx context.Context, arg CreateExpenseParams) (E
 		&i.IsShared,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RecurringExpenseID,
 	)
 	return i, err
 }
@@ -189,7 +192,7 @@ func (q *Queries) DeleteExpense(ctx context.Context, id uuid.UUID) error {
 }
 
 const getExpenseByID = `-- name: GetExpenseByID :one
-SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at FROM expenses WHERE id = $1
+SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id FROM expenses WHERE id = $1
 `
 
 func (q *Queries) GetExpenseByID(ctx context.Context, id uuid.UUID) (Expense, error) {
@@ -213,6 +216,7 @@ func (q *Queries) GetExpenseByID(ctx context.Context, id uuid.UUID) (Expense, er
 		&i.IsShared,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RecurringExpenseID,
 	)
 	return i, err
 }
@@ -247,7 +251,7 @@ func (q *Queries) GetInstallmentByExpenseAndNumber(ctx context.Context, arg GetI
 }
 
 const listExpensesByHousehold = `-- name: ListExpensesByHousehold :many
-SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at
+SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id
 FROM expenses
 WHERE household_id = $1
   AND ($4::uuid IS NULL OR category_id = $4::uuid)
@@ -305,6 +309,7 @@ func (q *Queries) ListExpensesByHousehold(ctx context.Context, arg ListExpensesB
 			&i.IsShared,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RecurringExpenseID,
 		); err != nil {
 			return nil, err
 		}
@@ -447,7 +452,7 @@ SET description = $2,
     category_id = $4,
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at
+RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id
 `
 
 type UpdateExpenseParams struct {
@@ -485,6 +490,7 @@ func (q *Queries) UpdateExpense(ctx context.Context, arg UpdateExpenseParams) (E
 		&i.IsShared,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RecurringExpenseID,
 	)
 	return i, err
 }

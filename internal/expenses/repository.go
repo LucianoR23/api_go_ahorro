@@ -69,20 +69,21 @@ func (r *Repository) CreateTx(ctx context.Context, b CreateBundle) (domain.Expen
 		}
 
 		eRow, err := qTx.CreateExpense(ctx, sqlcgen.CreateExpenseParams{
-			HouseholdID:     b.Expense.HouseholdID,
-			CreatedBy:       b.Expense.CreatedBy,
-			CategoryID:      b.Expense.CategoryID,
-			PaymentMethodID: b.Expense.PaymentMethodID,
-			Amount:          amount,
-			Currency:        b.Expense.Currency,
-			AmountBase:      amountBase,
-			BaseCurrency:    b.Expense.BaseCurrency,
-			RateUsed:        rateUsed,
-			RateAt:          rateAt,
-			Description:     b.Expense.Description,
-			SpentAt:         pgtype.Date{Time: b.Expense.SpentAt, Valid: true},
-			Installments:    int32(b.Expense.Installments),
-			IsShared:        b.Expense.IsShared,
+			HouseholdID:        b.Expense.HouseholdID,
+			CreatedBy:          b.Expense.CreatedBy,
+			CategoryID:         b.Expense.CategoryID,
+			PaymentMethodID:    b.Expense.PaymentMethodID,
+			Amount:             amount,
+			Currency:           b.Expense.Currency,
+			AmountBase:         amountBase,
+			BaseCurrency:       b.Expense.BaseCurrency,
+			RateUsed:           rateUsed,
+			RateAt:             rateAt,
+			Description:        b.Expense.Description,
+			SpentAt:            pgtype.Date{Time: b.Expense.SpentAt, Valid: true},
+			Installments:       int32(b.Expense.Installments),
+			IsShared:           b.Expense.IsShared,
+			RecurringExpenseID: b.Expense.RecurringExpenseID,
 		})
 		if err != nil {
 			return fmt.Errorf("insert expense: %w", err)
@@ -355,6 +356,7 @@ func expenseToDomain(e sqlcgen.Expense) domain.Expense {
 		SpentAt:         e.SpentAt.Time,
 		Installments:    int(e.Installments),
 		IsShared:        e.IsShared,
+		RecurringExpenseID: e.RecurringExpenseID,
 		CreatedAt:       e.CreatedAt.Time,
 		UpdatedAt:       e.UpdatedAt.Time,
 	}
