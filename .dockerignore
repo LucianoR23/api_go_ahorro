@@ -1,0 +1,36 @@
+# Archivos que no queremos que entren al contexto del build de Docker.
+# Mantener la imagen chica y los builds rápidos.
+
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+.vscode
+.idea
+*.md
+README.md
+LICENSE
+
+# Binarios locales
+/api
+/tmp
+*.exe
+
+# Tests y cobertura
+*.test
+*.out
+coverage.*
+
+# Herramientas locales
+bin/
+dist/
+
+# Docker mismo (evitar recursión)
+Dockerfile
+.dockerignore
+
+# Archivos OS
+.DS_Store
+Thumbs.db

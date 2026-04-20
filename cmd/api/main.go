@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"github.com/go-chi/httplog/v2"
 	"github.com/google/uuid"
 
@@ -205,6 +206,19 @@ func main() {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+
+	// CORS: permite al frontend llamar al API desde otro origen. Los orígenes
+	// válidos vienen de la env var ALLOWED_ORIGINS (separada por coma).
+	// AllowCredentials=true es obligatorio para que el refresh token cookie
+	// (HttpOnly) viaje en las requests del frontend.
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   cfg.AllowedOrigins,
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Household-ID", "X-Request-ID"},
+		ExposedHeaders:   []string{"X-Request-ID"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
 
 	// Logger de requests:
 	//   dev  → DevRequestLogger con colores ANSI por status (verde/amarillo/rojo)
