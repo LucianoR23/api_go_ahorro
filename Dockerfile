@@ -22,7 +22,9 @@ COPY . .
 # Build estático. CGO_ENABLED=0 → binario sin dependencias de libc, corre
 # en scratch/distroless. -trimpath elimina paths absolutos del binario.
 # -ldflags="-s -w" strip symbols para binario ~30% más chico.
-ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
+ARG TARGETOS=linux
+ARG TARGETARCH
+ENV CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
 RUN go build \
     -trimpath \
     -ldflags="-s -w" \
