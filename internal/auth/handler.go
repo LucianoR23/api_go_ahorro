@@ -395,9 +395,13 @@ func (h *Handler) setRefreshCookie(w http.ResponseWriter, value string, expires 
 		Path:     "/",
 		Expires:  expires,
 		MaxAge:   int(time.Until(expires).Seconds()),
-		HttpOnly: true,               // inaccesible desde JS → mitiga XSS
-		Secure:   h.secureCookies,    // solo HTTPS en prod
-		SameSite: http.SameSiteStrictMode,
+		HttpOnly: true,            // inaccesible desde JS → mitiga XSS
+		Secure:   h.secureCookies, // solo HTTPS en prod
+		// Lax permite que la cookie viaje en navegaciones top-level
+		// (ej. links de verificación de email) y en XHR same-site
+		// (front y API comparten eTLD+1 lemydev.com). Strict rompe
+		// esos flujos sin ganancia real de seguridad para este caso.
+		SameSite: http.SameSiteLaxMode,
 	})
 }
 
@@ -409,7 +413,7 @@ func (h *Handler) clearRefreshCookie(w http.ResponseWriter) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   h.secureCookies,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 	})
 }
 
