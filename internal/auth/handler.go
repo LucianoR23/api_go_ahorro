@@ -170,6 +170,9 @@ type userDTO struct {
 	FirstName       string     `json:"firstName"`
 	LastName        string     `json:"lastName"`
 	EmailVerifiedAt *time.Time `json:"emailVerifiedAt,omitempty"`
+	// IsSuperadmin: el front lo usa para mostrar la sección /admin de
+	// households borrados. Se devuelve en login/register/me/refresh.
+	IsSuperadmin bool `json:"isSuperadmin"`
 }
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
@@ -417,6 +420,7 @@ func toUserDTO(u domain.User) userDTO {
 		FirstName:       u.FirstName,
 		LastName:        u.LastName,
 		EmailVerifiedAt: u.EmailVerifiedAt,
+		IsSuperadmin:    u.IsSuperadmin,
 	}
 }
 

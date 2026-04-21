@@ -31,7 +31,7 @@ const createUser = `-- name: CreateUser :one
 
 INSERT INTO users (email, password_hash, first_name, last_name)
 VALUES ($1, $2, $3, $4)
-RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin
 `
 
 type CreateUserParams struct {
@@ -69,12 +69,13 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.LastName,
 		&i.DeletedAt,
 		&i.EmailVerifiedAt,
+		&i.IsSuperadmin,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at FROM users WHERE email = $1 AND deleted_at IS NULL
+SELECT id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin FROM users WHERE email = $1 AND deleted_at IS NULL
 `
 
 // Usado en login. Devuelve pgx.ErrNoRows si no existe → mapeamos a error de dominio.
@@ -93,12 +94,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.LastName,
 		&i.DeletedAt,
 		&i.EmailVerifiedAt,
+		&i.IsSuperadmin,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at FROM users WHERE id = $1 AND deleted_at IS NULL
+SELECT id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin FROM users WHERE id = $1 AND deleted_at IS NULL
 `
 
 // Filtra soft-deleted. Un token viejo de una cuenta borrada → pgx.ErrNoRows
@@ -116,8 +118,23 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.LastName,
 		&i.DeletedAt,
 		&i.EmailVerifiedAt,
+		&i.IsSuperadmin,
 	)
 	return i, err
+}
+
+const isUserSuperadmin = `-- name: IsUserSuperadmin :one
+SELECT is_superadmin FROM users
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+// Flag global para gatear endpoints /admin/*. Independiente del rol por-hogar.
+// Se setea manualmente por DB; no hay endpoint para modificarlo.
+func (q *Queries) IsUserSuperadmin(ctx context.Context, id uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, isUserSuperadmin, id)
+	var is_superadmin bool
+	err := row.Scan(&is_superadmin)
+	return is_superadmin, err
 }
 
 const softDeleteUser = `-- name: SoftDeleteUser :exec
@@ -142,7 +159,7 @@ SET first_name = $2,
     last_name  = $3,
     updated_at = now()
 WHERE id = $1
-RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin
 `
 
 type UpdateUserNameParams struct {
@@ -165,6 +182,7 @@ func (q *Queries) UpdateUserName(ctx context.Context, arg UpdateUserNameParams) 
 		&i.LastName,
 		&i.DeletedAt,
 		&i.EmailVerifiedAt,
+		&i.IsSuperadmin,
 	)
 	return i, err
 }
@@ -193,7 +211,7 @@ SET first_name = $2,
     email      = $4,
     updated_at = now()
 WHERE id = $1
-RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin
 `
 
 type UpdateUserProfileParams struct {
@@ -224,6 +242,7 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 		&i.LastName,
 		&i.DeletedAt,
 		&i.EmailVerifiedAt,
+		&i.IsSuperadmin,
 	)
 	return i, err
 }

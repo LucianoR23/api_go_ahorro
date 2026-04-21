@@ -74,3 +74,10 @@ UPDATE users
 SET password_hash = $2,
     updated_at = now()
 WHERE id = $1;
+
+
+-- name: IsUserSuperadmin :one
+-- Flag global para gatear endpoints /admin/*. Independiente del rol por-hogar.
+-- Se setea manualmente por DB; no hay endpoint para modificarlo.
+SELECT is_superadmin FROM users
+WHERE id = $1 AND deleted_at IS NULL;

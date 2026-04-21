@@ -10,7 +10,7 @@ import (
 )
 
 func toDomain(h sqlcgen.Household) domain.Household {
-	return domain.Household{
+	d := domain.Household{
 		ID:           h.ID,
 		Name:         h.Name,
 		BaseCurrency: h.BaseCurrency,
@@ -18,6 +18,11 @@ func toDomain(h sqlcgen.Household) domain.Household {
 		CreatedAt:    h.CreatedAt.Time,
 		UpdatedAt:    h.UpdatedAt.Time,
 	}
+	if h.DeletedAt.Valid {
+		t := h.DeletedAt.Time
+		d.DeletedAt = &t
+	}
+	return d
 }
 
 func toDomainMember(m sqlcgen.HouseholdMember) domain.HouseholdMember {

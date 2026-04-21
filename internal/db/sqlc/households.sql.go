@@ -61,7 +61,7 @@ const createHousehold = `-- name: CreateHousehold :one
 
 INSERT INTO households (name, base_currency, created_by)
 VALUES ($1, $2, $3)
-RETURNING id, name, base_currency, created_by, created_at, updated_at
+RETURNING id, name, base_currency, created_by, created_at, updated_at, deleted_at
 `
 
 type CreateHouseholdParams struct {
@@ -81,24 +81,17 @@ func (q *Queries) CreateHousehold(ctx context.Context, arg CreateHouseholdParams
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
-const deleteHousehold = `-- name: DeleteHousehold :exec
-DELETE FROM households WHERE id = $1
-`
-
-// ON DELETE CASCADE en household_members → limpia la membresía automáticamente.
-func (q *Queries) DeleteHousehold(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.Exec(ctx, deleteHousehold, id)
-	return err
-}
-
 const getHouseholdByID = `-- name: GetHouseholdByID :one
-SELECT id, name, base_currency, created_by, created_at, updated_at FROM households WHERE id = $1
+SELECT id, name, base_currency, created_by, created_at, updated_at, deleted_at FROM households WHERE id = $1 AND deleted_at IS NULL
 `
 
+// Filtra soft-deleted: un hogar borrado por su owner es invisible para
+// miembros y workers. Restore/purge se manejan en queries /admin/*.
 func (q *Queries) GetHouseholdByID(ctx context.Context, id uuid.UUID) (Household, error) {
 	row := q.db.QueryRow(ctx, getHouseholdByID, id)
 	var i Household
@@ -109,6 +102,28 @@ func (q *Queries) GetHouseholdByID(ctx context.Context, id uuid.UUID) (Household
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const getHouseholdByIDIncludingDeleted = `-- name: GetHouseholdByIDIncludingDeleted :one
+SELECT id, name, base_currency, created_by, created_at, updated_at, deleted_at FROM households WHERE id = $1
+`
+
+// Versión "admin": devuelve la fila incluso si está soft-deleted. Usada
+// solo por los endpoints /admin/* (restore, purge).
+func (q *Queries) GetHouseholdByIDIncludingDeleted(ctx context.Context, id uuid.UUID) (Household, error) {
+	row := q.db.QueryRow(ctx, getHouseholdByIDIncludingDeleted, id)
+	var i Household
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.BaseCurrency,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -136,8 +151,9 @@ func (q *Queries) GetHouseholdMemberRole(ctx context.Context, arg GetHouseholdMe
 
 const isHouseholdMember = `-- name: IsHouseholdMember :one
 SELECT EXISTS (
-    SELECT 1 FROM household_members
-    WHERE household_id = $1 AND user_id = $2
+    SELECT 1 FROM household_members hm
+    INNER JOIN households h ON h.id = hm.household_id
+    WHERE hm.household_id = $1 AND hm.user_id = $2 AND h.deleted_at IS NULL
 ) AS is_member
 `
 
@@ -146,7 +162,10 @@ type IsHouseholdMemberParams struct {
 	UserID      uuid.UUID `json:"user_id"`
 }
 
-// Devuelve true si el user pertenece al hogar. Usada por el middleware de autz.
+// Devuelve true si el user pertenece al hogar Y el hogar no está soft-deleted.
+// Un hogar borrado se comporta como si no existiera para todos los endpoints
+// del API. Esto es lo que garantiza que los miembros pierden acceso al instante
+// cuando el owner hace DELETE.
 func (q *Queries) IsHouseholdMember(ctx context.Context, arg IsHouseholdMemberParams) (bool, error) {
 	row := q.db.QueryRow(ctx, isHouseholdMember, arg.HouseholdID, arg.UserID)
 	var is_member bool
@@ -155,10 +174,11 @@ func (q *Queries) IsHouseholdMember(ctx context.Context, arg IsHouseholdMemberPa
 }
 
 const listAllHouseholdIDs = `-- name: ListAllHouseholdIDs :many
-SELECT id FROM households
+SELECT id FROM households WHERE deleted_at IS NULL
 `
 
-// Para workers que iteran todos los hogares (insights, reports).
+// Para workers que iteran todos los hogares (insights, reports). Saltea
+// soft-deleted: un hogar borrado no debe generar insights ni reports.
 func (q *Queries) ListAllHouseholdIDs(ctx context.Context) ([]uuid.UUID, error) {
 	rows, err := q.db.Query(ctx, listAllHouseholdIDs)
 	if err != nil {
@@ -179,8 +199,82 @@ func (q *Queries) ListAllHouseholdIDs(ctx context.Context) ([]uuid.UUID, error) 
 	return items, nil
 }
 
+const listDeletedHouseholds = `-- name: ListDeletedHouseholds :many
+SELECT
+    h.id,
+    h.name,
+    h.base_currency,
+    h.created_by,
+    h.created_at,
+    h.updated_at,
+    h.deleted_at,
+    COALESCE(owner_u.id, creator.id)            AS owner_id,
+    COALESCE(owner_u.email, creator.email)      AS owner_email,
+    COALESCE(owner_u.first_name, creator.first_name) AS owner_first_name,
+    COALESCE(owner_u.last_name, creator.last_name)   AS owner_last_name
+FROM households h
+INNER JOIN users creator ON creator.id = h.created_by
+LEFT JOIN household_members hm ON hm.household_id = h.id AND hm.role = 'owner'
+LEFT JOIN users owner_u ON owner_u.id = hm.user_id
+WHERE h.deleted_at IS NOT NULL
+ORDER BY h.deleted_at DESC
+`
+
+type ListDeletedHouseholdsRow struct {
+	ID             uuid.UUID          `json:"id"`
+	Name           string             `json:"name"`
+	BaseCurrency   string             `json:"base_currency"`
+	CreatedBy      uuid.UUID          `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+	OwnerID        uuid.UUID          `json:"owner_id"`
+	OwnerEmail     string             `json:"owner_email"`
+	OwnerFirstName string             `json:"owner_first_name"`
+	OwnerLastName  string             `json:"owner_last_name"`
+}
+
+// Para /admin/households/deleted: lista todos los hogares soft-deleted
+// ordenados por fecha de borrado (más reciente primero). JOIN con users
+// para devolver info del owner actual (preferimos el owner vigente en
+// household_members sobre created_by, porque pudo haber habido transfer).
+//
+// COALESCE: si no hay owner actual (caso raro de data inconsistente),
+// cae al created_by para no perder la referencia.
+func (q *Queries) ListDeletedHouseholds(ctx context.Context) ([]ListDeletedHouseholdsRow, error) {
+	rows, err := q.db.Query(ctx, listDeletedHouseholds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDeletedHouseholdsRow{}
+	for rows.Next() {
+		var i ListDeletedHouseholdsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.BaseCurrency,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.OwnerID,
+			&i.OwnerEmail,
+			&i.OwnerFirstName,
+			&i.OwnerLastName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listHouseholdMembers = `-- name: ListHouseholdMembers :many
-SELECT u.id, u.email, u.password_hash, u.created_at, u.updated_at, u.first_name, u.last_name, u.deleted_at, u.email_verified_at, hm.role, hm.joined_at
+SELECT u.id, u.email, u.password_hash, u.created_at, u.updated_at, u.first_name, u.last_name, u.deleted_at, u.email_verified_at, u.is_superadmin, hm.role, hm.joined_at
 FROM household_members hm
 INNER JOIN users u ON u.id = hm.user_id
 WHERE hm.household_id = $1
@@ -215,6 +309,7 @@ func (q *Queries) ListHouseholdMembers(ctx context.Context, householdID uuid.UUI
 			&i.User.LastName,
 			&i.User.DeletedAt,
 			&i.User.EmailVerifiedAt,
+			&i.User.IsSuperadmin,
 			&i.Role,
 			&i.JoinedAt,
 		); err != nil {
@@ -229,15 +324,16 @@ func (q *Queries) ListHouseholdMembers(ctx context.Context, householdID uuid.UUI
 }
 
 const listHouseholdsForUser = `-- name: ListHouseholdsForUser :many
-SELECT h.id, h.name, h.base_currency, h.created_by, h.created_at, h.updated_at
+SELECT h.id, h.name, h.base_currency, h.created_by, h.created_at, h.updated_at, h.deleted_at
 FROM households h
 INNER JOIN household_members hm ON hm.household_id = h.id
-WHERE hm.user_id = $1
+WHERE hm.user_id = $1 AND h.deleted_at IS NULL
 ORDER BY h.created_at ASC
 `
 
-// Lista todos los hogares a los que pertenece un user.
-// JOIN con household_members para filtrar por membresía.
+// Lista todos los hogares a los que pertenece un user. Filtra soft-deleted
+// para que el user no vea hogares que fueron "borrados" (aunque siga su
+// membresía en la tabla).
 func (q *Queries) ListHouseholdsForUser(ctx context.Context, userID uuid.UUID) ([]Household, error) {
 	rows, err := q.db.Query(ctx, listHouseholdsForUser, userID)
 	if err != nil {
@@ -254,6 +350,7 @@ func (q *Queries) ListHouseholdsForUser(ctx context.Context, userID uuid.UUID) (
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -263,6 +360,17 @@ func (q *Queries) ListHouseholdsForUser(ctx context.Context, userID uuid.UUID) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const purgeHousehold = `-- name: PurgeHousehold :exec
+DELETE FROM households WHERE id = $1
+`
+
+// Admin-only: borrado físico. ON DELETE CASCADE arrastra miembros,
+// expenses, goals, settlements, split_rules, categories, invites. Irreversible.
+func (q *Queries) PurgeHousehold(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, purgeHousehold, id)
+	return err
 }
 
 const removeAllMembershipsForUser = `-- name: RemoveAllMembershipsForUser :exec
@@ -291,13 +399,41 @@ func (q *Queries) RemoveHouseholdMember(ctx context.Context, arg RemoveHousehold
 	return err
 }
 
+const restoreHousehold = `-- name: RestoreHousehold :exec
+UPDATE households
+SET deleted_at = NULL,
+    updated_at = now()
+WHERE id = $1 AND deleted_at IS NOT NULL
+`
+
+// Admin-only: limpia deleted_at y deja el hogar accesible de nuevo.
+func (q *Queries) RestoreHousehold(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, restoreHousehold, id)
+	return err
+}
+
+const softDeleteHousehold = `-- name: SoftDeleteHousehold :exec
+UPDATE households
+SET deleted_at = now(),
+    updated_at = now()
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+// Marca el hogar como borrado. Los miembros pierden acceso pero toda la
+// data (expenses, goals, settlements, etc.) queda intacta. El superadmin
+// puede restaurar o purgar desde /admin/*.
+func (q *Queries) SoftDeleteHousehold(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, softDeleteHousehold, id)
+	return err
+}
+
 const updateHousehold = `-- name: UpdateHousehold :one
 UPDATE households
 SET name = $2,
     base_currency = $3,
     updated_at = now()
-WHERE id = $1
-RETURNING id, name, base_currency, created_by, created_at, updated_at
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, name, base_currency, created_by, created_at, updated_at, deleted_at
 `
 
 type UpdateHouseholdParams struct {
@@ -316,6 +452,7 @@ func (q *Queries) UpdateHousehold(ctx context.Context, arg UpdateHouseholdParams
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }

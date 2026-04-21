@@ -82,6 +82,9 @@ func main() {
 
 	authSvc := auth.NewService(userRepo, tokenIssuer, paymethodsSvc, logger)
 	authMW := auth.NewMiddleware(tokenIssuer, logger)
+	// Cablear el lookup de is_superadmin para el middleware RequireSuperadmin.
+	// Sin esto, el middleware rechaza todo /admin/* (fail-closed).
+	authMW.SetSuperadminChecker(userRepo)
 	authHandler := auth.NewHandler(authSvc, authMW, logger, cfg.Env == "prod")
 
 	// Password reset: mismo patrón que invites — token random (32 bytes),
@@ -120,6 +123,7 @@ func main() {
 	householdsSvc := households.NewService(householdsRepo, userRepo, categoriesRepo, splitRulesSvc)
 	householdsMW := households.NewMiddleware(householdsRepo, logger)
 	householdsHandler := households.NewHandler(householdsSvc, authMW, logger)
+	householdsAdminHandler := households.NewAdminHandler(householdsSvc, authMW, logger)
 
 	// Invites: owner invita por email. Genera token, persiste hash y manda
 	// el link por Resend (usando INVITE_FROM_EMAIL + APP_BASE_URL). Si el
@@ -304,6 +308,10 @@ func main() {
 
 	// Households (todas las rutas requieren auth — el mount lo aplica).
 	householdsHandler.Mount(r)
+
+	// Admin households (/admin/households/*): requiere auth + is_superadmin.
+	// Endpoints: listar soft-deleted, restaurar, purgar (DELETE físico con CASCADE).
+	householdsAdminHandler.Mount(r)
 
 	// Household invites: /invites/{token} es pública (preview pre-login).
 	// Create/List/Revoke/Accept aplican auth dentro del mount.

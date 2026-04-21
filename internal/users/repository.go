@@ -118,6 +118,21 @@ func (r *Repository) UpdatePasswordHash(ctx context.Context, id uuid.UUID, newHa
 	return nil
 }
 
+// IsSuperadmin devuelve true si el user tiene el flag global is_superadmin.
+// Se setea manualmente por DB; no hay endpoint para modificarlo. Usado por
+// auth.RequireSuperadmin para gatear endpoints /admin/*.
+func (r *Repository) IsSuperadmin(ctx context.Context, userID uuid.UUID) (bool, error) {
+	ok, err := r.q.IsUserSuperadmin(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// User no existe o está soft-deleted → trato como "no admin".
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("users.IsSuperadmin: %w", err)
+	}
+	return ok, nil
+}
+
 // CountHouseholdsOwned devuelve cuántos hogares tiene el user como owner.
 // Usado por la baja de cuenta para bloquear si aún es dueño de alguno.
 func (r *Repository) CountHouseholdsOwned(ctx context.Context, userID uuid.UUID) (int64, error) {
@@ -189,12 +204,13 @@ func (r *Repository) GetCredentialsByID(ctx context.Context, id uuid.UUID) (Cred
 // aunque acá son NOT NULL — el .Time siempre es válido).
 func toDomain(u sqlcgen.User) domain.User {
 	d := domain.User{
-		ID:        u.ID,
-		Email:     string(u.Email),
-		FirstName: u.FirstName,
-		LastName:  u.LastName,
-		CreatedAt: u.CreatedAt.Time,
-		UpdatedAt: u.UpdatedAt.Time,
+		ID:           u.ID,
+		Email:        string(u.Email),
+		FirstName:    u.FirstName,
+		LastName:     u.LastName,
+		IsSuperadmin: u.IsSuperadmin,
+		CreatedAt:    u.CreatedAt.Time,
+		UpdatedAt:    u.UpdatedAt.Time,
 	}
 	if u.EmailVerifiedAt.Valid {
 		t := u.EmailVerifiedAt.Time

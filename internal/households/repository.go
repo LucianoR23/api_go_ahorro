@@ -145,12 +145,79 @@ func (r *Repository) Update(ctx context.Context, id uuid.UUID, name, baseCurrenc
 	return toDomain(h), nil
 }
 
-// Delete borra el hogar. ON DELETE CASCADE en household_members
-// limpia la membresía automáticamente. Futuros: también cascadeará
-// expenses, goals, etc. cuando esas tablas apunten acá.
+// Delete hace soft-delete: marca deleted_at = now(). Los reads filtran
+// deleted_at IS NULL así que miembros y workers pierden acceso al instante,
+// pero la data (expenses, goals, etc.) queda intacta. El restore/purge
+// real queda gateado por endpoints /admin/* (superadmin).
 func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
-	if err := r.q.DeleteHousehold(ctx, id); err != nil {
+	if err := r.q.SoftDeleteHousehold(ctx, id); err != nil {
 		return fmt.Errorf("households.Delete: %w", err)
+	}
+	return nil
+}
+
+// GetByIDIncludingDeleted: variante admin. Devuelve la fila aunque esté
+// soft-deleted. No debe usarse desde endpoints públicos.
+func (r *Repository) GetByIDIncludingDeleted(ctx context.Context, id uuid.UUID) (domain.Household, error) {
+	h, err := r.q.GetHouseholdByIDIncludingDeleted(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Household{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Household{}, fmt.Errorf("households.GetByIDIncludingDeleted: %w", err)
+	}
+	return toDomain(h), nil
+}
+
+// ListDeleted devuelve los hogares soft-deleted junto con info del owner
+// actual. El superadmin usa esto para identificar visualmente qué hogar
+// está restaurando/purgando. Solo para /admin/households/deleted.
+func (r *Repository) ListDeleted(ctx context.Context) ([]domain.HouseholdWithOwner, error) {
+	rows, err := r.q.ListDeletedHouseholds(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("households.ListDeleted: %w", err)
+	}
+	out := make([]domain.HouseholdWithOwner, len(rows))
+	for i, row := range rows {
+		hh := domain.Household{
+			ID:           row.ID,
+			Name:         row.Name,
+			BaseCurrency: row.BaseCurrency,
+			CreatedBy:    row.CreatedBy,
+			CreatedAt:    row.CreatedAt.Time,
+			UpdatedAt:    row.UpdatedAt.Time,
+		}
+		if row.DeletedAt.Valid {
+			t := row.DeletedAt.Time
+			hh.DeletedAt = &t
+		}
+		out[i] = domain.HouseholdWithOwner{
+			Household: hh,
+			Owner: domain.User{
+				ID:        row.OwnerID,
+				Email:     row.OwnerEmail,
+				FirstName: row.OwnerFirstName,
+				LastName:  row.OwnerLastName,
+			},
+		}
+	}
+	return out, nil
+}
+
+// Restore limpia deleted_at de un hogar previamente soft-deleted.
+// Solo admin.
+func (r *Repository) Restore(ctx context.Context, id uuid.UUID) error {
+	if err := r.q.RestoreHousehold(ctx, id); err != nil {
+		return fmt.Errorf("households.Restore: %w", err)
+	}
+	return nil
+}
+
+// Purge hace el DELETE físico. CASCADE arrastra miembros, expenses, goals,
+// settlements, split_rules, categories, invites. Irreversible. Solo admin.
+func (r *Repository) Purge(ctx context.Context, id uuid.UUID) error {
+	if err := r.q.PurgeHousehold(ctx, id); err != nil {
+		return fmt.Errorf("households.Purge: %w", err)
 	}
 	return nil
 }

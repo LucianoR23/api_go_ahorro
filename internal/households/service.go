@@ -188,6 +188,49 @@ func (s *Service) ListMembers(ctx context.Context, householdID uuid.UUID) ([]dom
 	return s.repo.ListMembers(ctx, householdID)
 }
 
+// ===================== admin-only =====================
+//
+// Estos métodos NO chequean ownership: son disparados desde endpoints
+// /admin/* que ya pasan por auth.RequireSuperadmin. Nunca deben invocarse
+// desde rutas públicas.
+
+// ListDeleted devuelve todos los hogares soft-deleted con su owner actual.
+// Admin-only.
+func (s *Service) ListDeleted(ctx context.Context) ([]domain.HouseholdWithOwner, error) {
+	return s.repo.ListDeleted(ctx)
+}
+
+// GetAny devuelve cualquier hogar, incluso soft-deleted. Admin-only.
+func (s *Service) GetAny(ctx context.Context, id uuid.UUID) (domain.Household, error) {
+	return s.repo.GetByIDIncludingDeleted(ctx, id)
+}
+
+// Restore limpia deleted_at. Admin-only. Idempotente: si el hogar ya está
+// activo no hace nada (la query filtra WHERE deleted_at IS NOT NULL).
+func (s *Service) Restore(ctx context.Context, id uuid.UUID) error {
+	h, err := s.repo.GetByIDIncludingDeleted(ctx, id)
+	if err != nil {
+		return err
+	}
+	if h.DeletedAt == nil {
+		return domain.NewValidationError("id", "el hogar no está borrado")
+	}
+	return s.repo.Restore(ctx, id)
+}
+
+// Purge hace el DELETE físico con CASCADE. Admin-only. Para evitar purgar
+// por accidente un hogar vivo, exigimos que esté soft-deleted primero.
+func (s *Service) Purge(ctx context.Context, id uuid.UUID) error {
+	h, err := s.repo.GetByIDIncludingDeleted(ctx, id)
+	if err != nil {
+		return err
+	}
+	if h.DeletedAt == nil {
+		return domain.NewValidationError("id", "hay que soft-delete primero (DELETE /households/{id}) antes de purgar")
+	}
+	return s.repo.Purge(ctx, id)
+}
+
 // ===================== helpers internos =====================
 
 func (s *Service) requireOwner(ctx context.Context, householdID, userID uuid.UUID) error {

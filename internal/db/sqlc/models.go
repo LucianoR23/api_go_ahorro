@@ -142,6 +142,7 @@ type Household struct {
 	CreatedBy    uuid.UUID          `json:"created_by"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt    pgtype.Timestamptz `json:"deleted_at"`
 }
 
 type HouseholdInvite struct {
@@ -283,4 +284,5 @@ type User struct {
 	LastName        string             `json:"last_name"`
 	DeletedAt       pgtype.Timestamptz `json:"deleted_at"`
 	EmailVerifiedAt pgtype.Timestamptz `json:"email_verified_at"`
+	IsSuperadmin    bool               `json:"is_superadmin"`
 }

@@ -99,8 +99,6 @@ type Querier interface {
 	DeleteCreditCardPeriod(ctx context.Context, arg DeleteCreditCardPeriodParams) error
 	DeleteDailyInsight(ctx context.Context, id uuid.UUID) error
 	DeleteExpense(ctx context.Context, id uuid.UUID) error
-	// ON DELETE CASCADE en household_members → limpia la membresía automáticamente.
-	DeleteHousehold(ctx context.Context, id uuid.UUID) error
 	DeleteIncome(ctx context.Context, id uuid.UUID) error
 	DeleteRecurringExpense(ctx context.Context, id uuid.UUID) error
 	DeleteRecurringIncome(ctx context.Context, id uuid.UUID) error
@@ -118,7 +116,12 @@ type Querier interface {
 	GetDailyInsightByID(ctx context.Context, id uuid.UUID) (DailyInsight, error)
 	GetEmailVerificationByTokenHash(ctx context.Context, tokenHash string) (EmailVerification, error)
 	GetExpenseByID(ctx context.Context, id uuid.UUID) (Expense, error)
+	// Filtra soft-deleted: un hogar borrado por su owner es invisible para
+	// miembros y workers. Restore/purge se manejan en queries /admin/*.
 	GetHouseholdByID(ctx context.Context, id uuid.UUID) (Household, error)
+	// Versión "admin": devuelve la fila incluso si está soft-deleted. Usada
+	// solo por los endpoints /admin/* (restore, purge).
+	GetHouseholdByIDIncludingDeleted(ctx context.Context, id uuid.UUID) (Household, error)
 	GetHouseholdInviteByID(ctx context.Context, id uuid.UUID) (HouseholdInvite, error)
 	GetHouseholdInviteByTokenHash(ctx context.Context, tokenHash string) (HouseholdInvite, error)
 	// Devuelve el rol del user en el household. Usada para chequear owner
@@ -147,8 +150,14 @@ type Querier interface {
 	// Al emitir un nuevo token, invalidamos los anteriores del user (los
 	// marcamos como usados). Así el último mail es el único válido.
 	InvalidateActivePasswordResetsForUser(ctx context.Context, userID uuid.UUID) error
-	// Devuelve true si el user pertenece al hogar. Usada por el middleware de autz.
+	// Devuelve true si el user pertenece al hogar Y el hogar no está soft-deleted.
+	// Un hogar borrado se comporta como si no existiera para todos los endpoints
+	// del API. Esto es lo que garantiza que los miembros pierden acceso al instante
+	// cuando el owner hace DELETE.
 	IsHouseholdMember(ctx context.Context, arg IsHouseholdMemberParams) (bool, error)
+	// Flag global para gatear endpoints /admin/*. Independiente del rol por-hogar.
+	// Se setea manualmente por DB; no hay endpoint para modificarlo.
+	IsUserSuperadmin(ctx context.Context, id uuid.UUID) (bool, error)
 	// Lo usa el worker: plantillas activas cuyo rango cubre `date`. Filtro fino
 	// por frequency/day_of_* se resuelve en Go (mismo patrón que recurring_incomes).
 	ListActiveRecurringExpenses(ctx context.Context, dollar_1 pgtype.Date) ([]RecurringExpense, error)
@@ -156,7 +165,8 @@ type Querier interface {
 	// (starts_at/ends_at) cubre la fecha target. El filtro fino de "toca hoy
 	// según frequency/day_of_*" se resuelve en Go para no complicar la query.
 	ListActiveRecurringIncomes(ctx context.Context, dollar_1 pgtype.Date) ([]RecurringIncome, error)
-	// Para workers que iteran todos los hogares (insights, reports).
+	// Para workers que iteran todos los hogares (insights, reports). Saltea
+	// soft-deleted: un hogar borrado no debe generar insights ni reports.
 	ListAllHouseholdIDs(ctx context.Context) ([]uuid.UUID, error)
 	// Lista los bancos activos del user, orden estable por nombre.
 	// Si algún día hace falta mostrar los desactivados, se agrega otra query.
@@ -173,6 +183,14 @@ type Querier interface {
 	// Filtros opcionales: user_id (null = insights del hogar; uuid = de ese user),
 	// unread_only, rango de fechas, tipo.
 	ListDailyInsightsByHousehold(ctx context.Context, arg ListDailyInsightsByHouseholdParams) ([]DailyInsight, error)
+	// Para /admin/households/deleted: lista todos los hogares soft-deleted
+	// ordenados por fecha de borrado (más reciente primero). JOIN con users
+	// para devolver info del owner actual (preferimos el owner vigente en
+	// household_members sobre created_by, porque pudo haber habido transfer).
+	//
+	// COALESCE: si no hay owner actual (caso raro de data inconsistente),
+	// cae al created_by para no perder la referencia.
+	ListDeletedHouseholds(ctx context.Context) ([]ListDeletedHouseholdsRow, error)
 	// Filtros opcionales: categoryId, paymentMethodId, desde/hasta (fechas).
 	// Paginación por offset/limit simple. Cuando el volumen crezca, migrar a keyset.
 	ListExpensesByHousehold(ctx context.Context, arg ListExpensesByHouseholdParams) ([]Expense, error)
@@ -180,8 +198,9 @@ type Querier interface {
 	// Usamos sqlc.embed(u) para que genere un struct anidado con todo user,
 	// así el handler puede devolver la info combinada sin queries extra.
 	ListHouseholdMembers(ctx context.Context, householdID uuid.UUID) ([]ListHouseholdMembersRow, error)
-	// Lista todos los hogares a los que pertenece un user.
-	// JOIN con household_members para filtrar por membresía.
+	// Lista todos los hogares a los que pertenece un user. Filtra soft-deleted
+	// para que el user no vea hogares que fueron "borrados" (aunque siga su
+	// membresía en la tabla).
 	ListHouseholdsForUser(ctx context.Context, userID uuid.UUID) ([]Household, error)
 	// Filtros opcionales: receivedBy, paymentMethodId, source, desde/hasta.
 	ListIncomesByHousehold(ctx context.Context, arg ListIncomesByHouseholdParams) ([]Income, error)
@@ -215,6 +234,9 @@ type Querier interface {
 	MarkRecurringIncomeGenerated(ctx context.Context, arg MarkRecurringIncomeGeneratedParams) error
 	// Idempotente: si ya estaba verificado no hace nada.
 	MarkUserEmailVerified(ctx context.Context, id uuid.UUID) error
+	// Admin-only: borrado físico. ON DELETE CASCADE arrastra miembros,
+	// expenses, goals, settlements, split_rules, categories, invites. Irreversible.
+	PurgeHousehold(ctx context.Context, id uuid.UUID) error
 	// Pisa el token_hash y expires_at de una invitación pendiente. Se usa para
 	// "reenviar" — genera un nuevo token, invalida implícitamente el anterior
 	// (el hash previo ya no existe) y extiende la ventana. Solo matchea si la
@@ -224,6 +246,8 @@ type Querier interface {
 	// ya validó que no es owner de ninguno (sino rechazamos la baja).
 	RemoveAllMembershipsForUser(ctx context.Context, userID uuid.UUID) error
 	RemoveHouseholdMember(ctx context.Context, arg RemoveHouseholdMemberParams) error
+	// Admin-only: limpia deleted_at y deja el hogar accesible de nuevo.
+	RestoreHousehold(ctx context.Context, id uuid.UUID) error
 	RevokeInvite(ctx context.Context, id uuid.UUID) (HouseholdInvite, error)
 	// Activa o desactiva un banco. El ON DELETE SET NULL en payment_methods.bank_id
 	// NO se dispara acá (no borramos la fila), así que los métodos siguen
@@ -236,6 +260,10 @@ type Querier interface {
 	SetRecurringIncomeActive(ctx context.Context, arg SetRecurringIncomeActiveParams) error
 	// Agrega settlements por par (from, to) para la matriz.
 	SettlementsByHouseholdAggregated(ctx context.Context, householdID uuid.UUID) ([]SettlementsByHouseholdAggregatedRow, error)
+	// Marca el hogar como borrado. Los miembros pierden acceso pero toda la
+	// data (expenses, goals, settlements, etc.) queda intacta. El superadmin
+	// puede restaurar o purgar desde /admin/*.
+	SoftDeleteHousehold(ctx context.Context, id uuid.UUID) error
 	// Marca el user como borrado y anonimiza el email para liberar el UNIQUE
 	// y permitir re-registro con el mismo email. El sufijo incluye el id
 	// (único garantizado) + un dominio que no es deliverable.
