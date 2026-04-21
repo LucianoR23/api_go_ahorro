@@ -31,6 +31,14 @@ dist/
 Dockerfile
 .dockerignore
 
+# Assets solo-dev (docker-compose local, init SQL para Postgres local).
+# En prod la DB vive en Coolify/Supabase, no se usa.
+docker/
+docker-compose.yml
+
+# Config local del editor (Claude Code).
+.claude/
+
 # Archivos OS
 .DS_Store
 Thumbs.db

@@ -3,7 +3,7 @@
 # ---------- build stage ----------
 # Usamos la imagen oficial de Go. Alpine porque pesa menos (~300MB vs ~1GB).
 # Cambiar la versión acá cuando bumpees go.mod.
-FROM golang:1.26-alpine AS build
+FROM golang:1.25-alpine AS build
 
 # git es necesario si algún mod tiene deps de repos privados; ca-certs para
 # que go mod download pueda hablar con proxy.golang.org por HTTPS.

@@ -133,58 +133,6 @@ func (s *Service) Delete(ctx context.Context, userID, householdID uuid.UUID) err
 	return s.repo.Delete(ctx, householdID)
 }
 
-// InviteByEmail: owner invita a un user existente. El invitado debe
-// estar registrado (registro abierto, no hay invitación pre-cuenta).
-// Futuro: agregar flujo de invite link si hace falta que el invitado
-// no exista todavía.
-func (s *Service) InviteByEmail(ctx context.Context, inviterID, householdID uuid.UUID, email string) (domain.HouseholdMember, error) {
-	if err := s.requireOwner(ctx, householdID, inviterID); err != nil {
-		return domain.HouseholdMember{}, err
-	}
-
-	email = strings.ToLower(strings.TrimSpace(email))
-	if email == "" {
-		return domain.HouseholdMember{}, domain.NewValidationError("email", "no puede estar vacío")
-	}
-
-	user, err := s.users.GetByEmail(ctx, email)
-	if err != nil {
-		if errors.Is(err, domain.ErrNotFound) {
-			return domain.HouseholdMember{}, domain.NewValidationError("email", "el usuario no está registrado")
-		}
-		return domain.HouseholdMember{}, err
-	}
-
-	var memberHook AfterMemberHook
-	if s.splitRules != nil {
-		memberHook = func(ctx context.Context, tx pgx.Tx, hID, uID uuid.UUID) error {
-			return s.splitRules.SeedForMemberTx(ctx, tx, hID, uID)
-		}
-	}
-	m, err := s.repo.AddMember(ctx, householdID, user.ID, domain.RoleMember, memberHook)
-	if err != nil {
-		return m, err
-	}
-
-	// Notificar al invitado que se lo agregó al hogar.
-	if s.push != nil {
-		hh, hhErr := s.repo.GetByID(ctx, householdID)
-		hhName := "un hogar"
-		if hhErr == nil {
-			hhName = hh.Name
-		}
-		s.push.NotifyUsers(
-			ctx,
-			[]uuid.UUID{user.ID},
-			"Te agregaron a un hogar",
-			"Ahora sos miembro de "+hhName,
-			"/households/"+householdID.String(),
-			"household-invite:"+householdID.String(),
-		)
-	}
-	return m, nil
-}
-
 // RemoveMember: owner puede sacar a otros. Además, cualquier member puede
 // sacarse a sí mismo (self-leave). Un owner no puede auto-borrarse si es
 // el único owner — sino quedaría un hogar sin dueño.

@@ -42,7 +42,6 @@ func (h *Handler) Mount(r chi.Router) {
 				r.Delete("/", h.Delete)
 
 				r.Get("/members", h.ListMembers)
-				r.Post("/members", h.InviteMember)
 				r.Delete("/members/{userId}", h.RemoveMember)
 				r.Patch("/members/{userId}/role", h.UpdateMemberRole)
 			})
@@ -78,10 +77,6 @@ type createRequest struct {
 type updateRequest struct {
 	Name         string `json:"name"`
 	BaseCurrency string `json:"baseCurrency"`
-}
-
-type inviteRequest struct {
-	Email string `json:"email"`
 }
 
 // ===================== handlers =====================
@@ -215,30 +210,6 @@ func (h *Handler) ListMembers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
-}
-
-func (h *Handler) InviteMember(w http.ResponseWriter, r *http.Request) {
-	inviterID, householdID, err := h.callerAndHousehold(r)
-	if err != nil {
-		httpx.WriteError(w, r, h.logger, err)
-		return
-	}
-	var req inviteRequest
-	if err := decodeJSON(r, &req); err != nil {
-		httpx.WriteError(w, r, h.logger, err)
-		return
-	}
-	m, err := h.svc.InviteByEmail(r.Context(), inviterID, householdID, req.Email)
-	if err != nil {
-		httpx.WriteError(w, r, h.logger, err)
-		return
-	}
-	httpx.WriteJSON(w, http.StatusCreated, map[string]any{
-		"userId":      m.UserID.String(),
-		"householdId": m.HouseholdID.String(),
-		"role":        string(m.Role),
-		"joinedAt":    m.JoinedAt,
-	})
 }
 
 func (h *Handler) RemoveMember(w http.ResponseWriter, r *http.Request) {
