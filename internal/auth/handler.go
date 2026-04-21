@@ -24,15 +24,43 @@ const (
 
 // Handler agrupa los endpoints de auth y sus dependencias.
 type Handler struct {
-	svc    *Service
-	logger *slog.Logger
-	mw     *Middleware
+	svc        *Service
+	resetSvc   *PasswordResetService
+	accountSvc *AccountService
+	verifySvc  *EmailVerificationService
+	logger   *slog.Logger
+	mw       *Middleware
 	// secureCookies controla flags de la cookie. En prod: true (Secure + Host prefix).
 	secureCookies bool
+	// rateLimit es opcional: si está seteado, se aplica a /auth/login y
+	// /auth/forgot-password. Nil en tests o si main no lo cablea.
+	rateLimit RateLimiter
 }
 
 func NewHandler(svc *Service, mw *Middleware, logger *slog.Logger, secureCookies bool) *Handler {
 	return &Handler{svc: svc, mw: mw, logger: logger, secureCookies: secureCookies}
+}
+
+// SetPasswordResetService cablea post-construcción para mantener el
+// constructor simple y opcional (tests pueden no necesitarlo).
+func (h *Handler) SetPasswordResetService(svc *PasswordResetService) {
+	h.resetSvc = svc
+}
+
+// SetAccountService cablea el service encargado de DELETE /me (soft delete).
+func (h *Handler) SetAccountService(svc *AccountService) {
+	h.accountSvc = svc
+}
+
+// SetEmailVerificationService cablea el service de verificación de email.
+func (h *Handler) SetEmailVerificationService(svc *EmailVerificationService) {
+	h.verifySvc = svc
+}
+
+// SetRateLimiter cablea el middleware de rate limit post-construcción.
+// RateLimiter es una interface pequeña definida en ratelimit.go.
+func (h *Handler) SetRateLimiter(rl RateLimiter) {
+	h.rateLimit = rl
 }
 
 // Mount registra las rutas de auth en el router.
@@ -44,25 +72,90 @@ func NewHandler(svc *Service, mw *Middleware, logger *slog.Logger, secureCookies
 //   /me      → protegida con RequireAuth
 func (h *Handler) Mount(r chi.Router) {
 	r.Route("/auth", func(r chi.Router) {
-		r.Post("/register", h.Register)
-		r.Post("/login", h.Login)
-		r.Post("/refresh", h.Refresh)
+		// Registro: rate-limit moderado para frenar creación masiva.
+		r.Group(func(r chi.Router) {
+			if h.rateLimit != nil {
+				r.Use(h.rateLimit.Register())
+			}
+			r.Post("/register", h.Register)
+		})
+
+		// Login: el endpoint más sensible a brute-force.
+		r.Group(func(r chi.Router) {
+			if h.rateLimit != nil {
+				r.Use(h.rateLimit.Login())
+			}
+			r.Post("/login", h.Login)
+		})
+
+		// Refresh: baja superficie pero aplicamos límite amplio.
+		r.Group(func(r chi.Router) {
+			if h.rateLimit != nil {
+				r.Use(h.rateLimit.Refresh())
+			}
+			r.Post("/refresh", h.Refresh)
+		})
+
 		r.Post("/logout", h.Logout)
+
+		// Forgot + reset: rate-limit agresivo para evitar spam de correos
+		// y probing de tokens.
+		r.Group(func(r chi.Router) {
+			if h.rateLimit != nil {
+				r.Use(h.rateLimit.ForgotPassword())
+			}
+			r.Post("/forgot-password", h.ForgotPassword)
+		})
+		r.Group(func(r chi.Router) {
+			if h.rateLimit != nil {
+				r.Use(h.rateLimit.ResetPassword())
+			}
+			r.Post("/reset-password", h.ResetPassword)
+		})
+
+		// Email verification: verify-email es público (confirma token desde
+		// link en mail). resend-verification-email requiere auth (solo el
+		// propio user puede pedir reenvío).
+		r.Group(func(r chi.Router) {
+			if h.rateLimit != nil {
+				r.Use(h.rateLimit.VerifyEmail())
+			}
+			r.Post("/verify-email", h.VerifyEmail)
+		})
+		r.Group(func(r chi.Router) {
+			r.Use(h.mw.RequireAuth)
+			if h.rateLimit != nil {
+				r.Use(h.rateLimit.ResendVerification())
+			}
+			r.Post("/resend-verification-email", h.ResendVerificationEmail)
+		})
+
+		// Change password: autenticado. Limitamos por IP para frenar scripts.
+		r.Group(func(r chi.Router) {
+			r.Use(h.mw.RequireAuth)
+			if h.rateLimit != nil {
+				r.Use(h.rateLimit.ChangePassword())
+			}
+			r.Post("/change-password", h.ChangePassword)
+		})
 	})
 
 	r.Group(func(r chi.Router) {
 		r.Use(h.mw.RequireAuth)
 		r.Get("/me", h.Me)
+		r.Patch("/me", h.UpdateMe)
+		r.Delete("/me", h.DeleteMe)
 	})
 }
 
 // ===================== Register =====================
 
 type registerRequest struct {
-	Email     string `json:"email"`
-	Password  string `json:"password"`
-	FirstName string `json:"firstName"`
-	LastName  string `json:"lastName"`
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	FirstName   string `json:"firstName"`
+	LastName    string `json:"lastName"`
+	InviteToken string `json:"inviteToken,omitempty"`
 }
 
 type authResponse struct {
@@ -72,10 +165,11 @@ type authResponse struct {
 }
 
 type userDTO struct {
-	ID        string `json:"id"`
-	Email     string `json:"email"`
-	FirstName string `json:"firstName"`
-	LastName  string `json:"lastName"`
+	ID              string     `json:"id"`
+	Email           string     `json:"email"`
+	FirstName       string     `json:"firstName"`
+	LastName        string     `json:"lastName"`
+	EmailVerifiedAt *time.Time `json:"emailVerifiedAt,omitempty"`
 }
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +179,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.svc.Register(r.Context(), req.Email, req.Password, req.FirstName, req.LastName)
+	result, err := h.svc.Register(r.Context(), req.Email, req.Password, req.FirstName, req.LastName, req.InviteToken)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -147,6 +241,104 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, toUserDTO(user))
+}
+
+// updateMeRequest: todos opcionales. Los que se omitan quedan igual.
+// Usamos punteros para distinguir "no vino" de "vino vacío".
+type updateMeRequest struct {
+	FirstName *string `json:"firstName,omitempty"`
+	LastName  *string `json:"lastName,omitempty"`
+	Email     *string `json:"email,omitempty"`
+}
+
+// UpdateMe edita el perfil del user logueado. Cambio de email NO dispara
+// verification todavía (Fase 3) pero sí se valida uniqueness → 409.
+func (h *Handler) UpdateMe(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, r, h.logger, domain.ErrUnauthorized)
+		return
+	}
+	var req updateMeRequest
+	if err := decodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	user, err := h.svc.UpdateMe(r.Context(), userID, UpdateMeInput{
+		FirstName: req.FirstName,
+		LastName:  req.LastName,
+		Email:     req.Email,
+	})
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, toUserDTO(user))
+}
+
+// DeleteMe borra (soft) la cuenta del user autenticado. Ver
+// accountService.SoftDelete para la lógica de cascada e invariantes.
+func (h *Handler) DeleteMe(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, r, h.logger, domain.ErrUnauthorized)
+		return
+	}
+	if h.accountSvc == nil {
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("server", "delete account no configurado"))
+		return
+	}
+	if err := h.accountSvc.SoftDelete(r.Context(), userID); err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	// Cerramos la sesión del cliente limpiando la cookie de refresh.
+	h.clearRefreshCookie(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ===================== Email verification =====================
+
+type verifyEmailRequest struct {
+	Token string `json:"token"`
+}
+
+// VerifyEmail confirma el token recibido por mail. Público — el user puede
+// no estar logueado aún (o estarlo con access token).
+func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	if h.verifySvc == nil {
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("server", "email verification no configurado"))
+		return
+	}
+	var req verifyEmailRequest
+	if err := decodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	if err := h.verifySvc.Confirm(r.Context(), req.Token); err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ResendVerificationEmail: autenticado. Reemite un token si el user todavía
+// no verificó su email. 409 si ya está verificado.
+func (h *Handler) ResendVerificationEmail(w http.ResponseWriter, r *http.Request) {
+	if h.verifySvc == nil {
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("server", "email verification no configurado"))
+		return
+	}
+	userID, ok := UserIDFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, r, h.logger, domain.ErrUnauthorized)
+		return
+	}
+	if err := h.verifySvc.Resend(r.Context(), userID); err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ===================== Refresh =====================
@@ -220,10 +412,11 @@ func (h *Handler) clearRefreshCookie(w http.ResponseWriter) {
 
 func toUserDTO(u domain.User) userDTO {
 	return userDTO{
-		ID:        u.ID.String(),
-		Email:     u.Email,
-		FirstName: u.FirstName,
-		LastName:  u.LastName,
+		ID:              u.ID.String(),
+		Email:           u.Email,
+		FirstName:       u.FirstName,
+		LastName:        u.LastName,
+		EmailVerifiedAt: u.EmailVerifiedAt,
 	}
 }
 

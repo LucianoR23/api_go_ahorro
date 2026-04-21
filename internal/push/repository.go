@@ -104,6 +104,29 @@ func (r *Repository) DeleteByEndpointRaw(ctx context.Context, endpoint string) e
 	return nil
 }
 
+// DeleteAllForUser borra todas las subs de un user. Usado por DELETE /me:
+// cuenta borrada → nada que notificar.
+func (r *Repository) DeleteAllForUser(ctx context.Context, userID uuid.UUID) error {
+	const q = `DELETE FROM push_subscriptions WHERE user_id = $1`
+	_, err := r.pool.Exec(ctx, q, userID)
+	if err != nil {
+		return fmt.Errorf("push.DeleteAllForUser: %w", err)
+	}
+	return nil
+}
+
+// DeleteByIDForUser borra una sub por su ID, validando ownership. Si la
+// sub no existe o pertenece a otro user, devuelve rowsAffected=0 → el caller
+// decide si lo trata como 404.
+func (r *Repository) DeleteByIDForUser(ctx context.Context, userID, id uuid.UUID) (int64, error) {
+	const q = `DELETE FROM push_subscriptions WHERE id = $1 AND user_id = $2`
+	tag, err := r.pool.Exec(ctx, q, id, userID)
+	if err != nil {
+		return 0, fmt.Errorf("push.DeleteByIDForUser: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // Touch actualiza last_seen_at cuando el cliente vuelve a hacer ping. No
 // falla si no existe (caso raro; el cliente debería re-suscribir).
 func (r *Repository) Touch(ctx context.Context, endpoint string) error {

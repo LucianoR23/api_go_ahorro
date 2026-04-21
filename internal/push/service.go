@@ -98,6 +98,25 @@ func (s *Service) Unsubscribe(ctx context.Context, userID uuid.UUID, endpoint st
 	return s.repo.DeleteByEndpoint(ctx, userID, endpoint)
 }
 
+// ListByUser devuelve las subs del user. Delegación simple al repo; la
+// incluimos acá para que el handler no tenga que pegar directo al repo.
+func (s *Service) ListByUser(ctx context.Context, userID uuid.UUID) ([]Subscription, error) {
+	return s.repo.ListByUser(ctx, userID)
+}
+
+// DeleteByID borra una sub por ID validando ownership. Si no encuentra,
+// devuelve ErrNotFound para que el handler responda 404.
+func (s *Service) DeleteByID(ctx context.Context, userID, id uuid.UUID) error {
+	n, err := s.repo.DeleteByIDForUser(ctx, userID, id)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 // NotifyUsers envía payload a todas las subs de los users dados. Fire-and-forget:
 // lanza una goroutine que no bloquea al caller. Si falla, loguea y sigue.
 //

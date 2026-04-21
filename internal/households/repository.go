@@ -221,6 +221,52 @@ func (r *Repository) AddMember(ctx context.Context, householdID, userID uuid.UUI
 	return result, nil
 }
 
+// TransferOwnership: en una sola tx, demote al current owner a member y
+// promote al target a owner. Ambos deben ser miembros del mismo hogar.
+// Si alguno no existe, rollback y ErrNotFound.
+//
+// Nota: nunca queda el hogar sin owner porque los dos UPDATEs corren
+// dentro de la misma tx — si el segundo falla, el primero se revierte.
+func (r *Repository) TransferOwnership(ctx context.Context, householdID, currentOwnerID, targetUserID uuid.UUID) error {
+	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		qTx := r.q.WithTx(tx)
+
+		// Demote current owner → member.
+		if _, err := qTx.UpdateHouseholdMemberRole(ctx, sqlcgen.UpdateHouseholdMemberRoleParams{
+			HouseholdID: householdID,
+			UserID:      currentOwnerID,
+			Role:        string(domain.RoleMember),
+		}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return domain.ErrNotFound
+			}
+			return fmt.Errorf("transfer.demoteOwner: %w", err)
+		}
+
+		// Promote target → owner.
+		if _, err := qTx.UpdateHouseholdMemberRole(ctx, sqlcgen.UpdateHouseholdMemberRoleParams{
+			HouseholdID: householdID,
+			UserID:      targetUserID,
+			Role:        string(domain.RoleOwner),
+		}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return domain.ErrNotFound
+			}
+			return fmt.Errorf("transfer.promoteTarget: %w", err)
+		}
+		return nil
+	})
+}
+
+// CountOwners devuelve la cantidad de owners del hogar. Invariante: >= 1.
+func (r *Repository) CountOwners(ctx context.Context, householdID uuid.UUID) (int64, error) {
+	n, err := r.q.CountHouseholdOwners(ctx, householdID)
+	if err != nil {
+		return 0, fmt.Errorf("households.CountOwners: %w", err)
+	}
+	return n, nil
+}
+
 // RemoveMember elimina la membresía. No toca datos del user.
 func (r *Repository) RemoveMember(ctx context.Context, householdID, userID uuid.UUID) error {
 	if err := r.q.RemoveHouseholdMember(ctx, sqlcgen.RemoveHouseholdMemberParams{
@@ -228,6 +274,15 @@ func (r *Repository) RemoveMember(ctx context.Context, householdID, userID uuid.
 		UserID:      userID,
 	}); err != nil {
 		return fmt.Errorf("households.RemoveMember: %w", err)
+	}
+	return nil
+}
+
+// RemoveAllMembershipsForUser desvincula al user de todos los hogares.
+// Usado por la baja de cuenta después de validar que no sea owner activo.
+func (r *Repository) RemoveAllMembershipsForUser(ctx context.Context, userID uuid.UUID) error {
+	if err := r.q.RemoveAllMembershipsForUser(ctx, userID); err != nil {
+		return fmt.Errorf("households.RemoveAllMembershipsForUser: %w", err)
 	}
 	return nil
 }

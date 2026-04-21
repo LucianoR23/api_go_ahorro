@@ -38,6 +38,12 @@ type Querier interface {
 	CountExpensesByHousehold(ctx context.Context, arg CountExpensesByHouseholdParams) (int64, error)
 	// Cuántas transacciones hubo en el rango. Distinct categorías también.
 	CountExpensesSpentAtRange(ctx context.Context, arg CountExpensesSpentAtRangeParams) (CountExpensesSpentAtRangeRow, error)
+	// Cuenta los owners vigentes de un hogar. Sirve para invariantes (ej:
+	// no permitir demotions que dejen 0 owners).
+	CountHouseholdOwners(ctx context.Context, householdID uuid.UUID) (int64, error)
+	// Cuenta cuántos hogares tienen a este user como owner. Usado por la baja
+	// de cuenta para exigir transferencia previa.
+	CountHouseholdsOwnedByUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountIncomesByHousehold(ctx context.Context, arg CountIncomesByHouseholdParams) (int64, error)
 	CountUnreadInsightsByHousehold(ctx context.Context, arg CountUnreadInsightsByHouseholdParams) (int64, error)
 	// Queries de banks. Los bancos son del user (owner_user_id),
@@ -54,15 +60,21 @@ type Querier interface {
 	// date, type) lo dejamos intacto. El RETURNING puede ser vacío — el caller
 	// interpreta eso como "ya existía, skip".
 	CreateDailyInsight(ctx context.Context, arg CreateDailyInsightParams) (DailyInsight, error)
+	// Queries de email_verifications + flag de verificación en users.
+	CreateEmailVerification(ctx context.Context, arg CreateEmailVerificationParams) (EmailVerification, error)
 	CreateExpense(ctx context.Context, arg CreateExpenseParams) (Expense, error)
 	// Queries de households y household_members.
 	CreateHousehold(ctx context.Context, arg CreateHouseholdParams) (Household, error)
+	// Queries de household_invites.
+	CreateHouseholdInvite(ctx context.Context, arg CreateHouseholdInviteParams) (HouseholdInvite, error)
 	// ===================== incomes =====================
 	CreateIncome(ctx context.Context, arg CreateIncomeParams) (Income, error)
 	// ===== installments =====
 	CreateInstallment(ctx context.Context, arg CreateInstallmentParams) (ExpenseInstallment, error)
 	// ===== shares =====
 	CreateInstallmentShare(ctx context.Context, arg CreateInstallmentShareParams) error
+	// Queries de password_resets.
+	CreatePasswordReset(ctx context.Context, arg CreatePasswordResetParams) (PasswordReset, error)
 	// Queries de payment_methods. Métodos de pago del user.
 	// Nunca se borran: toggle de is_active.
 	// Usado tanto por el endpoint público como por Register (para crear Efectivo).
@@ -104,8 +116,11 @@ type Querier interface {
 	GetCreditCardByPaymentMethodID(ctx context.Context, paymentMethodID uuid.UUID) (CreditCard, error)
 	GetCreditCardPeriod(ctx context.Context, arg GetCreditCardPeriodParams) (CreditCardPeriod, error)
 	GetDailyInsightByID(ctx context.Context, id uuid.UUID) (DailyInsight, error)
+	GetEmailVerificationByTokenHash(ctx context.Context, tokenHash string) (EmailVerification, error)
 	GetExpenseByID(ctx context.Context, id uuid.UUID) (Expense, error)
 	GetHouseholdByID(ctx context.Context, id uuid.UUID) (Household, error)
+	GetHouseholdInviteByID(ctx context.Context, id uuid.UUID) (HouseholdInvite, error)
+	GetHouseholdInviteByTokenHash(ctx context.Context, tokenHash string) (HouseholdInvite, error)
 	// Devuelve el rol del user en el household. Usada para chequear owner
 	// antes de operaciones privilegiadas (editar/borrar hogar, invitar).
 	// Si no es miembro devuelve pgx.ErrNoRows (el repo lo mapea a ErrNotFound).
@@ -114,14 +129,24 @@ type Querier interface {
 	GetInstallmentByExpenseAndNumber(ctx context.Context, arg GetInstallmentByExpenseAndNumberParams) (ExpenseInstallment, error)
 	GetLatestCreditCardPeriod(ctx context.Context, creditCardID uuid.UUID) (CreditCardPeriod, error)
 	GetLatestExchangeRate(ctx context.Context, arg GetLatestExchangeRateParams) (ExchangeRate, error)
+	GetPasswordResetByTokenHash(ctx context.Context, tokenHash string) (PasswordReset, error)
 	GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (PaymentMethod, error)
 	GetRecurringExpenseByID(ctx context.Context, id uuid.UUID) (RecurringExpense, error)
 	GetRecurringIncomeByID(ctx context.Context, id uuid.UUID) (RecurringIncome, error)
 	GetSettlementByID(ctx context.Context, id uuid.UUID) (SettlementPayment, error)
 	GetSplitRule(ctx context.Context, arg GetSplitRuleParams) (HouseholdSplitRule, error)
 	// Usado en login. Devuelve pgx.ErrNoRows si no existe → mapeamos a error de dominio.
+	// Filtra soft-deleted: un email anonimizado ya no matchea el formato original
+	// pero además, aunque coincidiera, la fila queda invisible.
 	GetUserByEmail(ctx context.Context, email string) (User, error)
+	// Filtra soft-deleted. Un token viejo de una cuenta borrada → pgx.ErrNoRows
+	// → el middleware lo trata como sesión inválida.
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
+	// Al emitir un nuevo token, invalidamos los anteriores del user.
+	InvalidateActiveEmailVerificationsForUser(ctx context.Context, userID uuid.UUID) error
+	// Al emitir un nuevo token, invalidamos los anteriores del user (los
+	// marcamos como usados). Así el último mail es el único válido.
+	InvalidateActivePasswordResetsForUser(ctx context.Context, userID uuid.UUID) error
 	// Devuelve true si el user pertenece al hogar. Usada por el middleware de autz.
 	IsHouseholdMember(ctx context.Context, arg IsHouseholdMemberParams) (bool, error)
 	// Lo usa el worker: plantillas activas cuyo rango cubre `date`. Filtro fino
@@ -167,6 +192,8 @@ type Querier interface {
 	// Lista los métodos activos del user. Orden: primero por kind (para
 	// agrupar visualmente), después por nombre.
 	ListPaymentMethodsByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]PaymentMethod, error)
+	// Invitaciones activas (no aceptadas, no revocadas, no expiradas) de un hogar.
+	ListPendingInvitesForHousehold(ctx context.Context, householdID uuid.UUID) ([]HouseholdInvite, error)
 	ListRecurringExpensesByHousehold(ctx context.Context, householdID uuid.UUID) ([]RecurringExpense, error)
 	ListRecurringIncomesByHousehold(ctx context.Context, householdID uuid.UUID) ([]RecurringIncome, error)
 	// Filtros opcionales: from_user, to_user (para ver pagos entre dos miembros
@@ -177,11 +204,27 @@ type Querier interface {
 	ListSplitRulesByHousehold(ctx context.Context, householdID uuid.UUID) ([]HouseholdSplitRule, error)
 	MarkAllInsightsReadByHousehold(ctx context.Context, arg MarkAllInsightsReadByHouseholdParams) error
 	MarkDailyInsightRead(ctx context.Context, id uuid.UUID) error
+	// Single-use condicional: solo matchea si aún no fue usado y no expiró.
+	MarkEmailVerificationUsed(ctx context.Context, id uuid.UUID) (EmailVerification, error)
+	MarkInviteAccepted(ctx context.Context, arg MarkInviteAcceptedParams) (HouseholdInvite, error)
+	// Single-use: solo matchea si no fue usado aún y no expiró.
+	MarkPasswordResetUsed(ctx context.Context, id uuid.UUID) (PasswordReset, error)
 	MarkRecurringExpenseGenerated(ctx context.Context, arg MarkRecurringExpenseGeneratedParams) error
 	// Lo llama el worker después de crear el income real. Marca last_generated
 	// para que el próximo tick del mismo día no vuelva a crear.
 	MarkRecurringIncomeGenerated(ctx context.Context, arg MarkRecurringIncomeGeneratedParams) error
+	// Idempotente: si ya estaba verificado no hace nada.
+	MarkUserEmailVerified(ctx context.Context, id uuid.UUID) error
+	// Pisa el token_hash y expires_at de una invitación pendiente. Se usa para
+	// "reenviar" — genera un nuevo token, invalida implícitamente el anterior
+	// (el hash previo ya no existe) y extiende la ventana. Solo matchea si la
+	// invitación sigue pendiente (ni aceptada ni revocada).
+	RefreshInviteToken(ctx context.Context, arg RefreshInviteTokenParams) (HouseholdInvite, error)
+	// Usado en DELETE /me: desvincula al user de todos los hogares. El caller
+	// ya validó que no es owner de ninguno (sino rechazamos la baja).
+	RemoveAllMembershipsForUser(ctx context.Context, userID uuid.UUID) error
 	RemoveHouseholdMember(ctx context.Context, arg RemoveHouseholdMemberParams) error
+	RevokeInvite(ctx context.Context, id uuid.UUID) (HouseholdInvite, error)
 	// Activa o desactiva un banco. El ON DELETE SET NULL en payment_methods.bank_id
 	// NO se dispara acá (no borramos la fila), así que los métodos siguen
 	// asociados al banco aunque el banco esté inactivo.
@@ -193,6 +236,10 @@ type Querier interface {
 	SetRecurringIncomeActive(ctx context.Context, arg SetRecurringIncomeActiveParams) error
 	// Agrega settlements por par (from, to) para la matriz.
 	SettlementsByHouseholdAggregated(ctx context.Context, householdID uuid.UUID) ([]SettlementsByHouseholdAggregatedRow, error)
+	// Marca el user como borrado y anonimiza el email para liberar el UNIQUE
+	// y permitir re-registro con el mismo email. El sufijo incluye el id
+	// (único garantizado) + un dominio que no es deliverable.
+	SoftDeleteUser(ctx context.Context, id uuid.UUID) error
 	// ===================== breakdown por categoría =====================
 	// Para el resumen mensual: total por categoría usando spent_at.
 	// Incluye categoría NULL (gastos sin categorizar). El JOIN es LEFT.
@@ -257,6 +304,9 @@ type Querier interface {
 	// amount/currency/installments NO se editan (borrar y recrear).
 	UpdateExpense(ctx context.Context, arg UpdateExpenseParams) (Expense, error)
 	UpdateHousehold(ctx context.Context, arg UpdateHouseholdParams) (Household, error)
+	// Actualiza el rol de un miembro. Devuelve la fila o pgx.ErrNoRows si el
+	// par (household, user) no existe.
+	UpdateHouseholdMemberRole(ctx context.Context, arg UpdateHouseholdMemberRoleParams) (HouseholdMember, error)
 	// Solo editamos lo "meta": source/description/received_at. El amount/currency
 	// quedan fijos — si está mal, borrar y recrear (misma regla que expenses).
 	UpdateIncome(ctx context.Context, arg UpdateIncomeParams) (Income, error)
@@ -271,6 +321,10 @@ type Querier interface {
 	// Actualiza nombre y apellido juntos (si se edita uno se reenvían ambos).
 	UpdateUserName(ctx context.Context, arg UpdateUserNameParams) (User, error)
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
+	// Actualiza nombre/apellido/email en una sola query. El caller es
+	// responsable de validar cada uno antes. La colisión de email la captura
+	// el UNIQUE constraint y se mapea a ErrConflict en el repo.
+	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error)
 	UpsertCreditCardPeriod(ctx context.Context, arg UpsertCreditCardPeriodParams) (CreditCardPeriod, error)
 	// El worker corre cada 15min aunque bluelytics no tenga dato nuevo
 	// (fines de semana, feriados). ON CONFLICT DO NOTHING evita duplicar.

@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/auth"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
@@ -31,8 +32,10 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(h.authMW.RequireAuth)
 		r.Route("/push/subscriptions", func(r chi.Router) {
+			r.Get("/", h.List)
 			r.Post("/", h.Subscribe)
 			r.Delete("/", h.Unsubscribe)
+			r.Delete("/{id}", h.DeleteByID)
 		})
 	})
 }
@@ -62,6 +65,14 @@ type subscribeRequest struct {
 type subscriptionDTO struct {
 	ID       string `json:"id"`
 	Endpoint string `json:"endpoint"`
+}
+
+type subscriptionListItemDTO struct {
+	ID         string `json:"id"`
+	Endpoint   string `json:"endpoint"`
+	UserAgent  string `json:"userAgent,omitempty"`
+	CreatedAt  string `json:"createdAt"`
+	LastSeenAt string `json:"lastSeenAt"`
 }
 
 func (h *Handler) Subscribe(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +107,52 @@ func (h *Handler) Subscribe(w http.ResponseWriter, r *http.Request) {
 
 type unsubscribeRequest struct {
 	Endpoint string `json:"endpoint"`
+}
+
+// List devuelve todas las subs del user autenticado. Útil para un "Mis
+// dispositivos" donde el user pueda revocar sesiones de push específicas.
+func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, r, h.logger, domain.ErrUnauthorized)
+		return
+	}
+	subs, err := h.svc.ListByUser(r.Context(), userID)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	out := make([]subscriptionListItemDTO, len(subs))
+	for i, s := range subs {
+		out[i] = subscriptionListItemDTO{
+			ID:         s.ID.String(),
+			Endpoint:   s.Endpoint,
+			UserAgent:  s.UserAgent,
+			CreatedAt:  s.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			LastSeenAt: s.LastSeenAt.Format("2006-01-02T15:04:05Z07:00"),
+		}
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+// DeleteByID borra una sub por ID validando ownership. 404 si no existe o
+// pertenece a otro user (evitamos filtrar IDs de subs ajenas).
+func (h *Handler) DeleteByID(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, r, h.logger, domain.ErrUnauthorized)
+		return
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("id", "no es un UUID válido"))
+		return
+	}
+	if err := h.svc.DeleteByID(r.Context(), userID, id); err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) Unsubscribe(w http.ResponseWriter, r *http.Request) {

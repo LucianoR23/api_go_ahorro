@@ -22,6 +22,8 @@ type userRepository interface {
 	Create(ctx context.Context, email, passwordHash, firstName, lastName string) (domain.User, error)
 	GetByID(ctx context.Context, id uuid.UUID) (domain.User, error)
 	GetCredentialsByEmail(ctx context.Context, email string) (users.Credentials, error)
+	UpdateProfile(ctx context.Context, id uuid.UUID, firstName, lastName, email string) (domain.User, error)
+	MarkEmailVerified(ctx context.Context, id uuid.UUID) error
 }
 
 // registerBootstrap es lo mínimo que el service necesita para poblar los
@@ -35,16 +37,45 @@ type registerBootstrap interface {
 	CreateEfectivoFor(ctx context.Context, userID uuid.UUID) (domain.PaymentMethod, error)
 }
 
+// inviteAccepter: opcional. Si viene seteado, Register acepta un
+// inviteToken y agrega al user al hogar correspondiente. Si falla,
+// logueamos pero seguimos — el user ya existe; puede pedir otra invite.
+type inviteAccepter interface {
+	AcceptOnRegister(ctx context.Context, userID uuid.UUID, userEmail, token string) error
+}
+
+// emailVerifier: opcional. Si viene seteado, Register sin invite dispara
+// Issue (manda mail de verificación). Con invite aceptado marcamos
+// directamente el email como verificado vía userRepository (el mail de
+// invite ya fue recibido por el destinatario, no hace falta doble
+// verificación).
+type emailVerifier interface {
+	Issue(ctx context.Context, userID uuid.UUID) error
+}
+
 // Service orquesta register/login. No toca HTTP.
 type Service struct {
 	repo      userRepository
 	tokens    *TokenIssuer
 	bootstrap registerBootstrap
+	invites   inviteAccepter
+	verifier  emailVerifier
 	logger    *slog.Logger
 }
 
 func NewService(repo userRepository, tokens *TokenIssuer, bootstrap registerBootstrap, logger *slog.Logger) *Service {
 	return &Service{repo: repo, tokens: tokens, bootstrap: bootstrap, logger: logger}
+}
+
+// SetInviteAccepter cablea post-construcción para evitar dependencia
+// cíclica con households (que ya depende de users, donde vive auth).
+func (s *Service) SetInviteAccepter(a inviteAccepter) {
+	s.invites = a
+}
+
+// SetEmailVerifier cablea el service de verificación de email.
+func (s *Service) SetEmailVerifier(v emailVerifier) {
+	s.verifier = v
 }
 
 // TokenPair agrupa los dos tokens + sus expiraciones para que el handler
@@ -69,7 +100,7 @@ type AuthResult struct {
 // futuros sumará "Mi hogar" + split_rule + categorías default). No es
 // transaccional con el INSERT del user — si el bootstrap falla, logueamos
 // y seguimos: el user puede completar el setup manualmente.
-func (s *Service) Register(ctx context.Context, email, password, firstName, lastName string) (AuthResult, error) {
+func (s *Service) Register(ctx context.Context, email, password, firstName, lastName, inviteToken string) (AuthResult, error) {
 	email = normalizeEmail(email)
 	firstName = strings.TrimSpace(firstName)
 	lastName = strings.TrimSpace(lastName)
@@ -104,6 +135,40 @@ func (s *Service) Register(ctx context.Context, email, password, firstName, last
 		if _, err := s.bootstrap.CreateEfectivoFor(ctx, user.ID); err != nil {
 			// No abortamos: el user ya existe. Logueamos para detectarlo.
 			s.logger.Warn("bootstrap de registro falló, user sin Efectivo",
+				"user_id", user.ID, "error", err)
+		}
+	}
+
+	// Si el registro vino con un invite token, aceptamos acá. Errores
+	// no abortan: el user queda creado y puede pedir re-invitación.
+	//
+	// El invite implica que el email fue recibido → lo marcamos verificado
+	// directamente y no disparamos el mail de verificación. Si el invite
+	// acceptOnRegister falla, igual el email se queda sin verificar y el
+	// user puede usar /auth/resend-verification-email para pedirlo.
+	inviteAccepted := false
+	hasInvite := s.invites != nil && strings.TrimSpace(inviteToken) != ""
+	if hasInvite {
+		if err := s.invites.AcceptOnRegister(ctx, user.ID, user.Email, inviteToken); err != nil {
+			s.logger.Warn("aceptar invitación en registro falló",
+				"user_id", user.ID, "error", err)
+		} else {
+			inviteAccepted = true
+		}
+	}
+	if inviteAccepted {
+		if err := s.repo.MarkEmailVerified(ctx, user.ID); err != nil {
+			s.logger.Warn("no se pudo marcar email verificado tras aceptar invite",
+				"user_id", user.ID, "error", err)
+		} else {
+			now := time.Now()
+			user.EmailVerifiedAt = &now
+		}
+	} else if s.verifier != nil {
+		// Registro directo: mandá el mail de verificación. Si falla, el user
+		// ya existe y queda creado — puede reintentar.
+		if err := s.verifier.Issue(ctx, user.ID); err != nil {
+			s.logger.Warn("email verification issue falló en register",
 				"user_id", user.ID, "error", err)
 		}
 	}
@@ -152,6 +217,61 @@ func (s *Service) Me(ctx context.Context, userID uuid.UUID) (domain.User, error)
 		return domain.User{}, err
 	}
 	return user, nil
+}
+
+// UpdateMeInput: campos opcionales (punteros → nil == "no cambiar").
+// El handler decodifica el JSON y arma este struct.
+type UpdateMeInput struct {
+	FirstName *string
+	LastName  *string
+	Email     *string
+}
+
+// UpdateMe aplica cambios parciales al perfil. Valida cada campo que
+// viene seteado; los que son nil quedan como estaban.
+//
+// Nota: el cambio de email NO dispara verification todavía (Fase 3).
+// Lo que sí hacemos es bloquear por unique constraint — colisión devuelve 409.
+func (s *Service) UpdateMe(ctx context.Context, userID uuid.UUID, in UpdateMeInput) (domain.User, error) {
+	current, err := s.repo.GetByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return domain.User{}, domain.NewAuthError("sesión inválida")
+		}
+		return domain.User{}, err
+	}
+
+	firstName := current.FirstName
+	lastName := current.LastName
+	email := current.Email
+
+	if in.FirstName != nil {
+		v := strings.TrimSpace(*in.FirstName)
+		if err := validateName("firstName", v, true); err != nil {
+			return domain.User{}, err
+		}
+		firstName = v
+	}
+	if in.LastName != nil {
+		v := strings.TrimSpace(*in.LastName)
+		if err := validateName("lastName", v, false); err != nil {
+			return domain.User{}, err
+		}
+		lastName = v
+	}
+	if in.Email != nil {
+		v := normalizeEmail(*in.Email)
+		if err := validateEmail(v); err != nil {
+			return domain.User{}, err
+		}
+		email = v
+	}
+
+	// Short-circuit: si ningún campo cambió, no pegamos UPDATE.
+	if firstName == current.FirstName && lastName == current.LastName && email == current.Email {
+		return current, nil
+	}
+	return s.repo.UpdateProfile(ctx, userID, firstName, lastName, email)
 }
 
 // Refresh valida el refresh token viejo y emite un par nuevo.
@@ -220,8 +340,8 @@ func validateName(field, value string, required bool) error {
 	return nil
 }
 
-// Largo mínimo 8. No forzamos mayúsculas/símbolos: NIST SP 800-63B
-// recomienda largo > complejidad. El frontend puede sugerir fortaleza visual.
+// Reglas: mínimo 8 caracteres, al menos una mayúscula, una minúscula y un
+// número. Caracteres especiales permitidos pero no obligatorios.
 func validatePassword(password string) error {
 	if len(password) < 8 {
 		return domain.NewValidationError("password", "debe tener al menos 8 caracteres")
@@ -230,6 +350,26 @@ func validatePassword(password string) error {
 		// bcrypt tiene un límite duro en 72 bytes; más allá de eso silenciosamente
 		// trunca. Cortamos antes para no tener un hash inválido.
 		return domain.NewValidationError("password", "demasiado largo (máx 128)")
+	}
+	var hasUpper, hasLower, hasDigit bool
+	for _, r := range password {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			hasUpper = true
+		case r >= 'a' && r <= 'z':
+			hasLower = true
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		}
+	}
+	if !hasUpper {
+		return domain.NewValidationError("password", "debe incluir al menos una mayúscula")
+	}
+	if !hasLower {
+		return domain.NewValidationError("password", "debe incluir al menos una minúscula")
+	}
+	if !hasDigit {
+		return domain.NewValidationError("password", "debe incluir al menos un número")
 	}
 	return nil
 }

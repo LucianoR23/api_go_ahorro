@@ -56,6 +56,12 @@ DELETE FROM household_members
 WHERE household_id = $1 AND user_id = $2;
 
 
+-- name: RemoveAllMembershipsForUser :exec
+-- Usado en DELETE /me: desvincula al user de todos los hogares. El caller
+-- ya validó que no es owner de ninguno (sino rechazamos la baja).
+DELETE FROM household_members WHERE user_id = $1;
+
+
 -- name: ListHouseholdMembers :many
 -- Devuelve los miembros con el nombre/email del user (JOIN).
 -- Usamos sqlc.embed(u) para que genere un struct anidado con todo user,
@@ -73,6 +79,23 @@ SELECT EXISTS (
     SELECT 1 FROM household_members
     WHERE household_id = $1 AND user_id = $2
 ) AS is_member;
+
+
+-- name: UpdateHouseholdMemberRole :one
+-- Actualiza el rol de un miembro. Devuelve la fila o pgx.ErrNoRows si el
+-- par (household, user) no existe.
+UPDATE household_members
+SET role = $3
+WHERE household_id = $1 AND user_id = $2
+RETURNING *;
+
+
+-- name: CountHouseholdOwners :one
+-- Cuenta los owners vigentes de un hogar. Sirve para invariantes (ej:
+-- no permitir demotions que dejen 0 owners).
+SELECT COUNT(*) AS count
+FROM household_members
+WHERE household_id = $1 AND role = 'owner';
 
 
 -- name: GetHouseholdMemberRole :one

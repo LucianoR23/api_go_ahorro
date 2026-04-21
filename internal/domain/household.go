@@ -56,3 +56,19 @@ type HouseholdMemberDetail struct {
 	Role     Role      `json:"role"`
 	JoinedAt time.Time `json:"joinedAt"`
 }
+
+// HouseholdInvite representa una invitación pendiente/aceptada/revocada
+// a un hogar. El token plano nunca se persiste: solo su hash (SHA-256).
+// El token plano se devuelve UNA sola vez, al crear la invitación, para
+// armar el link del email.
+type HouseholdInvite struct {
+	ID          uuid.UUID  `json:"id"`
+	HouseholdID uuid.UUID  `json:"householdId"`
+	Email       string     `json:"email"`
+	InvitedBy   uuid.UUID  `json:"invitedBy"`
+	ExpiresAt   time.Time  `json:"expiresAt"`
+	AcceptedAt  *time.Time `json:"acceptedAt,omitempty"`
+	AcceptedBy  *uuid.UUID `json:"acceptedBy,omitempty"`
+	RevokedAt   *time.Time `json:"revokedAt,omitempty"`
+	CreatedAt   time.Time  `json:"createdAt"`
+}

@@ -41,6 +41,21 @@ func (q *Queries) AddHouseholdMember(ctx context.Context, arg AddHouseholdMember
 	return i, err
 }
 
+const countHouseholdOwners = `-- name: CountHouseholdOwners :one
+SELECT COUNT(*) AS count
+FROM household_members
+WHERE household_id = $1 AND role = 'owner'
+`
+
+// Cuenta los owners vigentes de un hogar. Sirve para invariantes (ej:
+// no permitir demotions que dejen 0 owners).
+func (q *Queries) CountHouseholdOwners(ctx context.Context, householdID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countHouseholdOwners, householdID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createHousehold = `-- name: CreateHousehold :one
 
 
@@ -165,7 +180,7 @@ func (q *Queries) ListAllHouseholdIDs(ctx context.Context) ([]uuid.UUID, error) 
 }
 
 const listHouseholdMembers = `-- name: ListHouseholdMembers :many
-SELECT u.id, u.email, u.password_hash, u.created_at, u.updated_at, u.first_name, u.last_name, hm.role, hm.joined_at
+SELECT u.id, u.email, u.password_hash, u.created_at, u.updated_at, u.first_name, u.last_name, u.deleted_at, u.email_verified_at, hm.role, hm.joined_at
 FROM household_members hm
 INNER JOIN users u ON u.id = hm.user_id
 WHERE hm.household_id = $1
@@ -198,6 +213,8 @@ func (q *Queries) ListHouseholdMembers(ctx context.Context, householdID uuid.UUI
 			&i.User.UpdatedAt,
 			&i.User.FirstName,
 			&i.User.LastName,
+			&i.User.DeletedAt,
+			&i.User.EmailVerifiedAt,
 			&i.Role,
 			&i.JoinedAt,
 		); err != nil {
@@ -248,6 +265,17 @@ func (q *Queries) ListHouseholdsForUser(ctx context.Context, userID uuid.UUID) (
 	return items, nil
 }
 
+const removeAllMembershipsForUser = `-- name: RemoveAllMembershipsForUser :exec
+DELETE FROM household_members WHERE user_id = $1
+`
+
+// Usado en DELETE /me: desvincula al user de todos los hogares. El caller
+// ya validó que no es owner de ninguno (sino rechazamos la baja).
+func (q *Queries) RemoveAllMembershipsForUser(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, removeAllMembershipsForUser, userID)
+	return err
+}
+
 const removeHouseholdMember = `-- name: RemoveHouseholdMember :exec
 DELETE FROM household_members
 WHERE household_id = $1 AND user_id = $2
@@ -288,6 +316,33 @@ func (q *Queries) UpdateHousehold(ctx context.Context, arg UpdateHouseholdParams
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateHouseholdMemberRole = `-- name: UpdateHouseholdMemberRole :one
+UPDATE household_members
+SET role = $3
+WHERE household_id = $1 AND user_id = $2
+RETURNING household_id, user_id, role, joined_at
+`
+
+type UpdateHouseholdMemberRoleParams struct {
+	HouseholdID uuid.UUID `json:"household_id"`
+	UserID      uuid.UUID `json:"user_id"`
+	Role        string    `json:"role"`
+}
+
+// Actualiza el rol de un miembro. Devuelve la fila o pgx.ErrNoRows si el
+// par (household, user) no existe.
+func (q *Queries) UpdateHouseholdMemberRole(ctx context.Context, arg UpdateHouseholdMemberRoleParams) (HouseholdMember, error) {
+	row := q.db.QueryRow(ctx, updateHouseholdMemberRole, arg.HouseholdID, arg.UserID, arg.Role)
+	var i HouseholdMember
+	err := row.Scan(
+		&i.HouseholdID,
+		&i.UserID,
+		&i.Role,
+		&i.JoinedAt,
 	)
 	return i, err
 }

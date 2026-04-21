@@ -75,6 +75,15 @@ type DailyInsight struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
+type EmailVerification struct {
+	ID        uuid.UUID          `json:"id"`
+	UserID    uuid.UUID          `json:"user_id"`
+	TokenHash string             `json:"token_hash"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	UsedAt    pgtype.Timestamptz `json:"used_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type ExchangeRate struct {
 	Currency   string             `json:"currency"`
 	Source     string             `json:"source"`
@@ -135,6 +144,19 @@ type Household struct {
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
+type HouseholdInvite struct {
+	ID          uuid.UUID          `json:"id"`
+	HouseholdID uuid.UUID          `json:"household_id"`
+	Email       string             `json:"email"`
+	TokenHash   string             `json:"token_hash"`
+	InvitedBy   uuid.UUID          `json:"invited_by"`
+	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	AcceptedAt  pgtype.Timestamptz `json:"accepted_at"`
+	AcceptedBy  *uuid.UUID         `json:"accepted_by"`
+	RevokedAt   pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type HouseholdMember struct {
 	HouseholdID uuid.UUID          `json:"household_id"`
 	UserID      uuid.UUID          `json:"user_id"`
@@ -166,6 +188,15 @@ type Income struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
+type PasswordReset struct {
+	ID        uuid.UUID          `json:"id"`
+	UserID    uuid.UUID          `json:"user_id"`
+	TokenHash string             `json:"token_hash"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	UsedAt    pgtype.Timestamptz `json:"used_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type PaymentMethod struct {
 	ID                 uuid.UUID          `json:"id"`
 	OwnerUserID        uuid.UUID          `json:"owner_user_id"`
@@ -175,6 +206,17 @@ type PaymentMethod struct {
 	AllowsInstallments bool               `json:"allows_installments"`
 	IsActive           bool               `json:"is_active"`
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+}
+
+type PushSubscription struct {
+	ID         uuid.UUID          `json:"id"`
+	UserID     uuid.UUID          `json:"user_id"`
+	Endpoint   string             `json:"endpoint"`
+	P256dh     string             `json:"p256dh"`
+	Auth       string             `json:"auth"`
+	UserAgent  pgtype.Text        `json:"user_agent"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	LastSeenAt pgtype.Timestamptz `json:"last_seen_at"`
 }
 
 type RecurringExpense struct {
@@ -232,11 +274,13 @@ type SettlementPayment struct {
 }
 
 type User struct {
-	ID           uuid.UUID          `json:"id"`
-	Email        string             `json:"email"`
-	PasswordHash string             `json:"password_hash"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	FirstName    string             `json:"first_name"`
-	LastName     string             `json:"last_name"`
+	ID              uuid.UUID          `json:"id"`
+	Email           string             `json:"email"`
+	PasswordHash    string             `json:"password_hash"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	FirstName       string             `json:"first_name"`
+	LastName        string             `json:"last_name"`
+	DeletedAt       pgtype.Timestamptz `json:"deleted_at"`
+	EmailVerifiedAt pgtype.Timestamptz `json:"email_verified_at"`
 }

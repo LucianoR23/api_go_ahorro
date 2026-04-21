@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sqlc generate *)",
+      "Bash(go build *)",
+      "Bash(go vet *)",
+      "Bash(sqlc version *)",
+      "Bash(go get *)"
+    ]
+  }
+}

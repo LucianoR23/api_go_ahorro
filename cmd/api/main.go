@@ -23,6 +23,7 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/creditperiods"
 	"github.com/LucianoR23/api_go_ahorra/internal/db"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/api_go_ahorra/internal/email"
 	"github.com/LucianoR23/api_go_ahorra/internal/expenses"
 	"github.com/LucianoR23/api_go_ahorra/internal/fxrates"
 	"github.com/LucianoR23/api_go_ahorra/internal/goals"
@@ -83,6 +84,27 @@ func main() {
 	authMW := auth.NewMiddleware(tokenIssuer, logger)
 	authHandler := auth.NewHandler(authSvc, authMW, logger, cfg.Env == "prod")
 
+	// Password reset: mismo patrón que invites — token random (32 bytes),
+	// guardamos solo el hash, TTL 1h, Resend opcional (en dev se loguea el URL).
+	passwordResetRepo := auth.NewPasswordResetRepository(pool)
+	passwordResetSender := email.NewResendSender(cfg.ResendAPIKey, cfg.PasswordResetFromEmail)
+	passwordResetSvc := auth.NewPasswordResetService(passwordResetRepo, userRepo, passwordResetSender, logger, cfg.AppBaseURL)
+	authHandler.SetPasswordResetService(passwordResetSvc)
+
+	// Rate limiting: in-memory (httprate). Solo se aplica si NO estamos en
+	// modo test. En prod es obligatorio por seguridad; en dev puede ser
+	// molesto al iterar — pero lo dejamos siempre encendido para detectar
+	// problemas antes de llegar a prod.
+	authHandler.SetRateLimiter(auth.NewInMemoryRateLimiter())
+
+	// Email verification: token por mail al registrarse sin invite. Si el
+	// sender no está configurado, el service loguea el URL (útil en dev).
+	verificationRepo := auth.NewEmailVerificationRepository(pool)
+	verificationSender := email.NewResendSender(cfg.ResendAPIKey, cfg.VerificationFromEmail)
+	verificationSvc := auth.NewEmailVerificationService(verificationRepo, userRepo, verificationSender, logger, cfg.AppBaseURL)
+	authHandler.SetEmailVerificationService(verificationSvc)
+	authSvc.SetEmailVerifier(verificationSvc)
+
 	// categories: repo se construye antes que households porque households.Service
 	// lo recibe como categoriesSeeder (bootstrap de las 7 categorías default
 	// al crear un hogar, dentro de la misma tx).
@@ -99,6 +121,17 @@ func main() {
 	householdsMW := households.NewMiddleware(householdsRepo, logger)
 	householdsHandler := households.NewHandler(householdsSvc, authMW, logger)
 
+	// Invites: owner invita por email. Genera token, persiste hash y manda
+	// el link por Resend (usando INVITE_FROM_EMAIL + APP_BASE_URL). Si el
+	// sender no está configurado, el endpoint igual devuelve el acceptURL
+	// en el response para que el owner lo comparta a mano (útil en dev).
+	inviteSender := email.NewResendSender(cfg.ResendAPIKey, cfg.InviteFromEmail)
+	invitesRepo := households.NewInvitesRepository(pool)
+	invitesSvc := households.NewInvitesService(invitesRepo, householdsRepo, userRepo, splitRulesSvc, inviteSender, logger, cfg.AppBaseURL)
+	invitesHandler := households.NewInvitesHandler(invitesSvc, authMW, logger)
+	// Permite que /auth/register consuma el inviteToken del body.
+	authSvc.SetInviteAccepter(invitesSvc)
+
 	// Push: repo + service + handler. Si las VAPID keys no están, el service
 	// acepta suscripciones pero no envía nada (no-op). El notifier se cablea
 	// a expensesSvc / settlementsSvc / householdsSvc más abajo.
@@ -109,8 +142,15 @@ func main() {
 		Subject:    cfg.VAPIDSubject,
 	}, logger)
 	pushHandler := push.NewHandler(pushSvc, authMW, logger)
+
+	// AccountService: baja de cuenta (soft delete). Requiere pushRepo para
+	// limpiar subs del user al borrarlo. Se cablea al authHandler vía setter.
+	accountSvc := auth.NewAccountService(userRepo, householdsRepo, pushRepo, logger)
+	authHandler.SetAccountService(accountSvc)
+
 	pushAdapter := pushNotifierAdapter{svc: pushSvc}
 	householdsSvc.SetNotifier(pushAdapter)
+	invitesSvc.SetNotifier(pushAdapter)
 	splitRulesHandler := splitrules.NewHandler(splitRulesSvc, authMW, householdsMW, logger)
 
 	paymethodsHandler := paymethods.NewHandler(paymethodsSvc, authMW, logger)
@@ -264,6 +304,10 @@ func main() {
 
 	// Households (todas las rutas requieren auth — el mount lo aplica).
 	householdsHandler.Mount(r)
+
+	// Household invites: /invites/{token} es pública (preview pre-login).
+	// Create/List/Revoke/Accept aplican auth dentro del mount.
+	invitesHandler.Mount(r)
 
 	// Payment methods / banks / credit cards (auth requerido).
 	paymethodsHandler.Mount(r)

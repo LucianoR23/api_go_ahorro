@@ -15,12 +15,35 @@ RETURNING *;
 
 
 -- name: GetUserByID :one
-SELECT * FROM users WHERE id = $1;
+-- Filtra soft-deleted. Un token viejo de una cuenta borrada → pgx.ErrNoRows
+-- → el middleware lo trata como sesión inválida.
+SELECT * FROM users WHERE id = $1 AND deleted_at IS NULL;
 
 
 -- name: GetUserByEmail :one
 -- Usado en login. Devuelve pgx.ErrNoRows si no existe → mapeamos a error de dominio.
-SELECT * FROM users WHERE email = $1;
+-- Filtra soft-deleted: un email anonimizado ya no matchea el formato original
+-- pero además, aunque coincidiera, la fila queda invisible.
+SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL;
+
+
+-- name: SoftDeleteUser :exec
+-- Marca el user como borrado y anonimiza el email para liberar el UNIQUE
+-- y permitir re-registro con el mismo email. El sufijo incluye el id
+-- (único garantizado) + un dominio que no es deliverable.
+UPDATE users
+SET deleted_at = now(),
+    email      = 'deleted+' || id::text || '@ahorra.deleted',
+    updated_at = now()
+WHERE id = $1 AND deleted_at IS NULL;
+
+
+-- name: CountHouseholdsOwnedByUser :one
+-- Cuenta cuántos hogares tienen a este user como owner. Usado por la baja
+-- de cuenta para exigir transferencia previa.
+SELECT COUNT(*) AS count
+FROM household_members
+WHERE user_id = $1 AND role = 'owner';
 
 
 -- name: UpdateUserName :one
@@ -28,6 +51,19 @@ SELECT * FROM users WHERE email = $1;
 UPDATE users
 SET first_name = $2,
     last_name  = $3,
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
+
+-- name: UpdateUserProfile :one
+-- Actualiza nombre/apellido/email en una sola query. El caller es
+-- responsable de validar cada uno antes. La colisión de email la captura
+-- el UNIQUE constraint y se mapea a ErrConflict en el repo.
+UPDATE users
+SET first_name = $2,
+    last_name  = $3,
+    email      = $4,
     updated_at = now()
 WHERE id = $1
 RETURNING *;

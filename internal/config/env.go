@@ -21,8 +21,16 @@ type Config struct {
 
 	// Resend: opcional. Si no hay API key, el worker de reports no manda
 	// emails (loguea warning y sigue). Útil para dev sin configurar nada.
-	ResendAPIKey    string
-	ReportFromEmail string // e.g. "Ahorra <reports@ahorra.app>"
+	ResendAPIKey           string
+	ReportFromEmail        string // e.g. "Ahorra <reports@ahorra.app>"
+	InviteFromEmail        string // e.g. "Ahorra <invites@ahorra.app>"
+	PasswordResetFromEmail string // e.g. "Ahorra <noreply@ahorra.app>"
+	VerificationFromEmail  string // e.g. "Ahorra <noreply@ahorra.app>"
+
+	// AppBaseURL: URL pública del frontend (ej: https://app.ahorra.app).
+	// Se usa para armar los links de invitación que van en los mails.
+	// En dev cae a http://localhost:3000.
+	AppBaseURL string
 
 	// VAPID: opcional. Si no hay keys, los endpoints de push siguen
 	// funcionando pero Service.NotifyUsers hace no-op. Útil para dev.
@@ -52,6 +60,10 @@ func Load() (*Config, error) {
 		AllowedOrigins:   splitAndTrim(getOrDefault("ALLOWED_ORIGINS", "http://localhost:3000"), ","),
 		ResendAPIKey:     os.Getenv("RESEND_API_KEY"),
 		ReportFromEmail:  getOrDefault("REPORT_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
+		InviteFromEmail:        getOrDefault("INVITE_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
+		PasswordResetFromEmail: getOrDefault("PASSWORD_RESET_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
+		VerificationFromEmail:  getOrDefault("VERIFICATION_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
+		AppBaseURL:       getOrDefault("APP_BASE_URL", "http://localhost:3000"),
 		VAPIDPublicKey:   os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey:  os.Getenv("VAPID_PRIVATE_KEY"),
 		VAPIDSubject:     getOrDefault("VAPID_SUBJECT", "mailto:admin@ahorra.app"),

@@ -207,6 +207,33 @@ func (s *Service) RemoveMember(ctx context.Context, requesterID, householdID, ta
 	return s.repo.RemoveMember(ctx, householdID, targetUserID)
 }
 
+// TransferOwnership: el current owner cede el rol a otro miembro. Atómico
+// (demote + promote en una tx). Invariantes:
+//   - caller es el owner actual del hogar
+//   - target es miembro existente del hogar (y distinto del caller)
+//
+// No aceptamos "crear un segundo owner" — el modelo actual es single-owner.
+func (s *Service) TransferOwnership(ctx context.Context, callerID, householdID, targetUserID uuid.UUID) error {
+	if callerID == targetUserID {
+		return domain.NewValidationError("userId", "no podés transferir la propiedad a vos mismo")
+	}
+	if err := s.requireOwner(ctx, householdID, callerID); err != nil {
+		return err
+	}
+	targetRole, err := s.repo.GetMemberRole(ctx, householdID, targetUserID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return domain.NewValidationError("userId", "el usuario no es miembro del hogar")
+		}
+		return err
+	}
+	if targetRole == domain.RoleOwner {
+		// No debería pasar en el modelo single-owner, pero defendemos.
+		return fmt.Errorf("el usuario ya es owner: %w", domain.ErrConflict)
+	}
+	return s.repo.TransferOwnership(ctx, householdID, callerID, targetUserID)
+}
+
 // ListMembers devuelve los miembros del hogar con su info de user.
 // Requiere membresía (se valida en el middleware).
 func (s *Service) ListMembers(ctx context.Context, householdID uuid.UUID) ([]domain.HouseholdMemberDetail, error) {

@@ -14,12 +14,13 @@ import (
 // al validar login — nunca viaja a las capas superiores ni a JSON.
 // Por eso es un tipo separado y no reusamos el generado.
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	Email     string    `json:"email"`
-	FirstName string    `json:"firstName"`
-	LastName  string    `json:"lastName"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID              uuid.UUID  `json:"id"`
+	Email           string     `json:"email"`
+	FirstName       string     `json:"firstName"`
+	LastName        string     `json:"lastName"`
+	EmailVerifiedAt *time.Time `json:"emailVerifiedAt,omitempty"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	UpdatedAt       time.Time  `json:"updatedAt"`
 }
 
 // FullName devuelve "first last" limpio. Si el last está vacío (mononombres),

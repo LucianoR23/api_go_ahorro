@@ -11,12 +11,27 @@ import (
 	"github.com/google/uuid"
 )
 
+const countHouseholdsOwnedByUser = `-- name: CountHouseholdsOwnedByUser :one
+SELECT COUNT(*) AS count
+FROM household_members
+WHERE user_id = $1 AND role = 'owner'
+`
+
+// Cuenta cuántos hogares tienen a este user como owner. Usado por la baja
+// de cuenta para exigir transferencia previa.
+func (q *Queries) CountHouseholdsOwnedByUser(ctx context.Context, userID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countHouseholdsOwnedByUser, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createUser = `-- name: CreateUser :one
 
 
 INSERT INTO users (email, password_hash, first_name, last_name)
 VALUES ($1, $2, $3, $4)
-RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at
 `
 
 type CreateUserParams struct {
@@ -52,15 +67,19 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.UpdatedAt,
 		&i.FirstName,
 		&i.LastName,
+		&i.DeletedAt,
+		&i.EmailVerifiedAt,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, password_hash, created_at, updated_at, first_name, last_name FROM users WHERE email = $1
+SELECT id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at FROM users WHERE email = $1 AND deleted_at IS NULL
 `
 
 // Usado en login. Devuelve pgx.ErrNoRows si no existe → mapeamos a error de dominio.
+// Filtra soft-deleted: un email anonimizado ya no matchea el formato original
+// pero además, aunque coincidiera, la fila queda invisible.
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
 	row := q.db.QueryRow(ctx, getUserByEmail, email)
 	var i User
@@ -72,14 +91,18 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.UpdatedAt,
 		&i.FirstName,
 		&i.LastName,
+		&i.DeletedAt,
+		&i.EmailVerifiedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, password_hash, created_at, updated_at, first_name, last_name FROM users WHERE id = $1
+SELECT id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at FROM users WHERE id = $1 AND deleted_at IS NULL
 `
 
+// Filtra soft-deleted. Un token viejo de una cuenta borrada → pgx.ErrNoRows
+// → el middleware lo trata como sesión inválida.
 func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 	row := q.db.QueryRow(ctx, getUserByID, id)
 	var i User
@@ -91,8 +114,26 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.UpdatedAt,
 		&i.FirstName,
 		&i.LastName,
+		&i.DeletedAt,
+		&i.EmailVerifiedAt,
 	)
 	return i, err
+}
+
+const softDeleteUser = `-- name: SoftDeleteUser :exec
+UPDATE users
+SET deleted_at = now(),
+    email      = 'deleted+' || id::text || '@ahorra.deleted',
+    updated_at = now()
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+// Marca el user como borrado y anonimiza el email para liberar el UNIQUE
+// y permitir re-registro con el mismo email. El sufijo incluye el id
+// (único garantizado) + un dominio que no es deliverable.
+func (q *Queries) SoftDeleteUser(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, softDeleteUser, id)
+	return err
 }
 
 const updateUserName = `-- name: UpdateUserName :one
@@ -101,7 +142,7 @@ SET first_name = $2,
     last_name  = $3,
     updated_at = now()
 WHERE id = $1
-RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at
 `
 
 type UpdateUserNameParams struct {
@@ -122,6 +163,8 @@ func (q *Queries) UpdateUserName(ctx context.Context, arg UpdateUserNameParams) 
 		&i.UpdatedAt,
 		&i.FirstName,
 		&i.LastName,
+		&i.DeletedAt,
+		&i.EmailVerifiedAt,
 	)
 	return i, err
 }
@@ -141,4 +184,46 @@ type UpdateUserPasswordParams struct {
 func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
 	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
 	return err
+}
+
+const updateUserProfile = `-- name: UpdateUserProfile :one
+UPDATE users
+SET first_name = $2,
+    last_name  = $3,
+    email      = $4,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at
+`
+
+type UpdateUserProfileParams struct {
+	ID        uuid.UUID `json:"id"`
+	FirstName string    `json:"first_name"`
+	LastName  string    `json:"last_name"`
+	Email     string    `json:"email"`
+}
+
+// Actualiza nombre/apellido/email en una sola query. El caller es
+// responsable de validar cada uno antes. La colisión de email la captura
+// el UNIQUE constraint y se mapea a ErrConflict en el repo.
+func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserProfile,
+		arg.ID,
+		arg.FirstName,
+		arg.LastName,
+		arg.Email,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.FirstName,
+		&i.LastName,
+		&i.DeletedAt,
+		&i.EmailVerifiedAt,
+	)
+	return i, err
 }

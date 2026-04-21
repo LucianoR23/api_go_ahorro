@@ -44,6 +44,7 @@ func (h *Handler) Mount(r chi.Router) {
 				r.Get("/members", h.ListMembers)
 				r.Post("/members", h.InviteMember)
 				r.Delete("/members/{userId}", h.RemoveMember)
+				r.Patch("/members/{userId}/role", h.UpdateMemberRole)
 			})
 		})
 	})
@@ -252,6 +253,42 @@ func (h *Handler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svc.RemoveMember(r.Context(), requesterID, householdID, targetID); err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type updateRoleRequest struct {
+	Role string `json:"role"`
+}
+
+// UpdateMemberRole transfiere la propiedad del hogar. Acepta solo
+// role="owner" — modela una transferencia completa (el owner actual queda
+// como member). Cualquier otro valor responde 422.
+func (h *Handler) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
+	callerID, householdID, err := h.callerAndHousehold(r)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	targetID, err := uuid.Parse(chi.URLParam(r, "userId"))
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("userId", "no es un UUID válido"))
+		return
+	}
+	var req updateRoleRequest
+	if err := decodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	// Single-owner model: la única transición soportada es "owner" (transferencia).
+	// Si en el futuro admitimos multi-owner, acá se agrega el "member" path.
+	if req.Role != string(domain.RoleOwner) {
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("role", "solo se acepta 'owner' (transferencia)"))
+		return
+	}
+	if err := h.svc.TransferOwnership(r.Context(), callerID, householdID, targetID); err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
