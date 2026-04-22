@@ -19,7 +19,7 @@ SELECT
     e.created_by   AS creditor_id,
     SUM(s.amount_base_owed)::numeric AS billed_owed
 FROM expense_installment_shares s
-JOIN expense_installments i ON i.id = s.expense_installment_id
+JOIN expense_installments i ON i.id = s.installment_id
 JOIN expenses e ON e.id = i.expense_id
 WHERE e.household_id = $1
   AND i.billing_date <= CURRENT_DATE
@@ -68,7 +68,7 @@ SELECT
     COALESCE((
         SELECT SUM(s.amount_base_owed)::numeric
         FROM expense_installment_shares s
-        JOIN expense_installments i ON i.id = s.expense_installment_id
+        JOIN expense_installments i ON i.id = s.installment_id
         JOIN expenses e ON e.id = i.expense_id
         WHERE e.household_id = $1
           AND e.created_by = $2::uuid
@@ -78,7 +78,7 @@ SELECT
     COALESCE((
         SELECT SUM(s.amount_base_owed)::numeric
         FROM expense_installment_shares s
-        JOIN expense_installments i ON i.id = s.expense_installment_id
+        JOIN expense_installments i ON i.id = s.installment_id
         JOIN expenses e ON e.id = i.expense_id
         WHERE e.household_id = $1
           AND e.created_by = $3::uuid
