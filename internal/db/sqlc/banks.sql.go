@@ -56,6 +56,33 @@ func (q *Queries) GetBankByID(ctx context.Context, id uuid.UUID) (Bank, error) {
 	return i, err
 }
 
+const getBankByOwnerAndName = `-- name: GetBankByOwnerAndName :one
+SELECT id, owner_user_id, name, is_active, created_at FROM banks
+WHERE owner_user_id = $1 AND name = $2
+LIMIT 1
+`
+
+type GetBankByOwnerAndNameParams struct {
+	OwnerUserID uuid.UUID `json:"owner_user_id"`
+	Name        string    `json:"name"`
+}
+
+// Usada por CreateBank para detectar un match inactivo y "revivirlo" en
+// vez de fallar por conflicto. El índice parcial (is_active=true) no
+// bloquea que existan inactivos con ese nombre.
+func (q *Queries) GetBankByOwnerAndName(ctx context.Context, arg GetBankByOwnerAndNameParams) (Bank, error) {
+	row := q.db.QueryRow(ctx, getBankByOwnerAndName, arg.OwnerUserID, arg.Name)
+	var i Bank
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.Name,
+		&i.IsActive,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listBanksByOwner = `-- name: ListBanksByOwner :many
 SELECT id, owner_user_id, name, is_active, created_at FROM banks
 WHERE owner_user_id = $1 AND is_active = true
@@ -88,6 +115,28 @@ func (q *Queries) ListBanksByOwner(ctx context.Context, ownerUserID uuid.UUID) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const reactivateBank = `-- name: ReactivateBank :one
+UPDATE banks
+SET is_active = true
+WHERE id = $1
+RETURNING id, owner_user_id, name, is_active, created_at
+`
+
+// Marca is_active=true preservando id y created_at. Usada cuando el
+// user "crea" un banco cuyo nombre ya existe como inactivo del mismo owner.
+func (q *Queries) ReactivateBank(ctx context.Context, id uuid.UUID) (Bank, error) {
+	row := q.db.QueryRow(ctx, reactivateBank, id)
+	var i Bank
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.Name,
+		&i.IsActive,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const setBankActive = `-- name: SetBankActive :one

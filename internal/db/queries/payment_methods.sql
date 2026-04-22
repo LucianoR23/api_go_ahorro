@@ -48,3 +48,25 @@ RETURNING *;
 SELECT COUNT(*) AS total
 FROM payment_methods
 WHERE owner_user_id = $1 AND is_active = true;
+
+
+-- name: GetPaymentMethodByOwnerAndName :one
+-- Busca por (owner, name) sin filtrar por is_active. El service la usa
+-- al crear un método: si encuentra una fila inactiva con ese nombre la
+-- reactiva ("revive") preservando id e historial de expenses.
+SELECT * FROM payment_methods
+WHERE owner_user_id = $1 AND name = $2
+LIMIT 1;
+
+
+-- name: ReactivatePaymentMethod :one
+-- Marca is_active=true y actualiza los campos mutables (bank_id,
+-- allows_installments). kind es inmutable: si el user intenta crear con
+-- un kind distinto al del registro inactivo, el service rechaza antes
+-- de llamar acá, así que este UPDATE asume kind ya válido.
+UPDATE payment_methods
+SET is_active           = true,
+    bank_id             = $2,
+    allows_installments = $3
+WHERE id = $1
+RETURNING *;

@@ -2,6 +2,8 @@ package paymethods
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -27,6 +29,19 @@ func (s *Service) CreateBank(ctx context.Context, ownerID uuid.UUID, name string
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return domain.Bank{}, domain.NewValidationError("name", "no puede estar vacío")
+	}
+
+	// "Revive": si ya existe un banco inactivo del mismo owner con ese
+	// nombre, lo reactivamos en vez de fallar con conflicto. Preserva el
+	// id y el historial de payment_methods que apuntan a él. Si el
+	// existente está activo, caemos al INSERT que chocará contra el
+	// índice parcial y el repo lo mapea a ErrConflict.
+	existing, err := s.repo.GetBankByOwnerAndName(ctx, ownerID, name)
+	if err == nil && !existing.IsActive {
+		return s.repo.ReactivateBank(ctx, existing.ID)
+	}
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return domain.Bank{}, err
 	}
 	return s.repo.CreateBank(ctx, ownerID, name)
 }
@@ -125,6 +140,23 @@ func (s *Service) CreatePaymentMethod(ctx context.Context, in CreatePaymentMetho
 		AllowsInstallments: allows,
 	}
 
+	// Detectar match por (owner, name) para implementar "revive". Si
+	// hay una fila inactiva del mismo kind, la reactivamos; si hay una
+	// activa, dejamos que el INSERT dispare el conflict; si hay
+	// inactiva de otro kind, rechazamos con un error claro para evitar
+	// corromper historial (expenses linkean al id y asumen el kind).
+	existing, existErr := s.repo.GetPaymentMethodByOwnerAndName(ctx, in.OwnerID, in.Name)
+	if existErr != nil && !errors.Is(existErr, domain.ErrNotFound) {
+		return domain.PaymentMethodWithCard{}, existErr
+	}
+	reviving := existErr == nil && !existing.IsActive
+	if reviving && existing.Kind != in.Kind {
+		return domain.PaymentMethodWithCard{}, domain.NewValidationError(
+			"name",
+			fmt.Sprintf("ya existe un medio de pago inactivo con ese nombre de otro tipo (%s); reactivalo desde la lista o elegí otro nombre", existing.Kind),
+		)
+	}
+
 	// Rama credit: transacción combinada.
 	if in.Kind == domain.KindCredit {
 		if in.CreditCard == nil {
@@ -162,6 +194,13 @@ func (s *Service) CreatePaymentMethod(ctx context.Context, in CreatePaymentMetho
 			}
 		}
 
+		if reviving {
+			outPM, outCC, outPeriods, err := s.repo.ReviveCreditMethod(ctx, existing.ID, in.BankID, allows, cc, in.CreditCard.CurrentPeriod, in.CreditCard.NextPeriod)
+			if err != nil {
+				return domain.PaymentMethodWithCard{}, err
+			}
+			return domain.PaymentMethodWithCard{PaymentMethod: outPM, CreditCard: &outCC, Periods: outPeriods}, nil
+		}
 		outPM, outCC, outPeriods, err := s.repo.CreateCreditMethod(ctx, pm, cc, in.CreditCard.CurrentPeriod, in.CreditCard.NextPeriod)
 		if err != nil {
 			return domain.PaymentMethodWithCard{}, err
@@ -172,6 +211,14 @@ func (s *Service) CreatePaymentMethod(ctx context.Context, in CreatePaymentMetho
 	// Rama no-credit: rechazar credit_card si viene (input inconsistente).
 	if in.CreditCard != nil {
 		return domain.PaymentMethodWithCard{}, domain.NewValidationError("creditCard", "solo permitido con kind=credit")
+	}
+
+	if reviving {
+		outPM, err := s.repo.ReactivatePaymentMethod(ctx, existing.ID, in.BankID, allows)
+		if err != nil {
+			return domain.PaymentMethodWithCard{}, err
+		}
+		return domain.PaymentMethodWithCard{PaymentMethod: outPM}, nil
 	}
 
 	outPM, err := s.repo.CreatePaymentMethod(ctx, pm)

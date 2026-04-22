@@ -107,6 +107,10 @@ type Querier interface {
 	// lo expongo por simetría con el resto del CRUD.
 	DeleteSplitRule(ctx context.Context, arg DeleteSplitRuleParams) error
 	GetBankByID(ctx context.Context, id uuid.UUID) (Bank, error)
+	// Usada por CreateBank para detectar un match inactivo y "revivirlo" en
+	// vez de fallar por conflicto. El índice parcial (is_active=true) no
+	// bloquea que existan inactivos con ese nombre.
+	GetBankByOwnerAndName(ctx context.Context, arg GetBankByOwnerAndNameParams) (Bank, error)
 	GetBudgetGoalByID(ctx context.Context, id uuid.UUID) (BudgetGoal, error)
 	GetCategoryByID(ctx context.Context, id uuid.UUID) (Category, error)
 	// Devuelve el detalle de tarjeta asociado al payment_method dado.
@@ -134,6 +138,10 @@ type Querier interface {
 	GetLatestExchangeRate(ctx context.Context, arg GetLatestExchangeRateParams) (ExchangeRate, error)
 	GetPasswordResetByTokenHash(ctx context.Context, tokenHash string) (PasswordReset, error)
 	GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (PaymentMethod, error)
+	// Busca por (owner, name) sin filtrar por is_active. El service la usa
+	// al crear un método: si encuentra una fila inactiva con ese nombre la
+	// reactiva ("revive") preservando id e historial de expenses.
+	GetPaymentMethodByOwnerAndName(ctx context.Context, arg GetPaymentMethodByOwnerAndNameParams) (PaymentMethod, error)
 	GetRecurringExpenseByID(ctx context.Context, id uuid.UUID) (RecurringExpense, error)
 	GetRecurringIncomeByID(ctx context.Context, id uuid.UUID) (RecurringIncome, error)
 	GetSettlementByID(ctx context.Context, id uuid.UUID) (SettlementPayment, error)
@@ -237,6 +245,14 @@ type Querier interface {
 	// Admin-only: borrado físico. ON DELETE CASCADE arrastra miembros,
 	// expenses, goals, settlements, split_rules, categories, invites. Irreversible.
 	PurgeHousehold(ctx context.Context, id uuid.UUID) error
+	// Marca is_active=true preservando id y created_at. Usada cuando el
+	// user "crea" un banco cuyo nombre ya existe como inactivo del mismo owner.
+	ReactivateBank(ctx context.Context, id uuid.UUID) (Bank, error)
+	// Marca is_active=true y actualiza los campos mutables (bank_id,
+	// allows_installments). kind es inmutable: si el user intenta crear con
+	// un kind distinto al del registro inactivo, el service rechaza antes
+	// de llamar acá, así que este UPDATE asume kind ya válido.
+	ReactivatePaymentMethod(ctx context.Context, arg ReactivatePaymentMethodParams) (PaymentMethod, error)
 	// Pisa el token_hash y expires_at de una invitación pendiente. Se usa para
 	// "reenviar" — genera un nuevo token, invalida implícitamente el anterior
 	// (el hash previo ya no existe) y extiende la ventana. Solo matchea si la

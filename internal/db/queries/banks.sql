@@ -36,3 +36,21 @@ UPDATE banks
 SET is_active = $2
 WHERE id = $1
 RETURNING *;
+
+
+-- name: GetBankByOwnerAndName :one
+-- Usada por CreateBank para detectar un match inactivo y "revivirlo" en
+-- vez de fallar por conflicto. El índice parcial (is_active=true) no
+-- bloquea que existan inactivos con ese nombre.
+SELECT * FROM banks
+WHERE owner_user_id = $1 AND name = $2
+LIMIT 1;
+
+
+-- name: ReactivateBank :one
+-- Marca is_active=true preservando id y created_at. Usada cuando el
+-- user "crea" un banco cuyo nombre ya existe como inactivo del mismo owner.
+UPDATE banks
+SET is_active = true
+WHERE id = $1
+RETURNING *;

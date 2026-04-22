@@ -88,6 +88,36 @@ func (q *Queries) GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (Payme
 	return i, err
 }
 
+const getPaymentMethodByOwnerAndName = `-- name: GetPaymentMethodByOwnerAndName :one
+SELECT id, owner_user_id, bank_id, name, kind, allows_installments, is_active, created_at FROM payment_methods
+WHERE owner_user_id = $1 AND name = $2
+LIMIT 1
+`
+
+type GetPaymentMethodByOwnerAndNameParams struct {
+	OwnerUserID uuid.UUID `json:"owner_user_id"`
+	Name        string    `json:"name"`
+}
+
+// Busca por (owner, name) sin filtrar por is_active. El service la usa
+// al crear un método: si encuentra una fila inactiva con ese nombre la
+// reactiva ("revive") preservando id e historial de expenses.
+func (q *Queries) GetPaymentMethodByOwnerAndName(ctx context.Context, arg GetPaymentMethodByOwnerAndNameParams) (PaymentMethod, error) {
+	row := q.db.QueryRow(ctx, getPaymentMethodByOwnerAndName, arg.OwnerUserID, arg.Name)
+	var i PaymentMethod
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.BankID,
+		&i.Name,
+		&i.Kind,
+		&i.AllowsInstallments,
+		&i.IsActive,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listPaymentMethodsByOwner = `-- name: ListPaymentMethodsByOwner :many
 SELECT id, owner_user_id, bank_id, name, kind, allows_installments, is_active, created_at FROM payment_methods
 WHERE owner_user_id = $1 AND is_active = true
@@ -123,6 +153,41 @@ func (q *Queries) ListPaymentMethodsByOwner(ctx context.Context, ownerUserID uui
 		return nil, err
 	}
 	return items, nil
+}
+
+const reactivatePaymentMethod = `-- name: ReactivatePaymentMethod :one
+UPDATE payment_methods
+SET is_active           = true,
+    bank_id             = $2,
+    allows_installments = $3
+WHERE id = $1
+RETURNING id, owner_user_id, bank_id, name, kind, allows_installments, is_active, created_at
+`
+
+type ReactivatePaymentMethodParams struct {
+	ID                 uuid.UUID  `json:"id"`
+	BankID             *uuid.UUID `json:"bank_id"`
+	AllowsInstallments bool       `json:"allows_installments"`
+}
+
+// Marca is_active=true y actualiza los campos mutables (bank_id,
+// allows_installments). kind es inmutable: si el user intenta crear con
+// un kind distinto al del registro inactivo, el service rechaza antes
+// de llamar acá, así que este UPDATE asume kind ya válido.
+func (q *Queries) ReactivatePaymentMethod(ctx context.Context, arg ReactivatePaymentMethodParams) (PaymentMethod, error) {
+	row := q.db.QueryRow(ctx, reactivatePaymentMethod, arg.ID, arg.BankID, arg.AllowsInstallments)
+	var i PaymentMethod
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.BankID,
+		&i.Name,
+		&i.Kind,
+		&i.AllowsInstallments,
+		&i.IsActive,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const setPaymentMethodActive = `-- name: SetPaymentMethodActive :one

@@ -45,6 +45,36 @@ func (r *Repository) CreateBank(ctx context.Context, ownerID uuid.UUID, name str
 	return bankToDomain(row), nil
 }
 
+// GetBankByOwnerAndName busca un banco del user por nombre exacto, sin
+// filtrar por is_active. Se usa desde CreateBank para implementar
+// "revive": si ya existe uno inactivo con ese nombre, reactivarlo.
+// Retorna ErrNotFound si no existe ninguna fila (activa o inactiva).
+func (r *Repository) GetBankByOwnerAndName(ctx context.Context, ownerID uuid.UUID, name string) (domain.Bank, error) {
+	row, err := r.q.GetBankByOwnerAndName(ctx, sqlcgen.GetBankByOwnerAndNameParams{
+		OwnerUserID: ownerID,
+		Name:        name,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Bank{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Bank{}, fmt.Errorf("paymethods.GetBankByOwnerAndName: %w", err)
+	}
+	return bankToDomain(row), nil
+}
+
+// ReactivateBank marca is_active=true preservando id/created_at.
+func (r *Repository) ReactivateBank(ctx context.Context, id uuid.UUID) (domain.Bank, error) {
+	row, err := r.q.ReactivateBank(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Bank{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Bank{}, fmt.Errorf("paymethods.ReactivateBank: %w", err)
+	}
+	return bankToDomain(row), nil
+}
+
 func (r *Repository) GetBank(ctx context.Context, id uuid.UUID) (domain.Bank, error) {
 	row, err := r.q.GetBankByID(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -193,6 +223,115 @@ func periodToDomain(p sqlcgen.CreditCardPeriod) domain.CreditCardPeriod {
 		CreatedAt:    p.CreatedAt.Time,
 		UpdatedAt:    p.UpdatedAt.Time,
 	}
+}
+
+// GetPaymentMethodByOwnerAndName: equivalente a GetBankByOwnerAndName
+// pero para métodos. No filtra por is_active: usada por el flow de
+// revive en CreatePaymentMethod.
+func (r *Repository) GetPaymentMethodByOwnerAndName(ctx context.Context, ownerID uuid.UUID, name string) (domain.PaymentMethod, error) {
+	row, err := r.q.GetPaymentMethodByOwnerAndName(ctx, sqlcgen.GetPaymentMethodByOwnerAndNameParams{
+		OwnerUserID: ownerID,
+		Name:        name,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.PaymentMethod{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.PaymentMethod{}, fmt.Errorf("paymethods.GetPaymentMethodByOwnerAndName: %w", err)
+	}
+	return pmToDomain(row), nil
+}
+
+// ReactivatePaymentMethod marca is_active=true y actualiza bank_id +
+// allows_installments. kind es inmutable: el service valida que coincida
+// antes de llamar.
+func (r *Repository) ReactivatePaymentMethod(ctx context.Context, id uuid.UUID, bankID *uuid.UUID, allowsInstallments bool) (domain.PaymentMethod, error) {
+	row, err := r.q.ReactivatePaymentMethod(ctx, sqlcgen.ReactivatePaymentMethodParams{
+		ID:                 id,
+		BankID:             bankID,
+		AllowsInstallments: allowsInstallments,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.PaymentMethod{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.PaymentMethod{}, mapPaymentMethodErr(err)
+	}
+	return pmToDomain(row), nil
+}
+
+// ReviveCreditMethod reactiva un payment_method kind=credit inactivo en
+// una sola transacción: reactivate + update credit_card + upsert periods.
+// El service garantiza que el id corresponde a un PM inactivo del mismo
+// owner y con kind=credit, y que los periodos vienen validados.
+func (r *Repository) ReviveCreditMethod(
+	ctx context.Context,
+	pmID uuid.UUID,
+	bankID *uuid.UUID,
+	allowsInstallments bool,
+	cc domain.CreditCard,
+	currentPeriod *PeriodInput,
+	nextPeriod *PeriodInput,
+) (domain.PaymentMethod, domain.CreditCard, []domain.CreditCardPeriod, error) {
+	var outPM domain.PaymentMethod
+	var outCC domain.CreditCard
+	var outPeriods []domain.CreditCardPeriod
+
+	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		qTx := r.q.WithTx(tx)
+
+		pmRow, err := qTx.ReactivatePaymentMethod(ctx, sqlcgen.ReactivatePaymentMethodParams{
+			ID:                 pmID,
+			BankID:             bankID,
+			AllowsInstallments: allowsInstallments,
+		})
+		if err != nil {
+			return mapPaymentMethodErr(err)
+		}
+
+		// credit_card row ya existe porque el PM era kind=credit (la crea
+		// la tx original). Lo obtenemos para UPDATE by id.
+		existingCC, err := qTx.GetCreditCardByPaymentMethodID(ctx, pmID)
+		if err != nil {
+			return fmt.Errorf("revive: get credit_card: %w", err)
+		}
+
+		ccRow, err := qTx.UpdateCreditCard(ctx, sqlcgen.UpdateCreditCardParams{
+			ID:                   existingCC.ID,
+			Alias:                cc.Alias,
+			LastFour:             lastFourToPG(cc.LastFour),
+			DefaultClosingDay:    int32(cc.DefaultClosingDay),
+			DefaultDueDay:        int32(cc.DefaultDueDay),
+			DebitPaymentMethodID: cc.DebitPaymentMethodID,
+		})
+		if err != nil {
+			return fmt.Errorf("revive: update credit_card: %w", err)
+		}
+
+		for _, p := range []*PeriodInput{currentPeriod, nextPeriod} {
+			if p == nil {
+				continue
+			}
+			row, err := qTx.UpsertCreditCardPeriod(ctx, sqlcgen.UpsertCreditCardPeriodParams{
+				CreditCardID: ccRow.ID,
+				PeriodYm:     domain.PeriodYMFromDate(p.ClosingDate),
+				ClosingDate:  dateToPG(p.ClosingDate),
+				DueDate:      dateToPG(p.DueDate),
+			})
+			if err != nil {
+				return fmt.Errorf("revive: upsert credit_card_period: %w", err)
+			}
+			outPeriods = append(outPeriods, periodToDomain(row))
+		}
+
+		outPM = pmToDomain(pmRow)
+		outCC = ccToDomain(ccRow)
+		return nil
+	})
+	if err != nil {
+		return domain.PaymentMethod{}, domain.CreditCard{}, nil, err
+	}
+	return outPM, outCC, outPeriods, nil
 }
 
 func (r *Repository) GetPaymentMethod(ctx context.Context, id uuid.UUID) (domain.PaymentMethod, error) {
