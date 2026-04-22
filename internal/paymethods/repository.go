@@ -357,6 +357,20 @@ func (r *Repository) ListPaymentMethods(ctx context.Context, ownerID uuid.UUID) 
 	return out, nil
 }
 
+// ListAllPaymentMethods incluye inactivos. Usado por la pantalla de
+// configuración para mostrar los "borrados" y permitir revivirlos.
+func (r *Repository) ListAllPaymentMethods(ctx context.Context, ownerID uuid.UUID) ([]domain.PaymentMethod, error) {
+	rows, err := r.q.ListAllPaymentMethodsByOwner(ctx, ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("paymethods.ListAllPaymentMethods: %w", err)
+	}
+	out := make([]domain.PaymentMethod, len(rows))
+	for i, row := range rows {
+		out[i] = pmToDomain(row)
+	}
+	return out, nil
+}
+
 func (r *Repository) UpdatePaymentMethod(ctx context.Context, p domain.PaymentMethod) (domain.PaymentMethod, error) {
 	row, err := r.q.UpdatePaymentMethod(ctx, sqlcgen.UpdatePaymentMethodParams{
 		ID:                 p.ID,

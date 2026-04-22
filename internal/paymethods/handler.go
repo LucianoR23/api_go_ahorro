@@ -250,7 +250,18 @@ func (h *Handler) ListPaymentMethods(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, domain.ErrUnauthorized)
 		return
 	}
-	list, err := h.svc.ListPaymentMethods(r.Context(), userID)
+	// ?includeInactive=true devuelve también los soft-deleted para que
+	// la pantalla de configuración pueda mostrarlos y ofrecer "revivir".
+	// Otros clientes (form de gastos, etc.) omiten el param y reciben
+	// solo los activos.
+	includeInactive := r.URL.Query().Get("includeInactive") == "true"
+	var list []domain.PaymentMethod
+	var err error
+	if includeInactive {
+		list, err = h.svc.ListAllPaymentMethods(r.Context(), userID)
+	} else {
+		list, err = h.svc.ListPaymentMethods(r.Context(), userID)
+	}
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return

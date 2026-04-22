@@ -118,6 +118,44 @@ func (q *Queries) GetPaymentMethodByOwnerAndName(ctx context.Context, arg GetPay
 	return i, err
 }
 
+const listAllPaymentMethodsByOwner = `-- name: ListAllPaymentMethodsByOwner :many
+SELECT id, owner_user_id, bank_id, name, kind, allows_installments, is_active, created_at FROM payment_methods
+WHERE owner_user_id = $1
+ORDER BY is_active DESC, kind ASC, name ASC
+`
+
+// Incluye inactivos. Orden: primero los activos (is_active DESC) para
+// que la pantalla de configuración muestre los vigentes arriba y los
+// "borrados" debajo, con opción de revivirlos.
+func (q *Queries) ListAllPaymentMethodsByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]PaymentMethod, error) {
+	rows, err := q.db.Query(ctx, listAllPaymentMethodsByOwner, ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PaymentMethod{}
+	for rows.Next() {
+		var i PaymentMethod
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerUserID,
+			&i.BankID,
+			&i.Name,
+			&i.Kind,
+			&i.AllowsInstallments,
+			&i.IsActive,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPaymentMethodsByOwner = `-- name: ListPaymentMethodsByOwner :many
 SELECT id, owner_user_id, bank_id, name, kind, allows_installments, is_active, created_at FROM payment_methods
 WHERE owner_user_id = $1 AND is_active = true

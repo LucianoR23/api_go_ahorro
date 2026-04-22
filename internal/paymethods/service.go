@@ -232,6 +232,14 @@ func (s *Service) ListPaymentMethods(ctx context.Context, ownerID uuid.UUID) ([]
 	return s.repo.ListPaymentMethods(ctx, ownerID)
 }
 
+// ListAllPaymentMethods: incluye inactivos. Se expone en la pantalla de
+// configuración; los demás callers (expenses, incomes, recurring) siguen
+// usando ListPaymentMethods para no ofrecer métodos "borrados" al cargar
+// movimientos.
+func (s *Service) ListAllPaymentMethods(ctx context.Context, ownerID uuid.UUID) ([]domain.PaymentMethod, error) {
+	return s.repo.ListAllPaymentMethods(ctx, ownerID)
+}
+
 // UpdatePaymentMethod: cambia name/bank/allowsInstallments. kind no.
 // Para kind=wallet allowsInstallments es libre; para el resto, si el cliente
 // manda un valor distinto del forzado, devolvemos error de validación.

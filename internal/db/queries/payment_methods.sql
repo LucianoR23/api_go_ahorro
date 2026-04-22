@@ -22,6 +22,15 @@ WHERE owner_user_id = $1 AND is_active = true
 ORDER BY kind ASC, name ASC;
 
 
+-- name: ListAllPaymentMethodsByOwner :many
+-- Incluye inactivos. Orden: primero los activos (is_active DESC) para
+-- que la pantalla de configuración muestre los vigentes arriba y los
+-- "borrados" debajo, con opción de revivirlos.
+SELECT * FROM payment_methods
+WHERE owner_user_id = $1
+ORDER BY is_active DESC, kind ASC, name ASC;
+
+
 -- name: UpdatePaymentMethod :one
 -- Solo nombre, bank_id y allows_installments son editables.
 -- kind y owner_user_id son inmutables (cambiarlos rompería historial).

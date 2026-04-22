@@ -176,6 +176,10 @@ type Querier interface {
 	// Para workers que iteran todos los hogares (insights, reports). Saltea
 	// soft-deleted: un hogar borrado no debe generar insights ni reports.
 	ListAllHouseholdIDs(ctx context.Context) ([]uuid.UUID, error)
+	// Incluye inactivos. Orden: primero los activos (is_active DESC) para
+	// que la pantalla de configuración muestre los vigentes arriba y los
+	// "borrados" debajo, con opción de revivirlos.
+	ListAllPaymentMethodsByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]PaymentMethod, error)
 	// Lista los bancos activos del user, orden estable por nombre.
 	// Si algún día hace falta mostrar los desactivados, se agrega otra query.
 	ListBanksByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]Bank, error)
