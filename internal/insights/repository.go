@@ -40,6 +40,10 @@ type CreateParams struct {
 	Body        string
 	Severity    string
 	Metadata    map[string]any
+	// RefID: opcional. Cuando está, identifica la entidad origen del insight
+	// (expense_id, invite_id, settlement_id) y se usa para de-dup en el
+	// índice parcial daily_insights_unique_with_ref.
+	RefID *uuid.UUID
 }
 
 // Create: devuelve (insight, created). created=false cuando ON CONFLICT
@@ -62,6 +66,7 @@ func (r *Repository) Create(ctx context.Context, p CreateParams) (domain.DailyIn
 		Body:        p.Body,
 		Severity:    p.Severity,
 		Metadata:    meta,
+		RefID:       p.RefID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.DailyInsight{}, false, nil
@@ -231,6 +236,7 @@ func toDomain(row sqlcgen.DailyInsight) domain.DailyInsight {
 		IsRead:      row.IsRead,
 		Metadata:    row.Metadata,
 		CreatedAt:   row.CreatedAt.Time,
+		RefID:       row.RefID,
 	}
 }
 

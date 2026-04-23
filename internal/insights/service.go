@@ -37,15 +37,79 @@ func (g GoalsAdapter) ProgressList(ctx context.Context, householdID uuid.UUID, f
 	return g(ctx, householdID, f.OnlyActive, at)
 }
 
+// notifier: dispara un pg_notify por cada insight nuevo. Inyectado para
+// que el service no dependa del pool directamente (testeable + opcional).
+type notifier func(ctx context.Context, ev Event) error
+
 type Service struct {
 	repo       *Repository
 	households householdsLister
 	goals      goalsProgress
 	logger     *slog.Logger
+	notify     notifier
 }
 
 func NewService(repo *Repository, households householdsLister, goals goalsProgress, logger *slog.Logger) *Service {
 	return &Service{repo: repo, households: households, goals: goals, logger: logger}
+}
+
+// SetNotifier cablea el publish a Postgres LISTEN/NOTIFY. Llamar después de
+// construir el hub+listener en main. Si nunca se llama, los insights se
+// crean igual pero no se propagan en tiempo real (cae al polling).
+func (s *Service) SetNotifier(n notifier) { s.notify = n }
+
+// CreateEvent: API pública para que otros servicios (expenses, invites,
+// settlements) creen insights "por evento" linkeados a una entidad origen
+// vía refID. De-dup automático por (hh, user, type, ref_id). Si created=true,
+// emite el NOTIFY para fan-out en tiempo real.
+type EventInput struct {
+	HouseholdID uuid.UUID
+	UserID      *uuid.UUID
+	InsightType string
+	Title       string
+	Body        string
+	Severity    string
+	RefID       uuid.UUID
+	Metadata    map[string]any
+}
+
+func (s *Service) CreateEvent(ctx context.Context, in EventInput) (domain.DailyInsight, bool, error) {
+	ref := in.RefID
+	ins, created, err := s.repo.Create(ctx, CreateParams{
+		HouseholdID: in.HouseholdID,
+		UserID:      in.UserID,
+		InsightDate: dayStart(time.Now()),
+		InsightType: in.InsightType,
+		Title:       in.Title,
+		Body:        in.Body,
+		Severity:    in.Severity,
+		Metadata:    in.Metadata,
+		RefID:       &ref,
+	})
+	if err != nil {
+		return ins, false, err
+	}
+	if created {
+		s.publish(ctx, ins)
+	}
+	return ins, created, nil
+}
+
+// publish: best-effort, never blocks the caller. Si falla, el insight queda
+// igual en DB y la UI lo verá en el próximo polling.
+func (s *Service) publish(ctx context.Context, ins domain.DailyInsight) {
+	if s.notify == nil {
+		return
+	}
+	if err := s.notify(ctx, Event{
+		InsightID:   ins.ID,
+		HouseholdID: ins.HouseholdID,
+		UserID:      ins.UserID,
+		InsightType: ins.InsightType,
+	}); err != nil && s.logger != nil {
+		s.logger.WarnContext(ctx, "insights: pg_notify falló",
+			"insightId", ins.ID.String(), "error", err)
+	}
 }
 
 // ===================== lectura / escritura =====================
@@ -181,7 +245,7 @@ func (s *Service) genDailySummary(ctx context.Context, householdID uuid.UUID, at
 			counts.Total, counts.DistinctCategories, formatMoney(due))
 	}
 
-	_, created, err := s.repo.Create(ctx, CreateParams{
+	ins, created, err := s.repo.Create(ctx, CreateParams{
 		HouseholdID: householdID,
 		InsightDate: dayStart(at),
 		InsightType: domain.InsightTypeDailySummary,
@@ -194,6 +258,9 @@ func (s *Service) genDailySummary(ctx context.Context, householdID uuid.UUID, at
 			"month_due":       due,
 		},
 	})
+	if created {
+		s.publish(ctx, ins)
+	}
 	return created, err
 }
 
@@ -217,7 +284,7 @@ func (s *Service) genGoalAlerts(ctx context.Context, householdID uuid.UUID, at t
 		if p.Goal.Scope == domain.GoalScopeUser {
 			userID = p.Goal.UserID
 		}
-		_, c, err := s.repo.Create(ctx, CreateParams{
+		ins, c, err := s.repo.Create(ctx, CreateParams{
 			HouseholdID: householdID,
 			UserID:      userID,
 			InsightDate: dayStart(at),
@@ -226,11 +293,11 @@ func (s *Service) genGoalAlerts(ctx context.Context, householdID uuid.UUID, at t
 			Body:        body,
 			Severity:    severity,
 			Metadata: map[string]any{
-				"goal_id":       p.Goal.ID.String(),
-				"goal_type":     p.Goal.GoalType,
-				"percent":       p.Percent,
-				"current":       p.CurrentAmount,
-				"target":        p.TargetAmount,
+				"goal_id":   p.Goal.ID.String(),
+				"goal_type": p.Goal.GoalType,
+				"percent":   p.Percent,
+				"current":   p.CurrentAmount,
+				"target":    p.TargetAmount,
 			},
 		})
 		if err != nil {
@@ -240,6 +307,7 @@ func (s *Service) genGoalAlerts(ctx context.Context, householdID uuid.UUID, at t
 		}
 		if c {
 			created++
+			s.publish(ctx, ins)
 		}
 	}
 	return created, failed
@@ -267,7 +335,7 @@ func (s *Service) genWeeklyReview(ctx context.Context, householdID uuid.UUID, at
 		severity = domain.InsightSeverityWarning
 	}
 
-	_, created, err := s.repo.Create(ctx, CreateParams{
+	ins, created, err := s.repo.Create(ctx, CreateParams{
 		HouseholdID: householdID,
 		InsightDate: dayStart(at),
 		InsightType: domain.InsightTypeWeeklyReview,
@@ -279,6 +347,9 @@ func (s *Service) genWeeklyReview(ctx context.Context, householdID uuid.UUID, at
 			"prev_week_total": prevTotal,
 		},
 	})
+	if created {
+		s.publish(ctx, ins)
+	}
 	return created, err
 }
 

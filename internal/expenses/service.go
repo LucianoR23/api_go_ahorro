@@ -49,6 +49,13 @@ type pushNotifier interface {
 	NotifyUsers(ctx context.Context, userIDs []uuid.UUID, title, body, url, tag string)
 }
 
+// insightCreator: dependencia opcional para persistir un insight visible en
+// /notificaciones cuando se crea un gasto compartido. Interface local para
+// no acoplar expenses → insights. Nil-safe.
+type insightCreator interface {
+	CreateSharedExpenseInsight(ctx context.Context, householdID, expenseID, recipientID uuid.UUID, title, body string)
+}
+
 // ShareOverride: monto explícito que un miembro paga en este gasto puntual,
 // expresado en la currency del input. Deben sumar exactamente in.Amount
 // (tolerancia 0.01). Útil cuando el default ponderado no aplica ("esto lo
@@ -68,7 +75,8 @@ type Service struct {
 	periodsReader periodsReader
 	fx            fxConverter
 	splitRules    splitRulesReader
-	push          pushNotifier // opcional; cableado via SetNotifier
+	push          pushNotifier   // opcional; cableado via SetNotifier
+	insights      insightCreator // opcional; cableado via SetInsightCreator
 }
 
 func NewService(
@@ -94,6 +102,12 @@ func NewService(
 // existentes y mantener push como una dep opcional.
 func (s *Service) SetNotifier(n pushNotifier) {
 	s.push = n
+}
+
+// SetInsightCreator cablea el sistema de insights para que cada gasto
+// compartido genere también una entrada en /notificaciones (además del push).
+func (s *Service) SetInsightCreator(c insightCreator) {
+	s.insights = c
 }
 
 // CreateInput: datos que el handler arma a partir del body.
@@ -224,10 +238,13 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.ExpenseDet
 }
 
 // notifySharedExpense arma la lista de miembros a notificar (shares del
-// primer installment, excluyendo al creator) y dispara push por cada uno.
-// No-op si IsShared=false o si no hay push wireado.
+// primer installment, excluyendo al creator) y dispara push + insight por
+// cada uno. No-op si IsShared=false o si no hay nada wireado.
 func (s *Service) notifySharedExpense(ctx context.Context, d domain.ExpenseDetail, creator uuid.UUID) {
-	if s.push == nil || !d.Expense.IsShared || len(d.Installments) == 0 {
+	if !d.Expense.IsShared || len(d.Installments) == 0 {
+		return
+	}
+	if s.push == nil && s.insights == nil {
 		return
 	}
 
@@ -259,17 +276,23 @@ func (s *Service) notifySharedExpense(ctx context.Context, d domain.ExpenseDetai
 		}
 	}
 
+	title := "Nuevo gasto compartido"
 	for uid, owed := range recipients {
 		body := fmt.Sprintf("%s cargó \"%s\" — te toca %.2f %s",
 			creatorName, d.Expense.Description, owed, d.Expense.BaseCurrency)
-		s.push.NotifyUsers(
-			ctx,
-			[]uuid.UUID{uid},
-			"Nuevo gasto compartido",
-			body,
-			"/expenses/"+d.Expense.ID.String(),
-			"expense:"+d.Expense.ID.String(),
-		)
+		if s.push != nil {
+			s.push.NotifyUsers(
+				ctx,
+				[]uuid.UUID{uid},
+				title,
+				body,
+				"/expenses/"+d.Expense.ID.String(),
+				"expense:"+d.Expense.ID.String(),
+			)
+		}
+		if s.insights != nil {
+			s.insights.CreateSharedExpenseInsight(ctx, d.Expense.HouseholdID, d.Expense.ID, uid, title, body)
+		}
 	}
 }
 

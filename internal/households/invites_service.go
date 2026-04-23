@@ -36,6 +36,12 @@ type inviteEmailSender interface {
 //     entonces dos clicks concurrentes con el mismo token → uno gana, otro 409.
 //   - un mismo email puede tener una sola invitación activa por hogar
 //     (unique parcial en la migration).
+// invitesInsightCreator: dependencia opcional para que aceptar una invitación
+// genere un insight visible en /notificaciones del invitado. Nil-safe.
+type invitesInsightCreator interface {
+	CreateInviteInsight(ctx context.Context, householdID, inviteID, recipientID uuid.UUID, title, body string)
+}
+
 type InvitesService struct {
 	repo       *InvitesRepository
 	households *Repository
@@ -43,6 +49,7 @@ type InvitesService struct {
 	splitRules splitRulesSeeder
 	sender     inviteEmailSender
 	push       pushNotifier
+	insights   invitesInsightCreator
 	logger     *slog.Logger
 
 	appBaseURL string        // ej: https://app.ahorra.app  (para el link del mail)
@@ -72,6 +79,12 @@ func NewInvitesService(
 
 func (s *InvitesService) SetNotifier(n pushNotifier) {
 	s.push = n
+}
+
+// SetInsightCreator cablea el sistema de insights para que aceptar una invite
+// deje un row en /notificaciones del invitado.
+func (s *InvitesService) SetInsightCreator(c invitesInsightCreator) {
+	s.insights = c
 }
 
 // InviteResult es lo que se devuelve al crear una invitación. El token
@@ -335,16 +348,22 @@ func (s *InvitesService) Accept(ctx context.Context, userID uuid.UUID, token str
 		return domain.HouseholdMember{}, err
 	}
 
-	if s.push != nil {
+	if s.push != nil || s.insights != nil {
 		hh, _ := s.households.GetByID(ctx, inv.HouseholdID)
-		s.push.NotifyUsers(
-			ctx,
-			[]uuid.UUID{userID},
-			"Te uniste a un hogar",
-			"Ahora sos miembro de "+hh.Name,
-			"/households/"+inv.HouseholdID.String(),
-			"household-invite:"+inv.HouseholdID.String(),
-		)
+		title := "Te uniste a un hogar"
+		body := "Ahora sos miembro de " + hh.Name
+		if s.push != nil {
+			s.push.NotifyUsers(
+				ctx,
+				[]uuid.UUID{userID},
+				title, body,
+				"/households/"+inv.HouseholdID.String(),
+				"household-invite:"+inv.HouseholdID.String(),
+			)
+		}
+		if s.insights != nil {
+			s.insights.CreateInviteInsight(ctx, inv.HouseholdID, inv.ID, userID, title, body)
+		}
 	}
 	return member, nil
 }

@@ -231,17 +231,35 @@ func main() {
 	goalsHandler := goals.NewHandler(goalsSvc, authMW, householdsMW, logger)
 
 	// insights: genera daily_summary, alerts (goals >=80%) y weekly_review
-	// (domingos). Worker 01:00 local. Idempotente via UNIQUE(hh,user,date,type).
+	// (domingos). Worker 01:00 local. Idempotente via UNIQUE parciales.
 	// El adapter traduce goalsSvc.ProgressList a la interface que insights usa.
 	insightsRepo := insights.NewRepository(pool)
 	goalsAdapter := insights.GoalsAdapter(func(ctx context.Context, hhID uuid.UUID, onlyActive *bool, at time.Time) ([]domain.BudgetGoalProgress, error) {
 		return goalsSvc.ProgressList(ctx, hhID, goals.ListFilters{OnlyActive: onlyActive}, at)
 	})
 	insightsSvc := insights.NewService(insightsRepo, householdsRepo, goalsAdapter, logger)
+	// pg_notify hook → realtime fan-out a SSE clients vía Hub+Listener.
+	insightsSvc.SetNotifier(func(ctx context.Context, ev insights.Event) error {
+		return insights.Notify(ctx, pool, ev)
+	})
+	insightsHub := insights.NewHub(logger)
+	insightsListener := insights.NewListener(pool, insightsHub, logger)
+	stopInsightsListener := insightsListener.Start(context.Background())
+	defer stopInsightsListener()
 	insightsHandler := insights.NewHandler(insightsSvc, authMW, householdsMW, logger)
+	insightsSSE := insights.NewSSEHandler(insightsHub, insightsRepo, tokenIssuer,
+		func(ctx context.Context, hh, u uuid.UUID) (bool, error) {
+			return householdsRepo.IsMember(ctx, hh, u)
+		})
 	insightsWorker := insights.NewWorker(insightsSvc, 1, 0, logger)
 	stopInsightsWorker := insightsWorker.Start(context.Background())
 	defer stopInsightsWorker()
+
+	// Cablear el insight creator en los services que disparan eventos.
+	insightsAdapter := insightsCreatorAdapter{svc: insightsSvc, logger: logger}
+	expensesSvc.SetInsightCreator(insightsAdapter)
+	invitesSvc.SetInsightCreator(insightsAdapter)
+	settlementsSvc.SetInsightCreator(insightsAdapter)
 
 	// reports: agregaciones read-only (monthly + trends + ai-export).
 	// No tiene worker por ahora — el email mensual se agrega cuando
@@ -353,6 +371,11 @@ func main() {
 	// Insights (auth + household member).
 	insightsHandler.Mount(r)
 
+	// SSE stream para realtime de insights. Auth via ?access_token= (no
+	// header — EventSource del browser no soporta headers custom). Filtra
+	// por household + user dentro del Hub.
+	insightsSSE.Mount(r)
+
 	// Reports (auth + household member).
 	reportsHandler.Mount(r)
 
@@ -419,6 +442,71 @@ func parseLogLevel(lvl string) slog.Level {
 		return slog.LevelError
 	default:
 		return slog.LevelInfo
+	}
+}
+
+// insightsCreatorAdapter adapta insights.Service al shape que expensesSvc,
+// invitesSvc y settlementsSvc esperan (sus interfaces locales). Mismo
+// patrón que pushNotifierAdapter — los services no importan insights para
+// no acoplar el grafo de deps. Errores: log + swallow (los insights son
+// secundarios, no debemos abortar el flujo principal por uno).
+type insightsCreatorAdapter struct {
+	svc    *insights.Service
+	logger *slog.Logger
+}
+
+func (a insightsCreatorAdapter) CreateSharedExpenseInsight(ctx context.Context, householdID, expenseID, recipientID uuid.UUID, title, body string) {
+	a.create(ctx, insights.EventInput{
+		HouseholdID: householdID,
+		UserID:      &recipientID,
+		InsightType: domain.InsightTypeSharedExpense,
+		Title:       title,
+		Body:        body,
+		Severity:    domain.InsightSeverityInfo,
+		RefID:       expenseID,
+		Metadata: map[string]any{
+			"expenseId": expenseID.String(),
+			"url":       "/expenses/" + expenseID.String(),
+		},
+	})
+}
+
+func (a insightsCreatorAdapter) CreateInviteInsight(ctx context.Context, householdID, inviteID, recipientID uuid.UUID, title, body string) {
+	a.create(ctx, insights.EventInput{
+		HouseholdID: householdID,
+		UserID:      &recipientID,
+		InsightType: domain.InsightTypeInvite,
+		Title:       title,
+		Body:        body,
+		Severity:    domain.InsightSeverityInfo,
+		RefID:       inviteID,
+		Metadata: map[string]any{
+			"inviteId": inviteID.String(),
+			"url":      "/households/" + householdID.String(),
+		},
+	})
+}
+
+func (a insightsCreatorAdapter) CreateSettlementInsight(ctx context.Context, householdID, settlementID, recipientID uuid.UUID, title, body string) {
+	a.create(ctx, insights.EventInput{
+		HouseholdID: householdID,
+		UserID:      &recipientID,
+		InsightType: domain.InsightTypeSettlement,
+		Title:       title,
+		Body:        body,
+		Severity:    domain.InsightSeverityInfo,
+		RefID:       settlementID,
+		Metadata: map[string]any{
+			"settlementId": settlementID.String(),
+			"url":          "/balances",
+		},
+	})
+}
+
+func (a insightsCreatorAdapter) create(ctx context.Context, in insights.EventInput) {
+	if _, _, err := a.svc.CreateEvent(ctx, in); err != nil {
+		a.logger.WarnContext(ctx, "insight event create falló",
+			"type", in.InsightType, "ref", in.RefID.String(), "error", err)
 	}
 }
 

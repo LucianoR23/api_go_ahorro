@@ -2,14 +2,16 @@
 
 -- name: CreateDailyInsight :one
 -- ON CONFLICT DO NOTHING: si ya existe un insight del mismo (household, user,
--- date, type) lo dejamos intacto. El RETURNING puede ser vacío — el caller
--- interpreta eso como "ya existía, skip".
+-- date, type) — o del mismo (hh, user, type, ref_id) cuando ref_id no es NULL
+-- — lo dejamos intacto. El RETURNING puede ser vacío: el caller lo interpreta
+-- como "ya existía, skip". Sin target en ON CONFLICT: dispara contra cualquier
+-- UNIQUE (los dos índices parciales del migration 000020).
 INSERT INTO daily_insights (
     household_id, user_id, insight_date, insight_type,
-    title, body, severity, metadata
+    title, body, severity, metadata, ref_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-ON CONFLICT (household_id, user_id, insight_date, insight_type) DO NOTHING
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT DO NOTHING
 RETURNING *;
 
 -- name: GetDailyInsightByID :one
@@ -70,12 +72,15 @@ WHERE household_id = $1
   AND spent_at <= $3::date;
 
 -- name: SumInstallmentsDueInRange :one
--- Cuotas cuyo due_date cae en el rango. Usamos COALESCE(due_date, billing_date)
--- para unificar crédito y el resto.
+-- Cuotas pendientes de pago cuyo due_date cae en el rango. Solo cuenta lo
+-- que efectivamente "viene a cobrar": is_paid = false. Los gastos en efectivo/
+-- débito nacen con is_paid = true y quedan excluidos. Las cuotas de crédito
+-- futuras tienen due_date; si por algún motivo falta, caemos a billing_date.
 SELECT COALESCE(SUM(i.installment_amount_base), 0)::numeric AS total_base
 FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
 WHERE e.household_id = $1
+  AND i.is_paid = false
   AND COALESCE(i.due_date, i.billing_date) >= $2::date
   AND COALESCE(i.due_date, i.billing_date) <= $3::date;
 

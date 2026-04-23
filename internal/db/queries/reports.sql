@@ -35,7 +35,7 @@ WHERE e.household_id = $1
 -- Incluye categoría NULL (gastos sin categorizar). El JOIN es LEFT.
 SELECT
     e.category_id,
-    c.name::text AS category_name,
+    COALESCE(c.name, '')::text AS category_name,
     COALESCE(SUM(e.amount_base), 0)::numeric AS total_base,
     COUNT(*)::bigint AS tx_count
 FROM expenses e

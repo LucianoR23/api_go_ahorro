@@ -73,6 +73,7 @@ type DailyInsight struct {
 	IsRead      bool               `json:"is_read"`
 	Metadata    []byte             `json:"metadata"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	RefID       *uuid.UUID         `json:"ref_id"`
 }
 
 type EmailVerification struct {

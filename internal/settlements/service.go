@@ -37,12 +37,19 @@ type userLookup interface {
 	GetByID(ctx context.Context, id uuid.UUID) (domain.User, error)
 }
 
+// insightCreator: dependencia opcional para que registrar un pago genere un
+// insight visible en /notificaciones del receptor. Nil-safe.
+type insightCreator interface {
+	CreateSettlementInsight(ctx context.Context, householdID, settlementID, recipientID uuid.UUID, title, body string)
+}
+
 type Service struct {
 	repo       *Repository
 	households householdLookup
 	balances   balanceReader
 	push       pushNotifier
 	users      userLookup
+	insights   insightCreator
 }
 
 func NewService(repo *Repository, households householdLookup, balances balanceReader) *Service {
@@ -54,6 +61,12 @@ func NewService(repo *Repository, households householdLookup, balances balanceRe
 func (s *Service) SetNotifier(n pushNotifier, users userLookup) {
 	s.push = n
 	s.users = users
+}
+
+// SetInsightCreator cablea el sistema de insights para que registrar un pago
+// deje un row en /notificaciones del receptor (además del push).
+func (s *Service) SetInsightCreator(c insightCreator) {
+	s.insights = c
 }
 
 // CreateInput: payload del endpoint POST /settlements. El handler parsea
@@ -147,9 +160,10 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Settlement
 	return sp, nil
 }
 
-// notifySettlement avisa al to_user que from_user registró un pago.
+// notifySettlement avisa al to_user que from_user registró un pago: dispara
+// push (si está configurado) e inserta un insight en /notificaciones.
 func (s *Service) notifySettlement(ctx context.Context, sp domain.SettlementPayment) {
-	if s.push == nil {
+	if s.push == nil && s.insights == nil {
 		return
 	}
 	fromName := "Alguien"
@@ -160,15 +174,20 @@ func (s *Service) notifySettlement(ctx context.Context, sp domain.SettlementPaym
 			}
 		}
 	}
+	title := "Pago registrado"
 	body := fmt.Sprintf("%s registró un pago de %.2f %s", fromName, sp.AmountBase, sp.BaseCurrency)
-	s.push.NotifyUsers(
-		ctx,
-		[]uuid.UUID{sp.ToUser},
-		"Pago registrado",
-		body,
-		"/balances",
-		"settlement:"+sp.ID.String(),
-	)
+	if s.push != nil {
+		s.push.NotifyUsers(
+			ctx,
+			[]uuid.UUID{sp.ToUser},
+			title, body,
+			"/balances",
+			"settlement:"+sp.ID.String(),
+		)
+	}
+	if s.insights != nil {
+		s.insights.CreateSettlementInsight(ctx, sp.HouseholdID, sp.ID, sp.ToUser, title, body)
+	}
 }
 
 // Get devuelve el settlement validando que pertenezca al hogar del caller.

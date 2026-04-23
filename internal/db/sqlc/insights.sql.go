@@ -65,11 +65,11 @@ const createDailyInsight = `-- name: CreateDailyInsight :one
 
 INSERT INTO daily_insights (
     household_id, user_id, insight_date, insight_type,
-    title, body, severity, metadata
+    title, body, severity, metadata, ref_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-ON CONFLICT (household_id, user_id, insight_date, insight_type) DO NOTHING
-RETURNING id, household_id, user_id, insight_date, insight_type, title, body, severity, is_read, metadata, created_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT DO NOTHING
+RETURNING id, household_id, user_id, insight_date, insight_type, title, body, severity, is_read, metadata, created_at, ref_id
 `
 
 type CreateDailyInsightParams struct {
@@ -81,12 +81,15 @@ type CreateDailyInsightParams struct {
 	Body        string      `json:"body"`
 	Severity    string      `json:"severity"`
 	Metadata    []byte      `json:"metadata"`
+	RefID       *uuid.UUID  `json:"ref_id"`
 }
 
 // ===================== daily_insights =====================
 // ON CONFLICT DO NOTHING: si ya existe un insight del mismo (household, user,
-// date, type) lo dejamos intacto. El RETURNING puede ser vacío — el caller
-// interpreta eso como "ya existía, skip".
+// date, type) — o del mismo (hh, user, type, ref_id) cuando ref_id no es NULL
+// — lo dejamos intacto. El RETURNING puede ser vacío: el caller lo interpreta
+// como "ya existía, skip". Sin target en ON CONFLICT: dispara contra cualquier
+// UNIQUE (los dos índices parciales del migration 000020).
 func (q *Queries) CreateDailyInsight(ctx context.Context, arg CreateDailyInsightParams) (DailyInsight, error) {
 	row := q.db.QueryRow(ctx, createDailyInsight,
 		arg.HouseholdID,
@@ -97,6 +100,7 @@ func (q *Queries) CreateDailyInsight(ctx context.Context, arg CreateDailyInsight
 		arg.Body,
 		arg.Severity,
 		arg.Metadata,
+		arg.RefID,
 	)
 	var i DailyInsight
 	err := row.Scan(
@@ -111,6 +115,7 @@ func (q *Queries) CreateDailyInsight(ctx context.Context, arg CreateDailyInsight
 		&i.IsRead,
 		&i.Metadata,
 		&i.CreatedAt,
+		&i.RefID,
 	)
 	return i, err
 }
@@ -125,7 +130,7 @@ func (q *Queries) DeleteDailyInsight(ctx context.Context, id uuid.UUID) error {
 }
 
 const getDailyInsightByID = `-- name: GetDailyInsightByID :one
-SELECT id, household_id, user_id, insight_date, insight_type, title, body, severity, is_read, metadata, created_at FROM daily_insights WHERE id = $1
+SELECT id, household_id, user_id, insight_date, insight_type, title, body, severity, is_read, metadata, created_at, ref_id FROM daily_insights WHERE id = $1
 `
 
 func (q *Queries) GetDailyInsightByID(ctx context.Context, id uuid.UUID) (DailyInsight, error) {
@@ -143,12 +148,13 @@ func (q *Queries) GetDailyInsightByID(ctx context.Context, id uuid.UUID) (DailyI
 		&i.IsRead,
 		&i.Metadata,
 		&i.CreatedAt,
+		&i.RefID,
 	)
 	return i, err
 }
 
 const listDailyInsightsByHousehold = `-- name: ListDailyInsightsByHousehold :many
-SELECT id, household_id, user_id, insight_date, insight_type, title, body, severity, is_read, metadata, created_at
+SELECT id, household_id, user_id, insight_date, insight_type, title, body, severity, is_read, metadata, created_at, ref_id
 FROM daily_insights
 WHERE household_id = $1
   AND ($4::uuid IS NULL OR user_id = $4::uuid)
@@ -203,6 +209,7 @@ func (q *Queries) ListDailyInsightsByHousehold(ctx context.Context, arg ListDail
 			&i.IsRead,
 			&i.Metadata,
 			&i.CreatedAt,
+			&i.RefID,
 		); err != nil {
 			return nil, err
 		}

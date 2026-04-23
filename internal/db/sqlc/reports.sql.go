@@ -16,7 +16,7 @@ const sumExpensesByCategoryInRange = `-- name: SumExpensesByCategoryInRange :man
 
 SELECT
     e.category_id,
-    c.name::text AS category_name,
+    COALESCE(c.name, '')::text AS category_name,
     COALESCE(SUM(e.amount_base), 0)::numeric AS total_base,
     COUNT(*)::bigint AS tx_count
 FROM expenses e

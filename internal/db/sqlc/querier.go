@@ -57,8 +57,10 @@ type Querier interface {
 	CreateCreditCard(ctx context.Context, arg CreateCreditCardParams) (CreditCard, error)
 	// ===================== daily_insights =====================
 	// ON CONFLICT DO NOTHING: si ya existe un insight del mismo (household, user,
-	// date, type) lo dejamos intacto. El RETURNING puede ser vacío — el caller
-	// interpreta eso como "ya existía, skip".
+	// date, type) — o del mismo (hh, user, type, ref_id) cuando ref_id no es NULL
+	// — lo dejamos intacto. El RETURNING puede ser vacío: el caller lo interpreta
+	// como "ya existía, skip". Sin target en ON CONFLICT: dispara contra cualquier
+	// UNIQUE (los dos índices parciales del migration 000020).
 	CreateDailyInsight(ctx context.Context, arg CreateDailyInsightParams) (DailyInsight, error)
 	// Queries de email_verifications + flag de verificación en users.
 	CreateEmailVerification(ctx context.Context, arg CreateEmailVerificationParams) (EmailVerification, error)
