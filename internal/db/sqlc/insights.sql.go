@@ -277,6 +277,7 @@ SELECT COALESCE(SUM(i.installment_amount_base), 0)::numeric AS total_base
 FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
 WHERE e.household_id = $1
+  AND i.is_paid = false
   AND COALESCE(i.due_date, i.billing_date) >= $2::date
   AND COALESCE(i.due_date, i.billing_date) <= $3::date
 `
@@ -287,8 +288,10 @@ type SumInstallmentsDueInRangeParams struct {
 	Column3     pgtype.Date `json:"column_3"`
 }
 
-// Cuotas cuyo due_date cae en el rango. Usamos COALESCE(due_date, billing_date)
-// para unificar crédito y el resto.
+// Cuotas pendientes de pago cuyo due_date cae en el rango. Solo cuenta lo
+// que efectivamente "viene a cobrar": is_paid = false. Los gastos en efectivo/
+// débito nacen con is_paid = true y quedan excluidos. Las cuotas de crédito
+// futuras tienen due_date; si por algún motivo falta, caemos a billing_date.
 func (q *Queries) SumInstallmentsDueInRange(ctx context.Context, arg SumInstallmentsDueInRangeParams) (pgtype.Numeric, error) {
 	row := q.db.QueryRow(ctx, sumInstallmentsDueInRange, arg.HouseholdID, arg.Column2, arg.Column3)
 	var total_base pgtype.Numeric

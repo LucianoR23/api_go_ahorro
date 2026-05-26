@@ -2,10 +2,42 @@
 INSERT INTO expenses (
     household_id, created_by, category_id, payment_method_id,
     amount, currency, amount_base, base_currency, rate_used, rate_at,
-    description, spent_at, installments, is_shared, recurring_expense_id
+    description, spent_at, installments, is_shared, recurring_expense_id,
+    status
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING *;
+
+-- name: ListDraftExpensesByHousehold :many
+-- Drafts pendientes de confirmar (gastos variables generados por recurrentes).
+-- La UI los muestra en un bloque "Pendientes" hasta que el usuario confirme
+-- el monto real de la factura.
+SELECT * FROM expenses
+WHERE household_id = $1 AND status = 'draft'
+ORDER BY spent_at DESC;
+
+-- name: ConfirmExpenseDraft :one
+-- Confirma un draft con el monto real. Actualiza amount + amount_base + rate
+-- (recalculados por el service antes de llamar) y pasa el status a confirmed.
+-- Devuelve la fila completa para que el service compare con last_amount y
+-- decida si dispara recurring_spike.
+UPDATE expenses
+SET amount = $2,
+    amount_base = $3,
+    rate_used = $4,
+    rate_at = $5,
+    status = 'confirmed',
+    updated_at = NOW()
+WHERE id = $1 AND status = 'draft'
+RETURNING *;
+
+-- name: ListExpensesBySeries :many
+-- Histórico confirmado de una serie (recurring_expense). Lo usa el endpoint
+-- de stats para calcular variación %, promedio, tendencia.
+SELECT * FROM expenses
+WHERE recurring_expense_id = $1 AND status = 'confirmed'
+ORDER BY spent_at DESC
+LIMIT $2;
 
 -- name: GetExpenseByID :one
 SELECT * FROM expenses WHERE id = $1;

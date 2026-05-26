@@ -54,6 +54,19 @@ type pushNotifier interface {
 // no acoplar expenses → insights. Nil-safe.
 type insightCreator interface {
 	CreateSharedExpenseInsight(ctx context.Context, householdID, expenseID, recipientID uuid.UUID, title, body string)
+	// CreateRecurringSpikeInsight: el usuario confirmó un draft con un monto
+	// que supera el threshold % de la serie. recipientID es el creador del
+	// recurrente (no notificamos a todos los miembros — el "dueño" del
+	// servicio es quien lo vigila).
+	CreateRecurringSpikeInsight(ctx context.Context, householdID, expenseID, recipientID uuid.UUID, title, body string)
+}
+
+// recurringReader: dependencia para ConfirmDraft — necesita leer la serie
+// (threshold + last_amount + ownership) y actualizar el cache. Interface
+// local para evitar ciclo expenses ↔ recurringexpenses.
+type recurringReader interface {
+	GetByID(ctx context.Context, id uuid.UUID) (domain.RecurringExpense, error)
+	UpdateLastAmount(ctx context.Context, id uuid.UUID, amount float64) error
 }
 
 // ShareOverride: monto explícito que un miembro paga en este gasto puntual,
@@ -75,8 +88,9 @@ type Service struct {
 	periodsReader periodsReader
 	fx            fxConverter
 	splitRules    splitRulesReader
-	push          pushNotifier   // opcional; cableado via SetNotifier
-	insights      insightCreator // opcional; cableado via SetInsightCreator
+	push          pushNotifier    // opcional; cableado via SetNotifier
+	insights      insightCreator  // opcional; cableado via SetInsightCreator
+	recurring     recurringReader // opcional; cableado via SetRecurringReader
 }
 
 func NewService(
@@ -110,6 +124,13 @@ func (s *Service) SetInsightCreator(c insightCreator) {
 	s.insights = c
 }
 
+// SetRecurringReader cablea el reader de recurring_expenses. Requerido
+// para ConfirmDraft: leer threshold + last_amount y actualizar el cache.
+// Si no se setea, ConfirmDraft devuelve un error de configuración.
+func (s *Service) SetRecurringReader(r recurringReader) {
+	s.recurring = r
+}
+
 // CreateInput: datos que el handler arma a partir del body.
 type CreateInput struct {
 	HouseholdID     uuid.UUID
@@ -125,6 +146,10 @@ type CreateInput struct {
 	// RecurringExpenseID: set solo cuando el worker de recurring genera el
 	// expense. NULL = gasto manual/variable.
 	RecurringExpenseID *uuid.UUID
+	// Status: opcional. Default "confirmed". Solo el worker de recurring lo
+	// setea a "draft" cuando la serie es de monto variable y espera que el
+	// usuario confirme con el monto real de la factura.
+	Status string
 	// SharesOverride: opcional, solo válido si IsShared=true. Si viene,
 	// reemplaza al split ponderado del hogar para este gasto puntual.
 	// Debe cubrir a todos los miembros con monto > 0 y sumar in.Amount.
@@ -223,6 +248,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.ExpenseDet
 		Installments:    in.Installments,
 		IsShared:        in.IsShared,
 		RecurringExpenseID: in.RecurringExpenseID,
+		Status:             normalizeStatus(in.Status),
 	}
 
 	detail, err := s.repo.CreateTx(ctx, CreateBundle{Expense: expense, Installments: installments})
@@ -582,6 +608,133 @@ func (s *Service) Update(ctx context.Context, householdID, id, actorUserID uuid.
 	return updated, nil
 }
 
+// ListDrafts: gastos de status='draft' del hogar (los que esperan que el user
+// confirme el monto real de una factura variable).
+func (s *Service) ListDrafts(ctx context.Context, householdID uuid.UUID) ([]domain.Expense, error) {
+	return s.repo.ListDrafts(ctx, householdID)
+}
+
+// ConfirmDraft: el usuario carga el monto real de la factura y pasa el draft
+// a confirmed. Cierre del loop variable:
+//
+//  1. Valida que el expense exista, sea del hogar, esté en draft y tenga
+//     recurring_expense_id (sin serie no hay nada para comparar).
+//  2. Convierte el monto nuevo a base currency con el fx actual.
+//  3. Persiste el cambio (amount + amount_base + rate + status='confirmed').
+//  4. Compara con last_amount de la serie. Si delta % supera threshold,
+//     dispara insight recurring_spike al creador del recurrente.
+//  5. Actualiza last_amount de la serie con el monto nuevo.
+//
+// El paso 5 va siempre, incluso si el delta no superó el threshold —
+// el cache tiene que reflejar la realidad para el próximo mes.
+func (s *Service) ConfirmDraft(ctx context.Context, householdID, expenseID, actorUserID uuid.UUID, amount float64) (domain.Expense, error) {
+	if s.recurring == nil {
+		return domain.Expense{}, fmt.Errorf("recurring reader no configurado")
+	}
+	if amount <= 0 {
+		return domain.Expense{}, domain.NewValidationError("amount", "debe ser > 0")
+	}
+
+	current, err := s.repo.GetByID(ctx, expenseID)
+	if err != nil {
+		return domain.Expense{}, err
+	}
+	if current.HouseholdID != householdID {
+		return domain.Expense{}, domain.ErrNotFound
+	}
+	if current.Status != "draft" {
+		return domain.Expense{}, domain.NewValidationError("status", "el gasto ya está confirmado")
+	}
+	if current.RecurringExpenseID == nil {
+		// Defensivo: por contrato actual, un draft siempre nace desde una
+		// recurrente variable. Si esto se rompe a futuro (alguien crea
+		// drafts manuales), ConfirmDraft tendría que decidir qué hacer —
+		// por ahora rechazamos para que no se silencie un bug.
+		return domain.Expense{}, fmt.Errorf("draft sin recurring_expense_id: caso no soportado")
+	}
+
+	hh, err := s.households.GetByID(ctx, householdID)
+	if err != nil {
+		return domain.Expense{}, err
+	}
+	ok, err := s.households.IsMember(ctx, householdID, actorUserID)
+	if err != nil {
+		return domain.Expense{}, err
+	}
+	if !ok {
+		return domain.Expense{}, domain.NewValidationError("actor", "no es miembro del hogar")
+	}
+
+	// FX: si la currency del expense coincide con la base del hogar, no se
+	// invoca al converter. Caso típico (AR): ambas en ARS → rate=nil.
+	var (
+		amountBase = amount
+		ratePtr    *float64
+		rateAt     *time.Time
+	)
+	if !strings.EqualFold(current.Currency, hh.BaseCurrency) {
+		converted, rate, ferr := s.fx.Convert(ctx, amount, current.Currency, hh.BaseCurrency)
+		if ferr != nil {
+			return domain.Expense{}, fmt.Errorf("fx convert: %w", ferr)
+		}
+		amountBase = converted
+		now := time.Now()
+		ratePtr, rateAt = &rate, &now
+	}
+
+	updated, err := s.repo.ConfirmDraft(ctx, expenseID, ConfirmDraftParams{
+		Amount:     amount,
+		AmountBase: amountBase,
+		RateUsed:   ratePtr,
+		RateAt:     rateAt,
+	})
+	if err != nil {
+		return domain.Expense{}, err
+	}
+
+	// Spike detection: necesitamos el threshold + last_amount previo de la
+	// serie. Si algo falla acá no revertimos el confirm — la fuente de
+	// verdad es el expense, el insight es secundario.
+	series, serr := s.recurring.GetByID(ctx, *current.RecurringExpenseID)
+	if serr == nil {
+		s.maybeEmitRecurringSpike(ctx, series, updated)
+		if uerr := s.recurring.UpdateLastAmount(ctx, series.ID, amount); uerr != nil {
+			// Cache desactualizado no es crítico — el próximo confirm lo
+			// va a leer del expense directo si fuera necesario.
+			_ = uerr
+		}
+	}
+
+	return updated, nil
+}
+
+// maybeEmitRecurringSpike: dispara el insight si:
+//   - hay threshold configurado
+//   - hay last_amount previo (no es la primer confirmación de la serie)
+//   - delta % >= threshold (ej: 29% >= 20%)
+//
+// Va al creador del recurrente, no a todos los miembros del hogar.
+func (s *Service) maybeEmitRecurringSpike(ctx context.Context, series domain.RecurringExpense, confirmed domain.Expense) {
+	if s.insights == nil {
+		return
+	}
+	if series.AlertThresholdPct == nil || series.LastAmount == nil {
+		return
+	}
+	prev := *series.LastAmount
+	if prev <= 0 {
+		return
+	}
+	deltaPct := (confirmed.Amount - prev) / prev * 100
+	if deltaPct < *series.AlertThresholdPct {
+		return
+	}
+	title := fmt.Sprintf("%s subió %.0f%%", series.Description, deltaPct)
+	body := fmt.Sprintf("Pasó de %.2f %s a %.2f %s (umbral %.0f%%).",
+		prev, confirmed.Currency, confirmed.Amount, confirmed.Currency, *series.AlertThresholdPct)
+	s.insights.CreateRecurringSpikeInsight(ctx, confirmed.HouseholdID, confirmed.ID, series.CreatedBy, title, body)
+}
+
 func (s *Service) Delete(ctx context.Context, householdID, id, actorUserID uuid.UUID) error {
 	if err := s.requireInHousehold(ctx, householdID, id); err != nil {
 		return err
@@ -753,4 +906,18 @@ func validateCreate(in CreateInput) error {
 		return domain.NewValidationError("installments", "debe estar entre 1 y 60")
 	}
 	return nil
+}
+
+// normalizeStatus: el caller puede dejar Status vacío (gasto manual) o pasar
+// "draft" explícito (worker de recurring variable). Cualquier otro valor se
+// fuerza a "confirmed" — el constraint del schema rechazaría algo inválido,
+// pero validamos acá para que el error salga en tiempo de service y no como
+// pq violation que sería confuso.
+func normalizeStatus(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "draft":
+		return "draft"
+	default:
+		return "confirmed"
+	}
 }

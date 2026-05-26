@@ -41,6 +41,7 @@ func (h *Handler) Mount(r chi.Router) {
 				r.Patch("/", h.Update)
 				r.Delete("/", h.Delete)
 				r.Patch("/active", h.SetActive)
+				r.Get("/stats", h.Stats)
 			})
 		})
 	})
@@ -49,34 +50,38 @@ func (h *Handler) Mount(r chi.Router) {
 // ===================== DTOs =====================
 
 type createReq struct {
-	CategoryID      *uuid.UUID `json:"categoryId,omitempty"`
-	PaymentMethodID uuid.UUID  `json:"paymentMethodId"`
-	Amount          float64    `json:"amount"`
-	Currency        string     `json:"currency"`
-	Description     string     `json:"description"`
-	Installments    int        `json:"installments"`
-	IsShared        bool       `json:"isShared"`
-	Frequency       string     `json:"frequency"`
-	DayOfMonth      *int       `json:"dayOfMonth,omitempty"`
-	DayOfWeek       *int       `json:"dayOfWeek,omitempty"`
-	MonthOfYear     *int       `json:"monthOfYear,omitempty"`
-	StartsAt        string     `json:"startsAt"`
-	EndsAt          *string    `json:"endsAt,omitempty"`
+	CategoryID        *uuid.UUID `json:"categoryId,omitempty"`
+	PaymentMethodID   uuid.UUID  `json:"paymentMethodId"`
+	Amount            float64    `json:"amount"`
+	Currency          string     `json:"currency"`
+	Description       string     `json:"description"`
+	Installments      int        `json:"installments"`
+	IsShared          bool       `json:"isShared"`
+	Frequency         string     `json:"frequency"`
+	DayOfMonth        *int       `json:"dayOfMonth,omitempty"`
+	DayOfWeek         *int       `json:"dayOfWeek,omitempty"`
+	MonthOfYear       *int       `json:"monthOfYear,omitempty"`
+	StartsAt          string     `json:"startsAt"`
+	EndsAt            *string    `json:"endsAt,omitempty"`
+	AmountIsVariable  bool       `json:"amountIsVariable,omitempty"`
+	AlertThresholdPct *float64   `json:"alertThresholdPct,omitempty"`
 }
 
 type updateReq struct {
-	CategoryID      *uuid.UUID `json:"categoryId,omitempty"`
-	PaymentMethodID uuid.UUID  `json:"paymentMethodId"`
-	Amount          float64    `json:"amount"`
-	Currency        string     `json:"currency"`
-	Description     string     `json:"description"`
-	Installments    int        `json:"installments"`
-	IsShared        bool       `json:"isShared"`
-	Frequency       string     `json:"frequency"`
-	DayOfMonth      *int       `json:"dayOfMonth,omitempty"`
-	DayOfWeek       *int       `json:"dayOfWeek,omitempty"`
-	MonthOfYear     *int       `json:"monthOfYear,omitempty"`
-	EndsAt          *string    `json:"endsAt,omitempty"`
+	CategoryID        *uuid.UUID `json:"categoryId,omitempty"`
+	PaymentMethodID   uuid.UUID  `json:"paymentMethodId"`
+	Amount            float64    `json:"amount"`
+	Currency          string     `json:"currency"`
+	Description       string     `json:"description"`
+	Installments      int        `json:"installments"`
+	IsShared          bool       `json:"isShared"`
+	Frequency         string     `json:"frequency"`
+	DayOfMonth        *int       `json:"dayOfMonth,omitempty"`
+	DayOfWeek         *int       `json:"dayOfWeek,omitempty"`
+	MonthOfYear       *int       `json:"monthOfYear,omitempty"`
+	EndsAt            *string    `json:"endsAt,omitempty"`
+	AmountIsVariable  bool       `json:"amountIsVariable,omitempty"`
+	AlertThresholdPct *float64   `json:"alertThresholdPct,omitempty"`
 }
 
 type setActiveReq struct {
@@ -84,25 +89,44 @@ type setActiveReq struct {
 }
 
 type recurringDTO struct {
-	ID              string    `json:"id"`
-	HouseholdID     string    `json:"householdId"`
-	CreatedBy       string    `json:"createdBy"`
-	CategoryID      *string   `json:"categoryId,omitempty"`
-	PaymentMethodID string    `json:"paymentMethodId"`
-	Amount          float64   `json:"amount"`
-	Currency        string    `json:"currency"`
-	Description     string    `json:"description"`
-	Installments    int       `json:"installments"`
-	IsShared        bool      `json:"isShared"`
-	Frequency       string    `json:"frequency"`
-	DayOfMonth      *int      `json:"dayOfMonth,omitempty"`
-	DayOfWeek       *int      `json:"dayOfWeek,omitempty"`
-	MonthOfYear     *int      `json:"monthOfYear,omitempty"`
-	IsActive        bool      `json:"isActive"`
-	StartsAt        string    `json:"startsAt"`
-	EndsAt          *string   `json:"endsAt,omitempty"`
-	LastGenerated   *string   `json:"lastGenerated,omitempty"`
-	CreatedAt       time.Time `json:"createdAt"`
+	ID                string     `json:"id"`
+	HouseholdID       string     `json:"householdId"`
+	CreatedBy         string     `json:"createdBy"`
+	CategoryID        *string    `json:"categoryId,omitempty"`
+	PaymentMethodID   string     `json:"paymentMethodId"`
+	Amount            float64    `json:"amount"`
+	Currency          string     `json:"currency"`
+	Description       string     `json:"description"`
+	Installments      int        `json:"installments"`
+	IsShared          bool       `json:"isShared"`
+	Frequency         string     `json:"frequency"`
+	DayOfMonth        *int       `json:"dayOfMonth,omitempty"`
+	DayOfWeek         *int       `json:"dayOfWeek,omitempty"`
+	MonthOfYear       *int       `json:"monthOfYear,omitempty"`
+	IsActive          bool       `json:"isActive"`
+	StartsAt          string     `json:"startsAt"`
+	EndsAt            *string    `json:"endsAt,omitempty"`
+	LastGenerated     *string    `json:"lastGenerated,omitempty"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	AmountIsVariable  bool       `json:"amountIsVariable"`
+	AlertThresholdPct *float64   `json:"alertThresholdPct,omitempty"`
+	LastAmount        *float64   `json:"lastAmount,omitempty"`
+	LastConfirmedAt   *time.Time `json:"lastConfirmedAt,omitempty"`
+}
+
+type seriesPointDTO struct {
+	ExpenseID    string    `json:"expenseId"`
+	Amount       float64   `json:"amount"`
+	Currency     string    `json:"currency"`
+	SpentAt      string    `json:"spentAt"`
+	VariationPct *float64  `json:"variationPct,omitempty"`
+}
+
+type seriesStatsDTO struct {
+	RecurringExpenseID string           `json:"recurringExpenseId"`
+	History            []seriesPointDTO `json:"history"`
+	AverageLastN       float64          `json:"averageLastN"`
+	LastVariationPct   *float64         `json:"lastVariationPct,omitempty"`
 }
 
 // ===================== handlers =====================
@@ -137,21 +161,23 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		installments = 1
 	}
 	re, err := h.svc.Create(r.Context(), CreateInput{
-		HouseholdID:     householdID,
-		CreatedBy:       userID,
-		CategoryID:      req.CategoryID,
-		PaymentMethodID: req.PaymentMethodID,
-		Amount:          req.Amount,
-		Currency:        req.Currency,
-		Description:     req.Description,
-		Installments:    installments,
-		IsShared:        req.IsShared,
-		Frequency:       req.Frequency,
-		DayOfMonth:      req.DayOfMonth,
-		DayOfWeek:       req.DayOfWeek,
-		MonthOfYear:     req.MonthOfYear,
-		StartsAt:        startsAt,
-		EndsAt:          endsAt,
+		HouseholdID:       householdID,
+		CreatedBy:         userID,
+		CategoryID:        req.CategoryID,
+		PaymentMethodID:   req.PaymentMethodID,
+		Amount:            req.Amount,
+		Currency:          req.Currency,
+		Description:       req.Description,
+		Installments:      installments,
+		IsShared:          req.IsShared,
+		Frequency:         req.Frequency,
+		DayOfMonth:        req.DayOfMonth,
+		DayOfWeek:         req.DayOfWeek,
+		MonthOfYear:       req.MonthOfYear,
+		StartsAt:          startsAt,
+		EndsAt:            endsAt,
+		AmountIsVariable:  req.AmountIsVariable,
+		AlertThresholdPct: req.AlertThresholdPct,
 	})
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
@@ -227,18 +253,20 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		installments = 1
 	}
 	re, err := h.svc.Update(r.Context(), householdID, id, UpdateInput{
-		Amount:          req.Amount,
-		Currency:        req.Currency,
-		Description:     req.Description,
-		Installments:    installments,
-		IsShared:        req.IsShared,
-		Frequency:       req.Frequency,
-		DayOfMonth:      req.DayOfMonth,
-		DayOfWeek:       req.DayOfWeek,
-		MonthOfYear:     req.MonthOfYear,
-		EndsAt:          endsAt,
-		CategoryID:      req.CategoryID,
-		PaymentMethodID: req.PaymentMethodID,
+		Amount:            req.Amount,
+		Currency:          req.Currency,
+		Description:       req.Description,
+		Installments:      installments,
+		IsShared:          req.IsShared,
+		Frequency:         req.Frequency,
+		DayOfMonth:        req.DayOfMonth,
+		DayOfWeek:         req.DayOfWeek,
+		MonthOfYear:       req.MonthOfYear,
+		EndsAt:            endsAt,
+		CategoryID:        req.CategoryID,
+		PaymentMethodID:   req.PaymentMethodID,
+		AmountIsVariable:  req.AmountIsVariable,
+		AlertThresholdPct: req.AlertThresholdPct,
 	})
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
@@ -326,26 +354,93 @@ func toDTO(re domain.RecurringExpense) recurringDTO {
 		lastGen = &s
 	}
 	return recurringDTO{
-		ID:              re.ID.String(),
-		HouseholdID:     re.HouseholdID.String(),
-		CreatedBy:       re.CreatedBy.String(),
-		CategoryID:      catID,
-		PaymentMethodID: re.PaymentMethodID.String(),
-		Amount:          re.Amount,
-		Currency:        re.Currency,
-		Description:     re.Description,
-		Installments:    re.Installments,
-		IsShared:        re.IsShared,
-		Frequency:       re.Frequency,
-		DayOfMonth:      re.DayOfMonth,
-		DayOfWeek:       re.DayOfWeek,
-		MonthOfYear:     re.MonthOfYear,
-		IsActive:        re.IsActive,
-		StartsAt:        re.StartsAt.Format("2006-01-02"),
-		EndsAt:          endsAt,
-		LastGenerated:   lastGen,
-		CreatedAt:       re.CreatedAt,
+		ID:                re.ID.String(),
+		HouseholdID:       re.HouseholdID.String(),
+		CreatedBy:         re.CreatedBy.String(),
+		CategoryID:        catID,
+		PaymentMethodID:   re.PaymentMethodID.String(),
+		Amount:            re.Amount,
+		Currency:          re.Currency,
+		Description:       re.Description,
+		Installments:      re.Installments,
+		IsShared:          re.IsShared,
+		Frequency:         re.Frequency,
+		DayOfMonth:        re.DayOfMonth,
+		DayOfWeek:         re.DayOfWeek,
+		MonthOfYear:       re.MonthOfYear,
+		IsActive:          re.IsActive,
+		StartsAt:          re.StartsAt.Format("2006-01-02"),
+		EndsAt:            endsAt,
+		LastGenerated:     lastGen,
+		CreatedAt:         re.CreatedAt,
+		AmountIsVariable:  re.AmountIsVariable,
+		AlertThresholdPct: re.AlertThresholdPct,
+		LastAmount:        re.LastAmount,
+		LastConfirmedAt:   re.LastConfirmedAt,
 	}
+}
+
+// Stats: GET /recurring-expenses/{id}/stats?limit=6
+// Devuelve el histórico confirmado + variación % mes a mes. limit default 6.
+func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
+	_, householdID, err := h.ctxUserAndHousehold(r)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	limit := 6
+	if q := r.URL.Query().Get("limit"); q != "" {
+		// Tolerante: si viene basura, usamos default. No vale la pena
+		// devolver 400 por un query param malformado.
+		if n, perr := parsePositiveInt(q, 120); perr == nil {
+			limit = n
+		}
+	}
+	stats, err := h.svc.Stats(r.Context(), householdID, id, limit)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	out := seriesStatsDTO{
+		RecurringExpenseID: stats.RecurringExpenseID.String(),
+		History:            make([]seriesPointDTO, len(stats.History)),
+		AverageLastN:       stats.AverageLastN,
+		LastVariationPct:   stats.LastVariationPct,
+	}
+	for i, p := range stats.History {
+		out.History[i] = seriesPointDTO{
+			ExpenseID:    p.ExpenseID.String(),
+			Amount:       p.Amount,
+			Currency:     p.Currency,
+			SpentAt:      p.SpentAt.Format("2006-01-02"),
+			VariationPct: p.VariationPct,
+		}
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+// parsePositiveInt: parse manual sin sumar dependencia a strconv en este
+// archivo si ya no estaba. max acota para evitar abuso (?limit=999999).
+func parsePositiveInt(s string, max int) (int, error) {
+	n := 0
+	for _, ch := range s {
+		if ch < '0' || ch > '9' {
+			return 0, errors.New("no es entero")
+		}
+		n = n*10 + int(ch-'0')
+		if n > max {
+			return max, nil
+		}
+	}
+	if n == 0 {
+		return 0, errors.New("debe ser > 0")
+	}
+	return n, nil
 }
 
 func decodeJSON(r *http.Request, dst any) error {

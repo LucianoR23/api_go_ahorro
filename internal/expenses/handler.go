@@ -37,11 +37,13 @@ func (h *Handler) Mount(r chi.Router) {
 
 		r.Route("/expenses", func(r chi.Router) {
 			r.Get("/", h.List)
+			r.Get("/drafts", h.ListDrafts)
 			r.Post("/", h.Create)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", h.Get)
 				r.Patch("/", h.Update)
 				r.Delete("/", h.Delete)
+				r.Post("/confirm", h.Confirm)
 				r.Patch("/installments/{n}", h.UpdateInstallment)
 			})
 		})
@@ -91,6 +93,7 @@ type expenseDTO struct {
 	SpentAt         string     `json:"spentAt"`
 	Installments    int        `json:"installments"`
 	IsShared        bool       `json:"isShared"`
+	Status          string     `json:"status"`
 	CreatedAt       time.Time  `json:"createdAt"`
 	UpdatedAt       time.Time  `json:"updatedAt"`
 }
@@ -324,6 +327,54 @@ func (h *Handler) UpdateInstallment(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toInstallmentDTO(domain.InstallmentWithShares{Installment: inst}))
 }
 
+// confirmReq: el frontend solo manda el monto real. La currency se hereda del
+// draft (no la puede cambiar — sigue siendo la misma serie).
+type confirmReq struct {
+	Amount float64 `json:"amount"`
+}
+
+func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
+	userID, householdID, err := h.ctxUserAndHousehold(r)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	var body confirmReq
+	if err := decodeJSON(r, &body); err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	e, err := h.svc.ConfirmDraft(r.Context(), householdID, id, userID, body.Amount)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, toExpenseDTO(e))
+}
+
+func (h *Handler) ListDrafts(w http.ResponseWriter, r *http.Request) {
+	_, householdID, err := h.ctxUserAndHousehold(r)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	items, err := h.svc.ListDrafts(r.Context(), householdID)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	out := make([]expenseDTO, len(items))
+	for i, e := range items {
+		out[i] = toExpenseDTO(e)
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	userID, householdID, err := h.ctxUserAndHousehold(r)
 	if err != nil {
@@ -445,6 +496,7 @@ func toExpenseDTO(e domain.Expense) expenseDTO {
 		SpentAt:         e.SpentAt.Format("2006-01-02"),
 		Installments:    e.Installments,
 		IsShared:        e.IsShared,
+		Status:          e.Status,
 		CreatedAt:       e.CreatedAt,
 		UpdatedAt:       e.UpdatedAt,
 	}

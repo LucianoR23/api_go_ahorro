@@ -30,6 +30,12 @@ type Expense struct {
 
 	RecurringExpenseID *uuid.UUID
 
+	// Status: "draft" para gastos generados por una recurrente de monto
+	// variable que esperan confirmación; "confirmed" en el resto de los
+	// casos (default). Los drafts no entran en reportes ni balances hasta
+	// que el usuario los confirme con el monto real de la factura.
+	Status string
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

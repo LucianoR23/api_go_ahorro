@@ -12,6 +12,63 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const confirmExpenseDraft = `-- name: ConfirmExpenseDraft :one
+UPDATE expenses
+SET amount = $2,
+    amount_base = $3,
+    rate_used = $4,
+    rate_at = $5,
+    status = 'confirmed',
+    updated_at = NOW()
+WHERE id = $1 AND status = 'draft'
+RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status
+`
+
+type ConfirmExpenseDraftParams struct {
+	ID         uuid.UUID          `json:"id"`
+	Amount     pgtype.Numeric     `json:"amount"`
+	AmountBase pgtype.Numeric     `json:"amount_base"`
+	RateUsed   pgtype.Numeric     `json:"rate_used"`
+	RateAt     pgtype.Timestamptz `json:"rate_at"`
+}
+
+// Confirma un draft con el monto real. Actualiza amount + amount_base + rate
+// (recalculados por el service antes de llamar) y pasa el status a confirmed.
+// Devuelve la fila completa para que el service compare con last_amount y
+// decida si dispara recurring_spike.
+func (q *Queries) ConfirmExpenseDraft(ctx context.Context, arg ConfirmExpenseDraftParams) (Expense, error) {
+	row := q.db.QueryRow(ctx, confirmExpenseDraft,
+		arg.ID,
+		arg.Amount,
+		arg.AmountBase,
+		arg.RateUsed,
+		arg.RateAt,
+	)
+	var i Expense
+	err := row.Scan(
+		&i.ID,
+		&i.HouseholdID,
+		&i.CreatedBy,
+		&i.CategoryID,
+		&i.PaymentMethodID,
+		&i.Amount,
+		&i.Currency,
+		&i.AmountBase,
+		&i.BaseCurrency,
+		&i.RateUsed,
+		&i.RateAt,
+		&i.Description,
+		&i.SpentAt,
+		&i.Installments,
+		&i.IsShared,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RecurringExpenseID,
+		&i.Status,
+	)
+	return i, err
+}
+
 const countExpensesByHousehold = `-- name: CountExpensesByHousehold :one
 SELECT COUNT(*)::bigint
 FROM expenses
@@ -47,10 +104,11 @@ const createExpense = `-- name: CreateExpense :one
 INSERT INTO expenses (
     household_id, created_by, category_id, payment_method_id,
     amount, currency, amount_base, base_currency, rate_used, rate_at,
-    description, spent_at, installments, is_shared, recurring_expense_id
+    description, spent_at, installments, is_shared, recurring_expense_id,
+    status
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status
 `
 
 type CreateExpenseParams struct {
@@ -69,6 +127,7 @@ type CreateExpenseParams struct {
 	Installments       int32              `json:"installments"`
 	IsShared           bool               `json:"is_shared"`
 	RecurringExpenseID *uuid.UUID         `json:"recurring_expense_id"`
+	Status             string             `json:"status"`
 }
 
 func (q *Queries) CreateExpense(ctx context.Context, arg CreateExpenseParams) (Expense, error) {
@@ -88,6 +147,7 @@ func (q *Queries) CreateExpense(ctx context.Context, arg CreateExpenseParams) (E
 		arg.Installments,
 		arg.IsShared,
 		arg.RecurringExpenseID,
+		arg.Status,
 	)
 	var i Expense
 	err := row.Scan(
@@ -109,6 +169,7 @@ func (q *Queries) CreateExpense(ctx context.Context, arg CreateExpenseParams) (E
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RecurringExpenseID,
+		&i.Status,
 	)
 	return i, err
 }
@@ -192,7 +253,7 @@ func (q *Queries) DeleteExpense(ctx context.Context, id uuid.UUID) error {
 }
 
 const getExpenseByID = `-- name: GetExpenseByID :one
-SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id FROM expenses WHERE id = $1
+SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status FROM expenses WHERE id = $1
 `
 
 func (q *Queries) GetExpenseByID(ctx context.Context, id uuid.UUID) (Expense, error) {
@@ -217,6 +278,7 @@ func (q *Queries) GetExpenseByID(ctx context.Context, id uuid.UUID) (Expense, er
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RecurringExpenseID,
+		&i.Status,
 	)
 	return i, err
 }
@@ -250,8 +312,57 @@ func (q *Queries) GetInstallmentByExpenseAndNumber(ctx context.Context, arg GetI
 	return i, err
 }
 
+const listDraftExpensesByHousehold = `-- name: ListDraftExpensesByHousehold :many
+SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status FROM expenses
+WHERE household_id = $1 AND status = 'draft'
+ORDER BY spent_at DESC
+`
+
+// Drafts pendientes de confirmar (gastos variables generados por recurrentes).
+// La UI los muestra en un bloque "Pendientes" hasta que el usuario confirme
+// el monto real de la factura.
+func (q *Queries) ListDraftExpensesByHousehold(ctx context.Context, householdID uuid.UUID) ([]Expense, error) {
+	rows, err := q.db.Query(ctx, listDraftExpensesByHousehold, householdID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Expense{}
+	for rows.Next() {
+		var i Expense
+		if err := rows.Scan(
+			&i.ID,
+			&i.HouseholdID,
+			&i.CreatedBy,
+			&i.CategoryID,
+			&i.PaymentMethodID,
+			&i.Amount,
+			&i.Currency,
+			&i.AmountBase,
+			&i.BaseCurrency,
+			&i.RateUsed,
+			&i.RateAt,
+			&i.Description,
+			&i.SpentAt,
+			&i.Installments,
+			&i.IsShared,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.RecurringExpenseID,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listExpensesByHousehold = `-- name: ListExpensesByHousehold :many
-SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id
+SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status
 FROM expenses
 WHERE household_id = $1
   AND ($4::uuid IS NULL OR category_id = $4::uuid)
@@ -310,6 +421,61 @@ func (q *Queries) ListExpensesByHousehold(ctx context.Context, arg ListExpensesB
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.RecurringExpenseID,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listExpensesBySeries = `-- name: ListExpensesBySeries :many
+SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status FROM expenses
+WHERE recurring_expense_id = $1 AND status = 'confirmed'
+ORDER BY spent_at DESC
+LIMIT $2
+`
+
+type ListExpensesBySeriesParams struct {
+	RecurringExpenseID *uuid.UUID `json:"recurring_expense_id"`
+	Limit              int32      `json:"limit"`
+}
+
+// Histórico confirmado de una serie (recurring_expense). Lo usa el endpoint
+// de stats para calcular variación %, promedio, tendencia.
+func (q *Queries) ListExpensesBySeries(ctx context.Context, arg ListExpensesBySeriesParams) ([]Expense, error) {
+	rows, err := q.db.Query(ctx, listExpensesBySeries, arg.RecurringExpenseID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Expense{}
+	for rows.Next() {
+		var i Expense
+		if err := rows.Scan(
+			&i.ID,
+			&i.HouseholdID,
+			&i.CreatedBy,
+			&i.CategoryID,
+			&i.PaymentMethodID,
+			&i.Amount,
+			&i.Currency,
+			&i.AmountBase,
+			&i.BaseCurrency,
+			&i.RateUsed,
+			&i.RateAt,
+			&i.Description,
+			&i.SpentAt,
+			&i.Installments,
+			&i.IsShared,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.RecurringExpenseID,
+			&i.Status,
 		); err != nil {
 			return nil, err
 		}
@@ -452,7 +618,7 @@ SET description = $2,
     category_id = $4,
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id
+RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status
 `
 
 type UpdateExpenseParams struct {
@@ -491,6 +657,7 @@ func (q *Queries) UpdateExpense(ctx context.Context, arg UpdateExpenseParams) (E
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RecurringExpenseID,
+		&i.Status,
 	)
 	return i, err
 }

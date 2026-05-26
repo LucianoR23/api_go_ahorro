@@ -17,6 +17,12 @@ const (
 	InsightTypeInvite               = "invite"
 	InsightTypeSettlement           = "settlement"
 	InsightTypeCreditPeriodReminder = "credit_period_reminder"
+	// RecurringSpike: el usuario confirmó un gasto recurrente de monto
+	// variable con un importe que supera el threshold configurado en la
+	// serie (ej: luz subió +29% vs el mes anterior con threshold=20%).
+	// ref_id apunta al expense confirmado, no a la recurring_expense, así
+	// el frontend puede deep-link al detalle del gasto.
+	InsightTypeRecurringSpike = "recurring_spike"
 
 	InsightSeverityInfo     = "info"
 	InsightSeverityWarning  = "warning"

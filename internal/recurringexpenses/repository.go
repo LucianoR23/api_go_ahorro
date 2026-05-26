@@ -29,22 +29,24 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 }
 
 type CreateParams struct {
-	HouseholdID     uuid.UUID
-	CreatedBy       uuid.UUID
-	CategoryID      *uuid.UUID
-	PaymentMethodID uuid.UUID
-	Amount          float64
-	Currency        string
-	Description     string
-	Installments    int
-	IsShared        bool
-	Frequency       string
-	DayOfMonth      *int
-	DayOfWeek       *int
-	MonthOfYear     *int
-	IsActive        bool
-	StartsAt        time.Time
-	EndsAt          *time.Time
+	HouseholdID       uuid.UUID
+	CreatedBy         uuid.UUID
+	CategoryID        *uuid.UUID
+	PaymentMethodID   uuid.UUID
+	Amount            float64
+	Currency          string
+	Description       string
+	Installments      int
+	IsShared          bool
+	Frequency         string
+	DayOfMonth        *int
+	DayOfWeek         *int
+	MonthOfYear       *int
+	IsActive          bool
+	StartsAt          time.Time
+	EndsAt            *time.Time
+	AmountIsVariable  bool
+	AlertThresholdPct *float64
 }
 
 func (r *Repository) Create(ctx context.Context, p CreateParams) (domain.RecurringExpense, error) {
@@ -52,23 +54,29 @@ func (r *Repository) Create(ctx context.Context, p CreateParams) (domain.Recurri
 	if err != nil {
 		return domain.RecurringExpense{}, err
 	}
+	thresholdN, err := numericFromFloatPtr(p.AlertThresholdPct, 2)
+	if err != nil {
+		return domain.RecurringExpense{}, err
+	}
 	row, err := r.q.CreateRecurringExpense(ctx, sqlcgen.CreateRecurringExpenseParams{
-		HouseholdID:     p.HouseholdID,
-		CreatedBy:       p.CreatedBy,
-		CategoryID:      p.CategoryID,
-		PaymentMethodID: p.PaymentMethodID,
-		Amount:          amountN,
-		Currency:        p.Currency,
-		Description:     p.Description,
-		Installments:    int32(p.Installments),
-		IsShared:        p.IsShared,
-		Frequency:       p.Frequency,
-		DayOfMonth:      intPtrToInt4(p.DayOfMonth),
-		DayOfWeek:       intPtrToInt4(p.DayOfWeek),
-		MonthOfYear:     intPtrToInt4(p.MonthOfYear),
-		IsActive:        p.IsActive,
-		StartsAt:        pgtype.Date{Time: p.StartsAt, Valid: true},
-		EndsAt:          datePtr(p.EndsAt),
+		HouseholdID:       p.HouseholdID,
+		CreatedBy:         p.CreatedBy,
+		CategoryID:        p.CategoryID,
+		PaymentMethodID:   p.PaymentMethodID,
+		Amount:            amountN,
+		Currency:          p.Currency,
+		Description:       p.Description,
+		Installments:      int32(p.Installments),
+		IsShared:          p.IsShared,
+		Frequency:         p.Frequency,
+		DayOfMonth:        intPtrToInt4(p.DayOfMonth),
+		DayOfWeek:         intPtrToInt4(p.DayOfWeek),
+		MonthOfYear:       intPtrToInt4(p.MonthOfYear),
+		IsActive:          p.IsActive,
+		StartsAt:          pgtype.Date{Time: p.StartsAt, Valid: true},
+		EndsAt:            datePtr(p.EndsAt),
+		AmountIsVariable:  p.AmountIsVariable,
+		AlertThresholdPct: thresholdN,
 	})
 	if err != nil {
 		return domain.RecurringExpense{}, fmt.Errorf("recurringexpenses.Create: %w", err)
@@ -112,18 +120,20 @@ func (r *Repository) ListActive(ctx context.Context, date time.Time) ([]domain.R
 }
 
 type UpdateParams struct {
-	Amount          float64
-	Currency        string
-	Description     string
-	Installments    int
-	IsShared        bool
-	Frequency       string
-	DayOfMonth      *int
-	DayOfWeek       *int
-	MonthOfYear     *int
-	EndsAt          *time.Time
-	CategoryID      *uuid.UUID
-	PaymentMethodID uuid.UUID
+	Amount            float64
+	Currency          string
+	Description       string
+	Installments      int
+	IsShared          bool
+	Frequency         string
+	DayOfMonth        *int
+	DayOfWeek         *int
+	MonthOfYear       *int
+	EndsAt            *time.Time
+	CategoryID        *uuid.UUID
+	PaymentMethodID   uuid.UUID
+	AmountIsVariable  bool
+	AlertThresholdPct *float64
 }
 
 func (r *Repository) Update(ctx context.Context, id uuid.UUID, p UpdateParams) (domain.RecurringExpense, error) {
@@ -131,20 +141,26 @@ func (r *Repository) Update(ctx context.Context, id uuid.UUID, p UpdateParams) (
 	if err != nil {
 		return domain.RecurringExpense{}, err
 	}
+	thresholdN, err := numericFromFloatPtr(p.AlertThresholdPct, 2)
+	if err != nil {
+		return domain.RecurringExpense{}, err
+	}
 	row, err := r.q.UpdateRecurringExpense(ctx, sqlcgen.UpdateRecurringExpenseParams{
-		ID:              id,
-		Amount:          amountN,
-		Currency:        p.Currency,
-		Description:     p.Description,
-		Installments:    int32(p.Installments),
-		IsShared:        p.IsShared,
-		Frequency:       p.Frequency,
-		DayOfMonth:      intPtrToInt4(p.DayOfMonth),
-		DayOfWeek:       intPtrToInt4(p.DayOfWeek),
-		MonthOfYear:     intPtrToInt4(p.MonthOfYear),
-		EndsAt:          datePtr(p.EndsAt),
-		CategoryID:      p.CategoryID,
-		PaymentMethodID: p.PaymentMethodID,
+		ID:                id,
+		Amount:            amountN,
+		Currency:          p.Currency,
+		Description:       p.Description,
+		Installments:      int32(p.Installments),
+		IsShared:          p.IsShared,
+		Frequency:         p.Frequency,
+		DayOfMonth:        intPtrToInt4(p.DayOfMonth),
+		DayOfWeek:         intPtrToInt4(p.DayOfWeek),
+		MonthOfYear:       intPtrToInt4(p.MonthOfYear),
+		EndsAt:            datePtr(p.EndsAt),
+		CategoryID:        p.CategoryID,
+		PaymentMethodID:   p.PaymentMethodID,
+		AmountIsVariable:  p.AmountIsVariable,
+		AlertThresholdPct: thresholdN,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.RecurringExpense{}, domain.ErrNotFound
@@ -158,6 +174,23 @@ func (r *Repository) Update(ctx context.Context, id uuid.UUID, p UpdateParams) (
 func (r *Repository) SetActive(ctx context.Context, id uuid.UUID, active bool) error {
 	if err := r.q.SetRecurringExpenseActive(ctx, sqlcgen.SetRecurringExpenseActiveParams{ID: id, IsActive: active}); err != nil {
 		return fmt.Errorf("recurringexpenses.SetActive: %w", err)
+	}
+	return nil
+}
+
+// UpdateLastAmount cachea el último monto confirmado de la serie. Lo llama el
+// service al confirmar un draft, para que listados posteriores muestren el
+// valor sin tener que volver a leer el histórico de expenses.
+func (r *Repository) UpdateLastAmount(ctx context.Context, id uuid.UUID, amount float64) error {
+	amountN, err := db.NumericFromFloat(amount, 2)
+	if err != nil {
+		return err
+	}
+	if err := r.q.UpdateRecurringExpenseLastAmount(ctx, sqlcgen.UpdateRecurringExpenseLastAmountParams{
+		ID:         id,
+		LastAmount: amountN,
+	}); err != nil {
+		return fmt.Errorf("recurringexpenses.UpdateLastAmount: %w", err)
 	}
 	return nil
 }
@@ -182,7 +215,7 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 // ===================== mappers =====================
 
 func toDomain(row sqlcgen.RecurringExpense) domain.RecurringExpense {
-	var endsAt, lastGen *time.Time
+	var endsAt, lastGen, lastConf *time.Time
 	if row.EndsAt.Valid {
 		t := row.EndsAt.Time
 		endsAt = &t
@@ -191,27 +224,54 @@ func toDomain(row sqlcgen.RecurringExpense) domain.RecurringExpense {
 		t := row.LastGenerated.Time
 		lastGen = &t
 	}
-	return domain.RecurringExpense{
-		ID:              row.ID,
-		HouseholdID:     row.HouseholdID,
-		CreatedBy:       row.CreatedBy,
-		CategoryID:      row.CategoryID,
-		PaymentMethodID: row.PaymentMethodID,
-		Amount:          db.FloatFromNumeric(row.Amount),
-		Currency:        row.Currency,
-		Description:     row.Description,
-		Installments:    int(row.Installments),
-		IsShared:        row.IsShared,
-		Frequency:       row.Frequency,
-		DayOfMonth:      int4ToIntPtr(row.DayOfMonth),
-		DayOfWeek:       int4ToIntPtr(row.DayOfWeek),
-		MonthOfYear:     int4ToIntPtr(row.MonthOfYear),
-		IsActive:        row.IsActive,
-		StartsAt:        row.StartsAt.Time,
-		EndsAt:          endsAt,
-		LastGenerated:   lastGen,
-		CreatedAt:       row.CreatedAt.Time,
+	if row.LastConfirmedAt.Valid {
+		t := row.LastConfirmedAt.Time
+		lastConf = &t
 	}
+	var threshold, lastAmt *float64
+	if row.AlertThresholdPct.Valid {
+		v := db.FloatFromNumeric(row.AlertThresholdPct)
+		threshold = &v
+	}
+	if row.LastAmount.Valid {
+		v := db.FloatFromNumeric(row.LastAmount)
+		lastAmt = &v
+	}
+	return domain.RecurringExpense{
+		ID:                row.ID,
+		HouseholdID:       row.HouseholdID,
+		CreatedBy:         row.CreatedBy,
+		CategoryID:        row.CategoryID,
+		PaymentMethodID:   row.PaymentMethodID,
+		Amount:            db.FloatFromNumeric(row.Amount),
+		Currency:          row.Currency,
+		Description:       row.Description,
+		Installments:      int(row.Installments),
+		IsShared:          row.IsShared,
+		Frequency:         row.Frequency,
+		DayOfMonth:        int4ToIntPtr(row.DayOfMonth),
+		DayOfWeek:         int4ToIntPtr(row.DayOfWeek),
+		MonthOfYear:       int4ToIntPtr(row.MonthOfYear),
+		IsActive:          row.IsActive,
+		StartsAt:          row.StartsAt.Time,
+		EndsAt:            endsAt,
+		LastGenerated:     lastGen,
+		CreatedAt:         row.CreatedAt.Time,
+		AmountIsVariable:  row.AmountIsVariable,
+		AlertThresholdPct: threshold,
+		LastAmount:        lastAmt,
+		LastConfirmedAt:   lastConf,
+	}
+}
+
+// numericFromFloatPtr: helper local para columnas NUMERIC nullable. Si el
+// puntero es nil, devuelve un Numeric inválido (NULL en la DB). Si no, lo
+// convierte con el scale dado.
+func numericFromFloatPtr(v *float64, scale int) (pgtype.Numeric, error) {
+	if v == nil {
+		return pgtype.Numeric{}, nil
+	}
+	return db.NumericFromFloat(*v, scale)
 }
 
 func intPtrToInt4(p *int) pgtype.Int4 {

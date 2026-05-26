@@ -220,6 +220,11 @@ func main() {
 	// FX, credit_card_periods). Worker 00:30 también.
 	recurringExpensesRepo := recurringexpenses.NewRepository(pool)
 	recurringExpensesSvc := recurringexpenses.NewService(recurringExpensesRepo, householdsRepo, expensesSvc, logger)
+	// Wiring cruzado: expenses.ConfirmDraft necesita leer/actualizar la
+	// recurrente (threshold + last_amount); recurringExpenses.Stats necesita
+	// leer el histórico de expenses. Post-construcción para evitar ciclos.
+	expensesSvc.SetRecurringReader(recurringExpensesRepo)
+	recurringExpensesSvc.SetExpensesReader(expensesRepo)
 	recurringExpensesHandler := recurringexpenses.NewHandler(recurringExpensesSvc, authMW, householdsMW, logger)
 	recurringExpensesWorker := recurringexpenses.NewWorker(recurringExpensesSvc, 0, 30, logger)
 	stopRecurringExpensesWorker := recurringExpensesWorker.Start(context.Background())
@@ -498,6 +503,22 @@ func (a insightsCreatorAdapter) CreateSharedExpenseInsight(ctx context.Context, 
 		Title:       title,
 		Body:        body,
 		Severity:    domain.InsightSeverityInfo,
+		RefID:       expenseID,
+		Metadata: map[string]any{
+			"expenseId": expenseID.String(),
+			"url":       "/expenses/" + expenseID.String(),
+		},
+	})
+}
+
+func (a insightsCreatorAdapter) CreateRecurringSpikeInsight(ctx context.Context, householdID, expenseID, recipientID uuid.UUID, title, body string) {
+	a.create(ctx, insights.EventInput{
+		HouseholdID: householdID,
+		UserID:      &recipientID,
+		InsightType: domain.InsightTypeRecurringSpike,
+		Title:       title,
+		Body:        body,
+		Severity:    domain.InsightSeverityWarning,
 		RefID:       expenseID,
 		Metadata: map[string]any{
 			"expenseId": expenseID.String(),

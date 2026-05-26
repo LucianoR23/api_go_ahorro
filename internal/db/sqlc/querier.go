@@ -32,6 +32,11 @@ type Querier interface {
 	// > 0 → from_user debe ese monto a to_user
 	// < 0 → to_user debe a from_user (el signo lo resuelve el service)
 	BalanceOwedBetween(ctx context.Context, arg BalanceOwedBetweenParams) (BalanceOwedBetweenRow, error)
+	// Confirma un draft con el monto real. Actualiza amount + amount_base + rate
+	// (recalculados por el service antes de llamar) y pasa el status a confirmed.
+	// Devuelve la fila completa para que el service compare con last_amount y
+	// decida si dispara recurring_spike.
+	ConfirmExpenseDraft(ctx context.Context, arg ConfirmExpenseDraftParams) (Expense, error)
 	// Usada en validaciones: no dejar al user sin ningún método activo
 	// (Efectivo no se puede desactivar si es el último).
 	CountActivePaymentMethodsByOwner(ctx context.Context, ownerUserID uuid.UUID) (int64, error)
@@ -205,9 +210,16 @@ type Querier interface {
 	// COALESCE: si no hay owner actual (caso raro de data inconsistente),
 	// cae al created_by para no perder la referencia.
 	ListDeletedHouseholds(ctx context.Context) ([]ListDeletedHouseholdsRow, error)
+	// Drafts pendientes de confirmar (gastos variables generados por recurrentes).
+	// La UI los muestra en un bloque "Pendientes" hasta que el usuario confirme
+	// el monto real de la factura.
+	ListDraftExpensesByHousehold(ctx context.Context, householdID uuid.UUID) ([]Expense, error)
 	// Filtros opcionales: categoryId, paymentMethodId, desde/hasta (fechas).
 	// Paginación por offset/limit simple. Cuando el volumen crezca, migrar a keyset.
 	ListExpensesByHousehold(ctx context.Context, arg ListExpensesByHouseholdParams) ([]Expense, error)
+	// Histórico confirmado de una serie (recurring_expense). Lo usa el endpoint
+	// de stats para calcular variación %, promedio, tendencia.
+	ListExpensesBySeries(ctx context.Context, arg ListExpensesBySeriesParams) ([]Expense, error)
 	// Devuelve los miembros con el nombre/email del user (JOIN).
 	// Usamos sqlc.embed(u) para que genere un struct anidado con todo user,
 	// así el handler puede devolver la info combinada sin queries extra.
@@ -325,8 +337,10 @@ type Querier interface {
 	// "due_this_month": lo que hay que pagar en el rango (due_date). Para
 	// no-crédito due_date es NULL, usamos COALESCE con billing_date.
 	SumInstallmentsDueForReport(ctx context.Context, arg SumInstallmentsDueForReportParams) (pgtype.Numeric, error)
-	// Cuotas cuyo due_date cae en el rango. Usamos COALESCE(due_date, billing_date)
-	// para unificar crédito y el resto.
+	// Cuotas pendientes de pago cuyo due_date cae en el rango. Solo cuenta lo
+	// que efectivamente "viene a cobrar": is_paid = false. Los gastos en efectivo/
+	// débito nacen con is_paid = true y quedan excluidos. Las cuotas de crédito
+	// futuras tienen due_date; si por algún motivo falta, caemos a billing_date.
 	SumInstallmentsDueInRange(ctx context.Context, arg SumInstallmentsDueInRangeParams) (pgtype.Numeric, error)
 	// ===================== progress helpers =====================
 	// Suma base de cuotas del hogar dentro del período, filtrando por categoría
@@ -367,6 +381,9 @@ type Querier interface {
 	// allows_installments=true en un debit/cash/transfer falla en DB.
 	UpdatePaymentMethod(ctx context.Context, arg UpdatePaymentMethodParams) (PaymentMethod, error)
 	UpdateRecurringExpense(ctx context.Context, arg UpdateRecurringExpenseParams) (RecurringExpense, error)
+	// Cache: el service lo llama al confirmar un draft para que la próxima vez
+	// que se liste la serie aparezca el monto real más reciente sin recomputar.
+	UpdateRecurringExpenseLastAmount(ctx context.Context, arg UpdateRecurringExpenseLastAmountParams) error
 	UpdateRecurringIncome(ctx context.Context, arg UpdateRecurringIncomeParams) (RecurringIncome, error)
 	// Actualiza nombre y apellido juntos (si se edita uno se reenvían ambos).
 	UpdateUserName(ctx context.Context, arg UpdateUserNameParams) (User, error)

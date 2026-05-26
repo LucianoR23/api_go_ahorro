@@ -18,29 +18,32 @@ INSERT INTO recurring_expenses (
     household_id, created_by, category_id, payment_method_id,
     amount, currency, description, installments, is_shared,
     frequency, day_of_month, day_of_week, month_of_year,
-    is_active, starts_at, ends_at
+    is_active, starts_at, ends_at,
+    amount_is_variable, alert_threshold_pct
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, description, installments, is_shared, frequency, day_of_month, day_of_week, month_of_year, is_active, starts_at, ends_at, last_generated, created_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, description, installments, is_shared, frequency, day_of_month, day_of_week, month_of_year, is_active, starts_at, ends_at, last_generated, created_at, amount_is_variable, alert_threshold_pct, last_amount, last_confirmed_at
 `
 
 type CreateRecurringExpenseParams struct {
-	HouseholdID     uuid.UUID      `json:"household_id"`
-	CreatedBy       uuid.UUID      `json:"created_by"`
-	CategoryID      *uuid.UUID     `json:"category_id"`
-	PaymentMethodID uuid.UUID      `json:"payment_method_id"`
-	Amount          pgtype.Numeric `json:"amount"`
-	Currency        string         `json:"currency"`
-	Description     string         `json:"description"`
-	Installments    int32          `json:"installments"`
-	IsShared        bool           `json:"is_shared"`
-	Frequency       string         `json:"frequency"`
-	DayOfMonth      pgtype.Int4    `json:"day_of_month"`
-	DayOfWeek       pgtype.Int4    `json:"day_of_week"`
-	MonthOfYear     pgtype.Int4    `json:"month_of_year"`
-	IsActive        bool           `json:"is_active"`
-	StartsAt        pgtype.Date    `json:"starts_at"`
-	EndsAt          pgtype.Date    `json:"ends_at"`
+	HouseholdID       uuid.UUID      `json:"household_id"`
+	CreatedBy         uuid.UUID      `json:"created_by"`
+	CategoryID        *uuid.UUID     `json:"category_id"`
+	PaymentMethodID   uuid.UUID      `json:"payment_method_id"`
+	Amount            pgtype.Numeric `json:"amount"`
+	Currency          string         `json:"currency"`
+	Description       string         `json:"description"`
+	Installments      int32          `json:"installments"`
+	IsShared          bool           `json:"is_shared"`
+	Frequency         string         `json:"frequency"`
+	DayOfMonth        pgtype.Int4    `json:"day_of_month"`
+	DayOfWeek         pgtype.Int4    `json:"day_of_week"`
+	MonthOfYear       pgtype.Int4    `json:"month_of_year"`
+	IsActive          bool           `json:"is_active"`
+	StartsAt          pgtype.Date    `json:"starts_at"`
+	EndsAt            pgtype.Date    `json:"ends_at"`
+	AmountIsVariable  bool           `json:"amount_is_variable"`
+	AlertThresholdPct pgtype.Numeric `json:"alert_threshold_pct"`
 }
 
 // ===================== recurring_expenses =====================
@@ -62,6 +65,8 @@ func (q *Queries) CreateRecurringExpense(ctx context.Context, arg CreateRecurrin
 		arg.IsActive,
 		arg.StartsAt,
 		arg.EndsAt,
+		arg.AmountIsVariable,
+		arg.AlertThresholdPct,
 	)
 	var i RecurringExpense
 	err := row.Scan(
@@ -84,6 +89,10 @@ func (q *Queries) CreateRecurringExpense(ctx context.Context, arg CreateRecurrin
 		&i.EndsAt,
 		&i.LastGenerated,
 		&i.CreatedAt,
+		&i.AmountIsVariable,
+		&i.AlertThresholdPct,
+		&i.LastAmount,
+		&i.LastConfirmedAt,
 	)
 	return i, err
 }
@@ -98,7 +107,7 @@ func (q *Queries) DeleteRecurringExpense(ctx context.Context, id uuid.UUID) erro
 }
 
 const getRecurringExpenseByID = `-- name: GetRecurringExpenseByID :one
-SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, description, installments, is_shared, frequency, day_of_month, day_of_week, month_of_year, is_active, starts_at, ends_at, last_generated, created_at FROM recurring_expenses WHERE id = $1
+SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, description, installments, is_shared, frequency, day_of_month, day_of_week, month_of_year, is_active, starts_at, ends_at, last_generated, created_at, amount_is_variable, alert_threshold_pct, last_amount, last_confirmed_at FROM recurring_expenses WHERE id = $1
 `
 
 func (q *Queries) GetRecurringExpenseByID(ctx context.Context, id uuid.UUID) (RecurringExpense, error) {
@@ -124,12 +133,16 @@ func (q *Queries) GetRecurringExpenseByID(ctx context.Context, id uuid.UUID) (Re
 		&i.EndsAt,
 		&i.LastGenerated,
 		&i.CreatedAt,
+		&i.AmountIsVariable,
+		&i.AlertThresholdPct,
+		&i.LastAmount,
+		&i.LastConfirmedAt,
 	)
 	return i, err
 }
 
 const listActiveRecurringExpenses = `-- name: ListActiveRecurringExpenses :many
-SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, description, installments, is_shared, frequency, day_of_month, day_of_week, month_of_year, is_active, starts_at, ends_at, last_generated, created_at FROM recurring_expenses
+SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, description, installments, is_shared, frequency, day_of_month, day_of_week, month_of_year, is_active, starts_at, ends_at, last_generated, created_at, amount_is_variable, alert_threshold_pct, last_amount, last_confirmed_at FROM recurring_expenses
 WHERE is_active = true
   AND starts_at <= $1::date
   AND (ends_at IS NULL OR ends_at >= $1::date)
@@ -166,6 +179,10 @@ func (q *Queries) ListActiveRecurringExpenses(ctx context.Context, dollar_1 pgty
 			&i.EndsAt,
 			&i.LastGenerated,
 			&i.CreatedAt,
+			&i.AmountIsVariable,
+			&i.AlertThresholdPct,
+			&i.LastAmount,
+			&i.LastConfirmedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -178,7 +195,7 @@ func (q *Queries) ListActiveRecurringExpenses(ctx context.Context, dollar_1 pgty
 }
 
 const listRecurringExpensesByHousehold = `-- name: ListRecurringExpensesByHousehold :many
-SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, description, installments, is_shared, frequency, day_of_month, day_of_week, month_of_year, is_active, starts_at, ends_at, last_generated, created_at FROM recurring_expenses
+SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, description, installments, is_shared, frequency, day_of_month, day_of_week, month_of_year, is_active, starts_at, ends_at, last_generated, created_at, amount_is_variable, alert_threshold_pct, last_amount, last_confirmed_at FROM recurring_expenses
 WHERE household_id = $1
 ORDER BY is_active DESC, created_at DESC
 `
@@ -212,6 +229,10 @@ func (q *Queries) ListRecurringExpensesByHousehold(ctx context.Context, househol
 			&i.EndsAt,
 			&i.LastGenerated,
 			&i.CreatedAt,
+			&i.AmountIsVariable,
+			&i.AlertThresholdPct,
+			&i.LastAmount,
+			&i.LastConfirmedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -253,36 +274,40 @@ func (q *Queries) SetRecurringExpenseActive(ctx context.Context, arg SetRecurrin
 
 const updateRecurringExpense = `-- name: UpdateRecurringExpense :one
 UPDATE recurring_expenses
-SET amount            = $2,
-    currency          = $3,
-    description       = $4,
-    installments      = $5,
-    is_shared         = $6,
-    frequency         = $7,
-    day_of_month      = $8,
-    day_of_week       = $9,
-    month_of_year     = $10,
-    ends_at           = $11,
-    category_id       = $12,
-    payment_method_id = $13
+SET amount              = $2,
+    currency            = $3,
+    description         = $4,
+    installments        = $5,
+    is_shared           = $6,
+    frequency           = $7,
+    day_of_month        = $8,
+    day_of_week         = $9,
+    month_of_year       = $10,
+    ends_at             = $11,
+    category_id         = $12,
+    payment_method_id   = $13,
+    amount_is_variable  = $14,
+    alert_threshold_pct = $15
 WHERE id = $1
-RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, description, installments, is_shared, frequency, day_of_month, day_of_week, month_of_year, is_active, starts_at, ends_at, last_generated, created_at
+RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, description, installments, is_shared, frequency, day_of_month, day_of_week, month_of_year, is_active, starts_at, ends_at, last_generated, created_at, amount_is_variable, alert_threshold_pct, last_amount, last_confirmed_at
 `
 
 type UpdateRecurringExpenseParams struct {
-	ID              uuid.UUID      `json:"id"`
-	Amount          pgtype.Numeric `json:"amount"`
-	Currency        string         `json:"currency"`
-	Description     string         `json:"description"`
-	Installments    int32          `json:"installments"`
-	IsShared        bool           `json:"is_shared"`
-	Frequency       string         `json:"frequency"`
-	DayOfMonth      pgtype.Int4    `json:"day_of_month"`
-	DayOfWeek       pgtype.Int4    `json:"day_of_week"`
-	MonthOfYear     pgtype.Int4    `json:"month_of_year"`
-	EndsAt          pgtype.Date    `json:"ends_at"`
-	CategoryID      *uuid.UUID     `json:"category_id"`
-	PaymentMethodID uuid.UUID      `json:"payment_method_id"`
+	ID                uuid.UUID      `json:"id"`
+	Amount            pgtype.Numeric `json:"amount"`
+	Currency          string         `json:"currency"`
+	Description       string         `json:"description"`
+	Installments      int32          `json:"installments"`
+	IsShared          bool           `json:"is_shared"`
+	Frequency         string         `json:"frequency"`
+	DayOfMonth        pgtype.Int4    `json:"day_of_month"`
+	DayOfWeek         pgtype.Int4    `json:"day_of_week"`
+	MonthOfYear       pgtype.Int4    `json:"month_of_year"`
+	EndsAt            pgtype.Date    `json:"ends_at"`
+	CategoryID        *uuid.UUID     `json:"category_id"`
+	PaymentMethodID   uuid.UUID      `json:"payment_method_id"`
+	AmountIsVariable  bool           `json:"amount_is_variable"`
+	AlertThresholdPct pgtype.Numeric `json:"alert_threshold_pct"`
 }
 
 func (q *Queries) UpdateRecurringExpense(ctx context.Context, arg UpdateRecurringExpenseParams) (RecurringExpense, error) {
@@ -300,6 +325,8 @@ func (q *Queries) UpdateRecurringExpense(ctx context.Context, arg UpdateRecurrin
 		arg.EndsAt,
 		arg.CategoryID,
 		arg.PaymentMethodID,
+		arg.AmountIsVariable,
+		arg.AlertThresholdPct,
 	)
 	var i RecurringExpense
 	err := row.Scan(
@@ -322,6 +349,29 @@ func (q *Queries) UpdateRecurringExpense(ctx context.Context, arg UpdateRecurrin
 		&i.EndsAt,
 		&i.LastGenerated,
 		&i.CreatedAt,
+		&i.AmountIsVariable,
+		&i.AlertThresholdPct,
+		&i.LastAmount,
+		&i.LastConfirmedAt,
 	)
 	return i, err
+}
+
+const updateRecurringExpenseLastAmount = `-- name: UpdateRecurringExpenseLastAmount :exec
+UPDATE recurring_expenses
+SET last_amount = $2,
+    last_confirmed_at = NOW()
+WHERE id = $1
+`
+
+type UpdateRecurringExpenseLastAmountParams struct {
+	ID         uuid.UUID      `json:"id"`
+	LastAmount pgtype.Numeric `json:"last_amount"`
+}
+
+// Cache: el service lo llama al confirmar un draft para que la próxima vez
+// que se liste la serie aparezca el monto real más reciente sin recomputar.
+func (q *Queries) UpdateRecurringExpenseLastAmount(ctx context.Context, arg UpdateRecurringExpenseLastAmountParams) error {
+	_, err := q.db.Exec(ctx, updateRecurringExpenseLastAmount, arg.ID, arg.LastAmount)
+	return err
 }

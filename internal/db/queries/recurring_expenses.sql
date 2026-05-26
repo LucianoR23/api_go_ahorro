@@ -5,9 +5,10 @@ INSERT INTO recurring_expenses (
     household_id, created_by, category_id, payment_method_id,
     amount, currency, description, installments, is_shared,
     frequency, day_of_month, day_of_week, month_of_year,
-    is_active, starts_at, ends_at
+    is_active, starts_at, ends_at,
+    amount_is_variable, alert_threshold_pct
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 RETURNING *;
 
 -- name: GetRecurringExpenseByID :one
@@ -28,20 +29,30 @@ WHERE is_active = true
 
 -- name: UpdateRecurringExpense :one
 UPDATE recurring_expenses
-SET amount            = $2,
-    currency          = $3,
-    description       = $4,
-    installments      = $5,
-    is_shared         = $6,
-    frequency         = $7,
-    day_of_month      = $8,
-    day_of_week       = $9,
-    month_of_year     = $10,
-    ends_at           = $11,
-    category_id       = $12,
-    payment_method_id = $13
+SET amount              = $2,
+    currency            = $3,
+    description         = $4,
+    installments        = $5,
+    is_shared           = $6,
+    frequency           = $7,
+    day_of_month        = $8,
+    day_of_week         = $9,
+    month_of_year       = $10,
+    ends_at             = $11,
+    category_id         = $12,
+    payment_method_id   = $13,
+    amount_is_variable  = $14,
+    alert_threshold_pct = $15
 WHERE id = $1
 RETURNING *;
+
+-- name: UpdateRecurringExpenseLastAmount :exec
+-- Cache: el service lo llama al confirmar un draft para que la próxima vez
+-- que se liste la serie aparezca el monto real más reciente sin recomputar.
+UPDATE recurring_expenses
+SET last_amount = $2,
+    last_confirmed_at = NOW()
+WHERE id = $1;
 
 -- name: SetRecurringExpenseActive :exec
 UPDATE recurring_expenses SET is_active = $2 WHERE id = $1;

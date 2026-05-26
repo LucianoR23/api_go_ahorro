@@ -85,6 +85,7 @@ func (r *Repository) CreateTx(ctx context.Context, b CreateBundle) (domain.Expen
 			Installments:       int32(b.Expense.Installments),
 			IsShared:           b.Expense.IsShared,
 			RecurringExpenseID: b.Expense.RecurringExpenseID,
+			Status:             b.Expense.Status,
 		})
 		if err != nil {
 			return fmt.Errorf("insert expense: %w", err)
@@ -307,6 +308,96 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// ListDrafts: gastos en status='draft' del hogar. Son los que el worker generó
+// a partir de una recurrente con amount_is_variable=true y esperan que el user
+// confirme el monto real de la factura.
+func (r *Repository) ListDrafts(ctx context.Context, householdID uuid.UUID) ([]domain.Expense, error) {
+	rows, err := r.q.ListDraftExpensesByHousehold(ctx, householdID)
+	if err != nil {
+		return nil, fmt.Errorf("expenses.ListDrafts: %w", err)
+	}
+	out := make([]domain.Expense, len(rows))
+	for i, row := range rows {
+		out[i] = expenseToDomain(row)
+	}
+	return out, nil
+}
+
+// ConfirmDraftParams: el service convierte amount al base currency y arma
+// el rate antes de llamar; el repo solo persiste. rate_used/rate_at pueden
+// ser nil si la currency del expense coincide con la base.
+type ConfirmDraftParams struct {
+	Amount     float64
+	AmountBase float64
+	RateUsed   *float64
+	RateAt     *time.Time
+}
+
+// ConfirmDraft: pasa el draft a confirmed actualizando monto + conversión.
+// El WHERE id=$1 AND status='draft' protege contra dobles confirmaciones:
+// si ya está confirmado devuelve pgx.ErrNoRows que mapeamos a ErrNotFound.
+//
+// Importante: NO recalcula installments. Para gastos variables el modelo
+// asume installments=1 (no aceptamos crédito en N cuotas con monto variable
+// porque ya no sabríamos cuánto cobra cada cuota antes de saber el total).
+func (r *Repository) ConfirmDraft(ctx context.Context, id uuid.UUID, p ConfirmDraftParams) (domain.Expense, error) {
+	amountN, err := numericFromFloat(p.Amount, 2)
+	if err != nil {
+		return domain.Expense{}, err
+	}
+	baseN, err := numericFromFloat(p.AmountBase, 2)
+	if err != nil {
+		return domain.Expense{}, err
+	}
+	rateN := pgtype.Numeric{}
+	if p.RateUsed != nil {
+		rateN, err = numericFromFloat(*p.RateUsed, 4)
+		if err != nil {
+			return domain.Expense{}, err
+		}
+	}
+	rateAt := pgtype.Timestamptz{}
+	if p.RateAt != nil {
+		rateAt = pgtype.Timestamptz{Time: *p.RateAt, Valid: true}
+	}
+	row, err := r.q.ConfirmExpenseDraft(ctx, sqlcgen.ConfirmExpenseDraftParams{
+		ID:         id,
+		Amount:     amountN,
+		AmountBase: baseN,
+		RateUsed:   rateN,
+		RateAt:     rateAt,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Expense{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Expense{}, fmt.Errorf("expenses.ConfirmDraft: %w", err)
+	}
+	return expenseToDomain(row), nil
+}
+
+// ListBySeries: histórico confirmado de una serie ordenado desc por SpentAt.
+// limit=0 = sin límite (el sqlc query usa LIMIT $2 directo, así que pasamos
+// un valor grande cuando el caller pide "todo"). 6 meses suele alcanzar para
+// el detalle de UI.
+func (r *Repository) ListBySeries(ctx context.Context, recurringID uuid.UUID, limit int) ([]domain.Expense, error) {
+	if limit <= 0 {
+		limit = 120
+	}
+	rows, err := r.q.ListExpensesBySeries(ctx, sqlcgen.ListExpensesBySeriesParams{
+		RecurringExpenseID: &recurringID,
+		Limit:              int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("expenses.ListBySeries: %w", err)
+	}
+	out := make([]domain.Expense, len(rows))
+	for i, row := range rows {
+		out[i] = expenseToDomain(row)
+	}
+	return out, nil
+}
+
 // GetInstallmentByNumber: usado en el PATCH de installments (CP6.5).
 func (r *Repository) GetInstallmentByNumber(ctx context.Context, expenseID uuid.UUID, n int) (domain.ExpenseInstallment, error) {
 	row, err := r.q.GetInstallmentByExpenseAndNumber(ctx, sqlcgen.GetInstallmentByExpenseAndNumberParams{
@@ -385,8 +476,9 @@ func expenseToDomain(e sqlcgen.Expense) domain.Expense {
 		Installments:    int(e.Installments),
 		IsShared:        e.IsShared,
 		RecurringExpenseID: e.RecurringExpenseID,
-		CreatedAt:       e.CreatedAt.Time,
-		UpdatedAt:       e.UpdatedAt.Time,
+		Status:             e.Status,
+		CreatedAt:          e.CreatedAt.Time,
+		UpdatedAt:          e.UpdatedAt.Time,
 	}
 }
 
