@@ -15,6 +15,8 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/go-chi/httplog/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/auth"
 	"github.com/LucianoR23/api_go_ahorra/internal/balances"
@@ -242,6 +244,39 @@ func main() {
 	insightsSvc.SetNotifier(func(ctx context.Context, ev insights.Event) error {
 		return insights.Notify(ctx, pool, ev)
 	})
+	// Deps para genCreditPeriodReminders: iteramos miembros del hogar y, por
+	// cada uno, sus tarjetas activas. Latest period via creditperiods.Repository.
+	creditCardsAdapter := insights.CreditCardsAdapter(func(ctx context.Context, hhID uuid.UUID) ([]insights.CreditCardForReminder, error) {
+		members, err := householdsRepo.ListMembers(ctx, hhID)
+		if err != nil {
+			return nil, err
+		}
+		var out []insights.CreditCardForReminder
+		for _, m := range members {
+			cards, err := paymethodsSvc.ListCreditCards(ctx, m.User.ID)
+			if err != nil {
+				return nil, err
+			}
+			for _, c := range cards {
+				if !c.PaymentMethod.IsActive || c.CreditCard == nil {
+					continue
+				}
+				out = append(out, insights.CreditCardForReminder{
+					PaymentMethodID: c.PaymentMethod.ID,
+					OwnerUserID:     c.PaymentMethod.OwnerUserID,
+					CreditCardID:    c.CreditCard.ID,
+					Alias:           c.CreditCard.Alias,
+				})
+			}
+		}
+		return out, nil
+	})
+	periodLatestAdapter := insights.PeriodLatestAdapter(func(ctx context.Context, ccID uuid.UUID) (domain.CreditCardPeriod, error) {
+		return creditPeriodsRepo.GetLatest(ctx, ccID)
+	})
+	insightsSvc.SetCreditPeriodDeps(creditCardsAdapter, periodLatestAdapter)
+	insightsSvc.SetPushNotifier(pushAdapter)
+	insightsSvc.SetInstallmentsDueDep(insights.InstallmentsDueAdapter(listInstallmentsDueOn(pool)))
 	insightsHub := insights.NewHub(logger)
 	insightsListener := insights.NewListener(pool, insightsHub, logger)
 	stopInsightsListener := insightsListener.Start(context.Background())
@@ -540,4 +575,57 @@ func newLogger() *slog.Logger {
 		}
 	}
 	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+}
+
+// listInstallmentsDueOn devuelve un closure que el worker de insights usa
+// para encontrar cuotas con due_date = X. Query directa contra el pool
+// (no necesita sqlc): aprovecha el índice parcial
+// idx_installments_due_unpaid ON (due_date) WHERE is_paid = false.
+func listInstallmentsDueOn(pool *pgxpool.Pool) func(ctx context.Context, due time.Time) ([]insights.InstallmentDueForReminder, error) {
+	return func(ctx context.Context, due time.Time) ([]insights.InstallmentDueForReminder, error) {
+		const q = `
+			SELECT
+				ei.expense_id,
+				e.household_id,
+				e.created_by,
+				e.description,
+				ei.installment_number,
+				e.installments,
+				ei.installment_amount_base::float8,
+				e.base_currency,
+				ei.due_date
+			FROM expense_installments ei
+			JOIN expenses e ON e.id = ei.expense_id
+			WHERE ei.is_paid = false
+			  AND ei.due_date = $1
+		`
+		rows, err := pool.Query(ctx, q, pgtype.Date{Time: due, Valid: true})
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []insights.InstallmentDueForReminder
+		for rows.Next() {
+			var r insights.InstallmentDueForReminder
+			var dueDate pgtype.Date
+			if err := rows.Scan(
+				&r.ExpenseID,
+				&r.HouseholdID,
+				&r.CreatedBy,
+				&r.Description,
+				&r.InstallmentNumber,
+				&r.TotalInstallments,
+				&r.AmountBase,
+				&r.BaseCurrency,
+				&dueDate,
+			); err != nil {
+				return nil, err
+			}
+			if dueDate.Valid {
+				r.DueDate = dueDate.Time
+			}
+			out = append(out, r)
+		}
+		return out, rows.Err()
+	}
 }

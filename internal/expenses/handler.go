@@ -219,7 +219,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
-	_, householdID, err := h.ctxUserAndHousehold(r)
+	userID, householdID, err := h.ctxUserAndHousehold(r)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -239,7 +239,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, domain.NewValidationError("spentAt", "formato debe ser YYYY-MM-DD"))
 		return
 	}
-	e, err := h.svc.Update(r.Context(), householdID, id, UpdateInput{
+	e, err := h.svc.Update(r.Context(), householdID, id, userID, UpdateInput{
 		Description: req.Description,
 		SpentAt:     spentAt,
 		CategoryID:  req.CategoryID,
@@ -324,7 +324,7 @@ func (h *Handler) UpdateInstallment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	_, householdID, err := h.ctxUserAndHousehold(r)
+	userID, householdID, err := h.ctxUserAndHousehold(r)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -334,7 +334,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	if err := h.svc.Delete(r.Context(), householdID, id); err != nil {
+	if err := h.svc.Delete(r.Context(), householdID, id, userID); err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}

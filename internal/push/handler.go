@@ -38,6 +38,14 @@ func (h *Handler) Mount(r chi.Router) {
 			r.Delete("/{id}", h.DeleteByID)
 		})
 	})
+
+	// Endpoint de test exclusivo para superadmin: dispara un push al user
+	// que llama (no a terceros), para verificar end-to-end VAPID + SW.
+	r.Group(func(r chi.Router) {
+		r.Use(h.authMW.RequireAuth)
+		r.Use(h.authMW.RequireSuperadmin)
+		r.Post("/admin/push/test", h.SendTest)
+	})
 }
 
 type vapidKeyResponse struct {
@@ -175,4 +183,52 @@ func (h *Handler) Unsubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type testPushResponse struct {
+	Sent          bool   `json:"sent"`
+	Subscriptions int    `json:"subscriptions"`
+	Reason        string `json:"reason,omitempty"`
+}
+
+// SendTest dispara un push al user autenticado (superadmin). Devuelve la
+// cantidad de subscriptions a las que se intentó enviar para que el front
+// pueda mostrar "0 dispositivos" si todavía no se suscribió.
+func (h *Handler) SendTest(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, r, h.logger, domain.ErrUnauthorized)
+		return
+	}
+	subs, err := h.svc.ListByUser(r.Context(), userID)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	if !h.svc.cfg.Enabled() {
+		httpx.WriteJSON(w, http.StatusOK, testPushResponse{
+			Sent:          false,
+			Subscriptions: len(subs),
+			Reason:        "VAPID no configurado en el servidor",
+		})
+		return
+	}
+	if len(subs) == 0 {
+		httpx.WriteJSON(w, http.StatusOK, testPushResponse{
+			Sent:          false,
+			Subscriptions: 0,
+			Reason:        "no hay dispositivos suscriptos para tu user",
+		})
+		return
+	}
+	h.svc.NotifyUsers(r.Context(), []uuid.UUID{userID}, Payload{
+		Title: "Push de prueba",
+		Body:  "Si ves esto, el VAPID + Service Worker están funcionando.",
+		URL:   "/admin",
+		Tag:   "admin-test-push",
+	})
+	httpx.WriteJSON(w, http.StatusOK, testPushResponse{
+		Sent:          true,
+		Subscriptions: len(subs),
+	})
 }

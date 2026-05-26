@@ -13,9 +13,10 @@ const (
 	InsightTypeWeeklyReview = "weekly_review"
 	// Event-driven insights: viven al lado de los agregados diarios pero usan
 	// ref_id para de-duplicar contra la entidad origen.
-	InsightTypeSharedExpense = "shared_expense"
-	InsightTypeInvite        = "invite"
-	InsightTypeSettlement    = "settlement"
+	InsightTypeSharedExpense        = "shared_expense"
+	InsightTypeInvite               = "invite"
+	InsightTypeSettlement           = "settlement"
+	InsightTypeCreditPeriodReminder = "credit_period_reminder"
 
 	InsightSeverityInfo     = "info"
 	InsightSeverityWarning  = "warning"

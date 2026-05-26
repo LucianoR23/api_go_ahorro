@@ -344,9 +344,16 @@ func (s *Service) buildInstallments(
 		return nil, err
 	}
 
-	// Período base del primer installment (según spent_at vs closing_day).
+	// Período base del primer installment. Comparamos contra el closing REAL
+	// del mes candidato (override si existe, default si no) — no contra
+	// DefaultClosingDay — para que un override con closing distinto del
+	// template asigne bien el gasto.
 	firstMonth := in.SpentAt
-	if in.SpentAt.Day() > cc.DefaultClosingDay {
+	firstCandidate, err := resolveForClosingMonth(ctx, s.periodsReader, cc, in.SpentAt)
+	if err != nil {
+		return nil, err
+	}
+	if in.SpentAt.After(firstCandidate.BillingDate) {
 		firstMonth = in.SpentAt.AddDate(0, 1, 0)
 	}
 
@@ -553,7 +560,7 @@ type UpdateInput struct {
 	CategoryID  *uuid.UUID
 }
 
-func (s *Service) Update(ctx context.Context, householdID, id uuid.UUID, in UpdateInput) (domain.Expense, error) {
+func (s *Service) Update(ctx context.Context, householdID, id, actorUserID uuid.UUID, in UpdateInput) (domain.Expense, error) {
 	if err := s.requireInHousehold(ctx, householdID, id); err != nil {
 		return domain.Expense{}, err
 	}
@@ -564,14 +571,91 @@ func (s *Service) Update(ctx context.Context, householdID, id uuid.UUID, in Upda
 	if in.SpentAt.IsZero() {
 		return domain.Expense{}, domain.NewValidationError("spentAt", "requerido")
 	}
-	return s.repo.UpdateMeta(ctx, id, in.Description, in.SpentAt, in.CategoryID)
+	// Capturamos el detail antes para resolver recipients del push si el
+	// gasto era compartido (post-update mantenemos las shares, no cambia).
+	prev, _ := s.repo.GetDetail(ctx, id)
+	updated, err := s.repo.UpdateMeta(ctx, id, in.Description, in.SpentAt, in.CategoryID)
+	if err != nil {
+		return updated, err
+	}
+	s.notifyExpenseMutation(ctx, prev, actorUserID, expenseMutationUpdate)
+	return updated, nil
 }
 
-func (s *Service) Delete(ctx context.Context, householdID, id uuid.UUID) error {
+func (s *Service) Delete(ctx context.Context, householdID, id, actorUserID uuid.UUID) error {
 	if err := s.requireInHousehold(ctx, householdID, id); err != nil {
 		return err
 	}
-	return s.repo.Delete(ctx, id)
+	// Snapshot antes del delete porque después ya no podemos leer los shares.
+	prev, _ := s.repo.GetDetail(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	s.notifyExpenseMutation(ctx, prev, actorUserID, expenseMutationDelete)
+	return nil
+}
+
+type expenseMutationKind int
+
+const (
+	expenseMutationUpdate expenseMutationKind = iota
+	expenseMutationDelete
+)
+
+// notifyExpenseMutation: si el gasto era compartido, avisa al resto de los
+// miembros que participaban en los shares que alguien más lo editó/borró.
+// Excluye al actor. Fire-and-forget: ni push ni insights bloquean.
+func (s *Service) notifyExpenseMutation(ctx context.Context, d domain.ExpenseDetail, actor uuid.UUID, kind expenseMutationKind) {
+	if !d.Expense.IsShared || len(d.Installments) == 0 {
+		return
+	}
+	if s.push == nil && s.insights == nil {
+		return
+	}
+	recipients := make(map[uuid.UUID]struct{})
+	for _, inst := range d.Installments {
+		for _, sh := range inst.Shares {
+			if sh.UserID == actor {
+				continue
+			}
+			recipients[sh.UserID] = struct{}{}
+		}
+	}
+	if len(recipients) == 0 {
+		return
+	}
+	actorName := "Alguien"
+	if members, err := s.households.ListMembers(ctx, d.Expense.HouseholdID); err == nil {
+		for _, m := range members {
+			if m.User.ID == actor {
+				if fn := strings.TrimSpace(m.User.FirstName); fn != "" {
+					actorName = fn
+				}
+				break
+			}
+		}
+	}
+	var title, body, url, tag string
+	switch kind {
+	case expenseMutationUpdate:
+		title = "Gasto compartido editado"
+		body = fmt.Sprintf("%s editó \"%s\"", actorName, d.Expense.Description)
+		url = "/expenses/" + d.Expense.ID.String()
+		tag = "expense-updated:" + d.Expense.ID.String()
+	case expenseMutationDelete:
+		title = "Gasto compartido eliminado"
+		body = fmt.Sprintf("%s eliminó \"%s\"", actorName, d.Expense.Description)
+		url = "/expenses"
+		tag = "expense-deleted:" + d.Expense.ID.String()
+	}
+	for uid := range recipients {
+		if s.push != nil {
+			s.push.NotifyUsers(ctx, []uuid.UUID{uid}, title, body, url, tag)
+		}
+		if s.insights != nil {
+			s.insights.CreateSharedExpenseInsight(ctx, d.Expense.HouseholdID, d.Expense.ID, uid, title, body)
+		}
+	}
 }
 
 // ===================== installments =====================

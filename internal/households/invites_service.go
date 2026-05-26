@@ -364,6 +364,25 @@ func (s *InvitesService) Accept(ctx context.Context, userID uuid.UUID, token str
 		if s.insights != nil {
 			s.insights.CreateInviteInsight(ctx, inv.HouseholdID, inv.ID, userID, title, body)
 		}
+
+		// Notificación al inviter: alguien aceptó su invitación. No la
+		// mandamos si el inviter accepta su propio link (edge case).
+		if inv.InvitedBy != userID {
+			inviterTitle := "Aceptaron tu invitación"
+			inviterBody := u.Email + " se unió a " + hh.Name
+			if s.push != nil {
+				s.push.NotifyUsers(
+					ctx,
+					[]uuid.UUID{inv.InvitedBy},
+					inviterTitle, inviterBody,
+					"/households/"+inv.HouseholdID.String(),
+					"household-invite-accepted:"+inv.ID.String(),
+				)
+			}
+			if s.insights != nil {
+				s.insights.CreateInviteInsight(ctx, inv.HouseholdID, inv.ID, inv.InvitedBy, inviterTitle, inviterBody)
+			}
+		}
 	}
 	return member, nil
 }
@@ -399,7 +418,30 @@ func (s *InvitesService) AcceptOnRegister(ctx context.Context, userID uuid.UUID,
 		}
 	}
 	_, _, err = s.repo.AcceptAndAddMember(ctx, inv.ID, userID, memberHook)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Notificación al inviter (mismo patrón que Accept). En este path no
+	// hay "self-accept" porque el token vino por mail al invitee.
+	if s.push != nil || s.insights != nil {
+		hh, _ := s.households.GetByID(ctx, inv.HouseholdID)
+		title := "Aceptaron tu invitación"
+		body := userEmail + " se unió a " + hh.Name
+		if s.push != nil {
+			s.push.NotifyUsers(
+				ctx,
+				[]uuid.UUID{inv.InvitedBy},
+				title, body,
+				"/households/"+inv.HouseholdID.String(),
+				"household-invite-accepted:"+inv.ID.String(),
+			)
+		}
+		if s.insights != nil {
+			s.insights.CreateInviteInsight(ctx, inv.HouseholdID, inv.ID, inv.InvitedBy, title, body)
+		}
+	}
+	return nil
 }
 
 // ===================== helpers =====================

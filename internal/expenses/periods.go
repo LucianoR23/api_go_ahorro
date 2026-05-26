@@ -27,22 +27,24 @@ type resolvedPeriod struct {
 // Si hay override en credit_card_periods lo usa; si no, deriva de los
 // defaults de la credit_card.
 //
-// Regla con defaults (confirmada con el user):
-//   - si spentAt.day <= closing_day  → cierra este mes
-//   - si spentAt.day >  closing_day  → cierra el mes siguiente
-//   - due_day > closing_day          → vence el mismo mes que cierra
-//   - due_day <= closing_day         → vence el mes siguiente
+// Importante: la decisión "cierra este mes o el siguiente" se toma comparando
+// spentAt contra el closing REAL del mes candidato (override si existe,
+// default si no), no contra DefaultClosingDay. Esto evita que un override
+// con closing_day distinto al template asigne mal el gasto.
 func resolveCreditPeriod(
 	ctx context.Context,
 	reader periodsReader,
 	cc domain.CreditCard,
 	spentAt time.Time,
 ) (resolvedPeriod, error) {
-	closingMonth := spentAt
-	if spentAt.Day() > cc.DefaultClosingDay {
-		closingMonth = spentAt.AddDate(0, 1, 0)
+	candidate, err := resolveForClosingMonth(ctx, reader, cc, spentAt)
+	if err != nil {
+		return resolvedPeriod{}, err
 	}
-	return resolveForClosingMonth(ctx, reader, cc, closingMonth)
+	if spentAt.After(candidate.BillingDate) {
+		return resolveForClosingMonth(ctx, reader, cc, spentAt.AddDate(0, 1, 0))
+	}
+	return candidate, nil
 }
 
 // resolveForClosingMonth: igual que resolveCreditPeriod pero partiendo de un

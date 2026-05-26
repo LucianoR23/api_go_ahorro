@@ -165,6 +165,12 @@ func (s *Service) CreatePaymentMethod(ctx context.Context, in CreatePaymentMetho
 		if err := validateCardInput(*in.CreditCard); err != nil {
 			return domain.PaymentMethodWithCard{}, err
 		}
+		// currentPeriod obligatorio: sin un período concreto el resolver cae al
+		// template y puede asignar mal gastos cuando closing/due caen en meses
+		// distintos. Forzamos al user a cargarlo desde el primer momento.
+		if in.CreditCard.CurrentPeriod == nil {
+			return domain.PaymentMethodWithCard{}, domain.NewValidationError("creditCard.currentPeriod", "requerido para kind=credit")
+		}
 		// Validar debit_payment_method_id: mismo owner, no la propia tarjeta.
 		// No la propia tarjeta: imposible acá (todavía no existe), lo validamos
 		// en Update si el cliente cambia el debit a la tarjeta misma.
