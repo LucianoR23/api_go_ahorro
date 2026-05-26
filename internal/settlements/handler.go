@@ -204,6 +204,13 @@ func parseListFilter(r *http.Request, householdID uuid.UUID) (ListFilter, error)
 		}
 		f.ToUser = &id
 	}
+	if v := q.Get("withUser"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			return f, domain.NewValidationError("withUser", "no es un UUID válido")
+		}
+		f.WithUser = &id
+	}
 	if v := q.Get("from"); v != "" {
 		t, err := time.Parse("2006-01-02", v)
 		if err != nil {

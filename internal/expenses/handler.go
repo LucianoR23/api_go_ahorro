@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -395,6 +396,12 @@ func parseListFilter(r *http.Request) (ListFilter, error) {
 			return f, domain.NewValidationError("to", "formato debe ser YYYY-MM-DD")
 		}
 		f.ToDate = &t
+	}
+	if v := strings.TrimSpace(q.Get("q")); v != "" {
+		if len(v) > 100 {
+			v = v[:100]
+		}
+		f.Q = v
 	}
 	f.Limit = 50
 	if v := q.Get("limit"); v != "" {

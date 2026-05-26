@@ -280,20 +280,13 @@ func (s *Service) GenerateForHousehold(ctx context.Context, householdID uuid.UUI
 func (s *Service) generateForHousehold(ctx context.Context, householdID uuid.UUID, at time.Time) (int, int) {
 	created, failed := 0, 0
 
-	// 1. daily_summary — ayer.
-	if c, err := s.genDailySummary(ctx, householdID, at); err != nil {
-		failed++
-		s.logWarn(ctx, "daily_summary falló", "householdId", householdID.String(), "error", err)
-	} else if c {
-		created++
-	}
-
-	// 2. alerts — goals activos >=80%.
+	// 1. alerts — goals activos >=80%.
 	n, nf := s.genGoalAlerts(ctx, householdID, at)
 	created += n
 	failed += nf
 
-	// 3. weekly_review — solo domingos.
+	// 2. weekly_review — solo domingos. Reemplaza al viejo daily_summary
+	// que era demasiado ruidoso para gastos esporádicos.
 	if at.Weekday() == time.Sunday {
 		if c, err := s.genWeeklyReview(ctx, householdID, at); err != nil {
 			failed++
@@ -303,13 +296,13 @@ func (s *Service) generateForHousehold(ctx context.Context, householdID uuid.UUI
 		}
 	}
 
-	// 4. credit_period_reminder — un insight por tarjeta cuando hoy es el día
+	// 3. credit_period_reminder — un insight por tarjeta cuando hoy es el día
 	// de cierre del último período cargado (señal: hay que cargar el siguiente).
 	cn, cf := s.genCreditPeriodReminders(ctx, householdID, at)
 	created += cn
 	failed += cf
 
-	// 5. installment_due_soon — cuotas que vencen en 3 días.
+	// 4. installment_due_soon — cuotas que vencen en 3 días.
 	in, ifail := s.genInstallmentsDueSoon(ctx, householdID, at)
 	created += in
 	failed += ifail
@@ -318,55 +311,6 @@ func (s *Service) generateForHousehold(ctx context.Context, householdID uuid.UUI
 }
 
 // ---------- generators ----------
-
-// genDailySummary: un insight por hogar para `at`. Título corto con total
-// de ayer; body con conteos + total facturado del mes.
-func (s *Service) genDailySummary(ctx context.Context, householdID uuid.UUID, at time.Time) (bool, error) {
-	yesterday := at.AddDate(0, 0, -1)
-	yStart := dayStart(yesterday)
-	yEnd := yStart
-	spent, err := s.repo.SumSpentAt(ctx, householdID, yStart, yEnd)
-	if err != nil {
-		return false, err
-	}
-	counts, err := s.repo.CountSpentAt(ctx, householdID, yStart, yEnd)
-	if err != nil {
-		return false, err
-	}
-	monthStart, monthEnd := monthRange(at)
-	due, err := s.repo.SumDue(ctx, householdID, monthStart, monthEnd)
-	if err != nil {
-		return false, err
-	}
-
-	var title, body string
-	if counts.Total == 0 {
-		title = "Ayer no hubo movimientos"
-		body = fmt.Sprintf("No registraste gastos ayer. Este mes te vienen a cobrar %s.", formatMoney(due))
-	} else {
-		title = fmt.Sprintf("Ayer gastaste %s", formatMoney(spent))
-		body = fmt.Sprintf("%d transaccion(es) en %d categoría(s). Este mes te vienen a cobrar %s en total.",
-			counts.Total, counts.DistinctCategories, formatMoney(due))
-	}
-
-	ins, created, err := s.repo.Create(ctx, CreateParams{
-		HouseholdID: householdID,
-		InsightDate: dayStart(at),
-		InsightType: domain.InsightTypeDailySummary,
-		Title:       title,
-		Body:        body,
-		Severity:    domain.InsightSeverityInfo,
-		Metadata: map[string]any{
-			"yesterday_spent": spent,
-			"yesterday_count": counts.Total,
-			"month_due":       due,
-		},
-	})
-	if created {
-		s.publish(ctx, ins)
-	}
-	return created, err
-}
 
 // genGoalAlerts: un insight por goal activo con >=80% consumido (limits) o
 // <50% del target ahorrado después del día 20 del mes (savings). Severidad
@@ -417,7 +361,9 @@ func (s *Service) genGoalAlerts(ctx context.Context, householdID uuid.UUID, at t
 	return created, failed
 }
 
-// genWeeklyReview: domingo, compara spent_at de esta semana vs anterior.
+// genWeeklyReview: domingo, compara spent_at de esta semana vs anterior y
+// agrega un resumen con cantidad de movimientos + total que falta pagar
+// este mes (lo que antes vivía en el daily_summary, ahora consolidado acá).
 func (s *Service) genWeeklyReview(ctx context.Context, householdID uuid.UUID, at time.Time) (bool, error) {
 	thisStart, thisEnd := weekRange(at)
 	prevEnd := thisStart.AddDate(0, 0, -1)
@@ -431,9 +377,18 @@ func (s *Service) genWeeklyReview(ctx context.Context, householdID uuid.UUID, at
 	if err != nil {
 		return false, err
 	}
+	counts, err := s.repo.CountSpentAt(ctx, householdID, thisStart, thisEnd)
+	if err != nil {
+		return false, err
+	}
+	monthStart, monthEnd := monthRange(at)
+	monthDue, err := s.repo.SumDue(ctx, householdID, monthStart, monthEnd)
+	if err != nil {
+		return false, err
+	}
 
 	title := fmt.Sprintf("Semana cerrada: %s", formatMoney(thisTotal))
-	body := weeklyBody(thisTotal, prevTotal)
+	body := weeklyBody(thisTotal, prevTotal, counts, monthDue)
 	severity := domain.InsightSeverityInfo
 	if prevTotal > 0 && thisTotal > prevTotal*1.2 {
 		severity = domain.InsightSeverityWarning
@@ -447,8 +402,11 @@ func (s *Service) genWeeklyReview(ctx context.Context, householdID uuid.UUID, at
 		Body:        body,
 		Severity:    severity,
 		Metadata: map[string]any{
-			"this_week_total": thisTotal,
-			"prev_week_total": prevTotal,
+			"this_week_total":      thisTotal,
+			"prev_week_total":      prevTotal,
+			"this_week_count":      counts.Total,
+			"this_week_categories": counts.DistinctCategories,
+			"month_due":            monthDue,
 		},
 	})
 	if created {
@@ -659,19 +617,37 @@ func alertText(p domain.BudgetGoalProgress, at time.Time) (string, string, strin
 	return "", "", "", false
 }
 
-func weeklyBody(thisWeek, prev float64) string {
-	if prev == 0 {
-		return fmt.Sprintf("Gasto total de la semana: %s. No hay semana previa comparable.", formatMoney(thisWeek))
+func weeklyBody(thisWeek, prev float64, counts SpentCounts, monthDue float64) string {
+	var summary string
+	if counts.Total == 0 {
+		summary = "Esta semana no registraste gastos."
+	} else {
+		summary = fmt.Sprintf("Gastaste %s en %d transaccion(es) de %d categoría(s).",
+			formatMoney(thisWeek), counts.Total, counts.DistinctCategories)
 	}
-	delta := thisWeek - prev
-	pct := (delta / prev) * 100
-	dir := "más"
-	if delta < 0 {
-		dir = "menos"
-		pct = -pct
+
+	var compare string
+	switch {
+	case prev == 0 && counts.Total > 0:
+		compare = "No hay semana previa comparable."
+	case prev > 0:
+		delta := thisWeek - prev
+		pct := (delta / prev) * 100
+		dir := "más"
+		if delta < 0 {
+			dir = "menos"
+			pct = -pct
+		}
+		compare = fmt.Sprintf("%.0f%% %s que la anterior (%s).", pct, dir, formatMoney(prev))
 	}
-	return fmt.Sprintf("Gastaste %s esta semana. %.0f%% %s que la anterior (%s).",
-		formatMoney(thisWeek), pct, dir, formatMoney(prev))
+
+	tail := fmt.Sprintf("Este mes te vienen a cobrar %s.", formatMoney(monthDue))
+
+	parts := summary
+	if compare != "" {
+		parts += " " + compare
+	}
+	return parts + " " + tail
 }
 
 func formatMoney(v float64) string {

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -94,32 +95,88 @@ type ListFilters struct {
 	From        *time.Time
 	To          *time.Time
 	InsightType *string
-	Limit       int32
-	Offset      int32
+	// Q: búsqueda full-text simple en title/body (ILIKE %q%). Vacío = sin filtro.
+	Q     string
+	Limit int32
+	Offset int32
 }
 
+// ListByHousehold: query directa via pgx para no obligar a regenerar sqlc
+// cuando agregamos filtros. Soporta los mismos filtros que la versión
+// sqlc + búsqueda Q en title/body.
 func (r *Repository) ListByHousehold(ctx context.Context, householdID uuid.UUID, f ListFilters) ([]domain.DailyInsight, error) {
 	if f.Limit <= 0 {
 		f.Limit = 50
 	}
-	rows, err := r.q.ListDailyInsightsByHousehold(ctx, sqlcgen.ListDailyInsightsByHouseholdParams{
-		HouseholdID: householdID,
-		Limit:       f.Limit,
-		Offset:      f.Offset,
-		UserID:      f.UserID,
-		OnlyUnread:  boolPtr(f.OnlyUnread),
-		FromDate:    datePtr(f.From),
-		ToDate:      datePtr(f.To),
-		InsightType: textPtr(f.InsightType),
-	})
+
+	args := []any{householdID}
+	where := []string{"household_id = $1"}
+	add := func(clause string, val any) {
+		args = append(args, val)
+		where = append(where, fmt.Sprintf(clause, len(args)))
+	}
+	if f.UserID != nil {
+		add("user_id = $%d", *f.UserID)
+	}
+	if f.OnlyUnread != nil {
+		add("is_read = $%d", !*f.OnlyUnread)
+	}
+	if f.From != nil {
+		add("insight_date >= $%d", pgtype.Date{Time: *f.From, Valid: true})
+	}
+	if f.To != nil {
+		add("insight_date <= $%d", pgtype.Date{Time: *f.To, Valid: true})
+	}
+	if f.InsightType != nil {
+		add("insight_type = $%d", *f.InsightType)
+	}
+	if q := strings.TrimSpace(f.Q); q != "" {
+		// Escape ILIKE wildcards del input — sin esto "%" busca todo.
+		esc := strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(q)
+		args = append(args, "%"+esc+"%")
+		where = append(where, fmt.Sprintf("(title ILIKE $%d OR body ILIKE $%d)", len(args), len(args)))
+	}
+
+	args = append(args, f.Limit, f.Offset)
+	sql := fmt.Sprintf(
+		"SELECT id, household_id, user_id, insight_date, insight_type, title, body, severity, is_read, metadata, created_at, ref_id FROM daily_insights WHERE %s ORDER BY insight_date DESC, created_at DESC LIMIT $%d OFFSET $%d",
+		strings.Join(where, " AND "),
+		len(args)-1, len(args),
+	)
+
+	rows, err := r.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("insights.List: %w", err)
 	}
-	out := make([]domain.DailyInsight, len(rows))
-	for i, row := range rows {
-		out[i] = toDomain(row)
+	defer rows.Close()
+
+	var out []domain.DailyInsight
+	for rows.Next() {
+		var (
+			ins        domain.DailyInsight
+			userID     *uuid.UUID
+			refID      *uuid.UUID
+			insDate    pgtype.Date
+			createdAt  pgtype.Timestamptz
+		)
+		if err := rows.Scan(
+			&ins.ID, &ins.HouseholdID, &userID, &insDate, &ins.InsightType,
+			&ins.Title, &ins.Body, &ins.Severity, &ins.IsRead, &ins.Metadata,
+			&createdAt, &refID,
+		); err != nil {
+			return nil, fmt.Errorf("insights.List scan: %w", err)
+		}
+		ins.UserID = userID
+		ins.RefID = refID
+		if insDate.Valid {
+			ins.InsightDate = insDate.Time
+		}
+		if createdAt.Valid {
+			ins.CreatedAt = createdAt.Time
+		}
+		out = append(out, ins)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 func (r *Repository) CountUnread(ctx context.Context, householdID uuid.UUID, userID *uuid.UUID) (int64, error) {

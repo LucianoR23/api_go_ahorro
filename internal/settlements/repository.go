@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -81,37 +82,64 @@ type ListFilter struct {
 	HouseholdID uuid.UUID
 	FromUser    *uuid.UUID
 	ToUser      *uuid.UUID
-	FromDate    *time.Time
-	ToDate      *time.Time
-	Limit       int32
-	Offset      int32
+	// WithUser: match si user_id aparece como from O como to. Útil para
+	// la vista "deudas con X" desde el frontend, donde no nos importa
+	// quién pagó a quién, sólo que X estuvo involucrado.
+	WithUser *uuid.UUID
+	FromDate *time.Time
+	ToDate   *time.Time
+	Limit    int32
+	Offset   int32
 }
 
+// List: query directa via pgx para soportar el filtro WithUser (OR)
+// sin regenerar sqlc.
 func (r *Repository) List(ctx context.Context, f ListFilter) ([]domain.SettlementPayment, error) {
-	var fromDate, toDate pgtype.Date
+	args := []any{f.HouseholdID}
+	where := []string{"household_id = $1"}
+	add := func(clause string, val any) {
+		args = append(args, val)
+		where = append(where, fmt.Sprintf(clause, len(args)))
+	}
+	if f.FromUser != nil {
+		add("from_user = $%d", *f.FromUser)
+	}
+	if f.ToUser != nil {
+		add("to_user = $%d", *f.ToUser)
+	}
+	if f.WithUser != nil {
+		args = append(args, *f.WithUser)
+		where = append(where, fmt.Sprintf("(from_user = $%d OR to_user = $%d)", len(args), len(args)))
+	}
 	if f.FromDate != nil {
-		fromDate = pgtype.Date{Time: *f.FromDate, Valid: true}
+		add("paid_at >= $%d", pgtype.Date{Time: *f.FromDate, Valid: true})
 	}
 	if f.ToDate != nil {
-		toDate = pgtype.Date{Time: *f.ToDate, Valid: true}
+		add("paid_at <= $%d", pgtype.Date{Time: *f.ToDate, Valid: true})
 	}
-	rows, err := r.q.ListSettlementsByHousehold(ctx, sqlcgen.ListSettlementsByHouseholdParams{
-		HouseholdID: f.HouseholdID,
-		Limit:       f.Limit,
-		Offset:      f.Offset,
-		FromUser:    f.FromUser,
-		ToUser:      f.ToUser,
-		FromDate:    fromDate,
-		ToDate:      toDate,
-	})
+
+	args = append(args, f.Limit, f.Offset)
+	sql := fmt.Sprintf(
+		"SELECT id, household_id, from_user, to_user, amount_base, base_currency, note, paid_at, created_at FROM settlement_payments WHERE %s ORDER BY paid_at DESC, created_at DESC LIMIT $%d OFFSET $%d",
+		strings.Join(where, " AND "), len(args)-1, len(args),
+	)
+	rows, err := r.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("settlements.List: %w", err)
 	}
-	out := make([]domain.SettlementPayment, len(rows))
-	for i, row := range rows {
-		out[i] = toDomain(row)
+	defer rows.Close()
+	var out []domain.SettlementPayment
+	for rows.Next() {
+		var sp sqlcgen.SettlementPayment
+		if err := rows.Scan(
+			&sp.ID, &sp.HouseholdID, &sp.FromUser, &sp.ToUser,
+			&sp.AmountBase, &sp.BaseCurrency, &sp.Note, &sp.PaidAt, &sp.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("settlements.List scan: %w", err)
+		}
+		out = append(out, toDomain(sp))
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {

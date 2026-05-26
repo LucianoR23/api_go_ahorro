@@ -251,6 +251,13 @@ func parseListFilters(r *http.Request) ListFilters {
 	if s := strings.TrimSpace(q.Get("type")); s != "" {
 		f.InsightType = &s
 	}
+	if s := strings.TrimSpace(q.Get("q")); s != "" {
+		// Cap a 100 chars para evitar abuso del ILIKE; el frontend no necesita más.
+		if len(s) > 100 {
+			s = s[:100]
+		}
+		f.Q = s
+	}
 	if s := strings.TrimSpace(q.Get("limit")); s != "" {
 		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 200 {
 			f.Limit = int32(n)

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -210,47 +211,74 @@ type ListFilter struct {
 	PaymentMethodID *uuid.UUID
 	FromDate        *time.Time
 	ToDate          *time.Time
-	Limit           int32
-	Offset          int32
+	// Q: búsqueda ILIKE %q% en description. Vacío = sin filtro.
+	Q      string
+	Limit  int32
+	Offset int32
 }
 
+// List: query directa via pgx para soportar filtros extra (Q) sin
+// regenerar sqlc. Devuelve total para paginar.
 func (r *Repository) List(ctx context.Context, householdID uuid.UUID, f ListFilter) ([]domain.Expense, int64, error) {
-	from := pgtype.Date{}
-	if f.FromDate != nil {
-		from = pgtype.Date{Time: *f.FromDate, Valid: true}
+	args := []any{householdID}
+	where := []string{"household_id = $1"}
+	add := func(clause string, val any) {
+		args = append(args, val)
+		where = append(where, fmt.Sprintf(clause, len(args)))
 	}
-	to := pgtype.Date{}
+	if f.CategoryID != nil {
+		add("category_id = $%d", *f.CategoryID)
+	}
+	if f.PaymentMethodID != nil {
+		add("payment_method_id = $%d", *f.PaymentMethodID)
+	}
+	if f.FromDate != nil {
+		add("spent_at >= $%d", pgtype.Date{Time: *f.FromDate, Valid: true})
+	}
 	if f.ToDate != nil {
-		to = pgtype.Date{Time: *f.ToDate, Valid: true}
+		add("spent_at <= $%d", pgtype.Date{Time: *f.ToDate, Valid: true})
+	}
+	if q := strings.TrimSpace(f.Q); q != "" {
+		esc := strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(q)
+		add("description ILIKE $%d", "%"+esc+"%")
 	}
 
-	rows, err := r.q.ListExpensesByHousehold(ctx, sqlcgen.ListExpensesByHouseholdParams{
-		HouseholdID:     householdID,
-		Limit:           f.Limit,
-		Offset:          f.Offset,
-		CategoryID:      f.CategoryID,
-		PaymentMethodID: f.PaymentMethodID,
-		FromDate:        from,
-		ToDate:          to,
-	})
+	whereSQL := strings.Join(where, " AND ")
+
+	// Count primero (mismo where, sin limit/offset).
+	var total int64
+	if err := r.pool.QueryRow(ctx,
+		"SELECT COUNT(*)::bigint FROM expenses WHERE "+whereSQL,
+		args...,
+	).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("expenses.Count: %w", err)
+	}
+
+	args = append(args, f.Limit, f.Offset)
+	sql := fmt.Sprintf(
+		"SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id FROM expenses WHERE %s ORDER BY spent_at DESC, created_at DESC LIMIT $%d OFFSET $%d",
+		whereSQL, len(args)-1, len(args),
+	)
+	rows, err := r.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("expenses.List: %w", err)
 	}
-	total, err := r.q.CountExpensesByHousehold(ctx, sqlcgen.CountExpensesByHouseholdParams{
-		HouseholdID:     householdID,
-		CategoryID:      f.CategoryID,
-		PaymentMethodID: f.PaymentMethodID,
-		FromDate:        from,
-		ToDate:          to,
-	})
-	if err != nil {
-		return nil, 0, fmt.Errorf("expenses.Count: %w", err)
+	defer rows.Close()
+
+	var out []domain.Expense
+	for rows.Next() {
+		var e sqlcgen.Expense
+		if err := rows.Scan(
+			&e.ID, &e.HouseholdID, &e.CreatedBy, &e.CategoryID, &e.PaymentMethodID,
+			&e.Amount, &e.Currency, &e.AmountBase, &e.BaseCurrency, &e.RateUsed, &e.RateAt,
+			&e.Description, &e.SpentAt, &e.Installments, &e.IsShared,
+			&e.CreatedAt, &e.UpdatedAt, &e.RecurringExpenseID,
+		); err != nil {
+			return nil, 0, fmt.Errorf("expenses.List scan: %w", err)
+		}
+		out = append(out, expenseToDomain(e))
 	}
-	out := make([]domain.Expense, len(rows))
-	for i, row := range rows {
-		out[i] = expenseToDomain(row)
-	}
-	return out, total, nil
+	return out, total, rows.Err()
 }
 
 // UpdateMeta actualiza solo description/spent_at/category_id.
