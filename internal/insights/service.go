@@ -612,7 +612,7 @@ func (s *Service) genInstallmentsDueSoon(ctx context.Context, householdID uuid.U
 					ctx,
 					[]uuid.UUID{owner},
 					title, body,
-					"/expenses/"+row.ExpenseID.String(),
+					"/movimientos/"+row.ExpenseID.String(),
 					"installment-due-soon:"+row.ExpenseID.String(),
 				)
 			}

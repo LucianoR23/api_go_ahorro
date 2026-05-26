@@ -357,7 +357,7 @@ func (s *InvitesService) Accept(ctx context.Context, userID uuid.UUID, token str
 				ctx,
 				[]uuid.UUID{userID},
 				title, body,
-				"/households/"+inv.HouseholdID.String(),
+				"/ajustes",
 				"household-invite:"+inv.HouseholdID.String(),
 			)
 		}
@@ -375,7 +375,7 @@ func (s *InvitesService) Accept(ctx context.Context, userID uuid.UUID, token str
 					ctx,
 					[]uuid.UUID{inv.InvitedBy},
 					inviterTitle, inviterBody,
-					"/households/"+inv.HouseholdID.String(),
+					"/ajustes",
 					"household-invite-accepted:"+inv.ID.String(),
 				)
 			}
@@ -433,7 +433,7 @@ func (s *InvitesService) AcceptOnRegister(ctx context.Context, userID uuid.UUID,
 				ctx,
 				[]uuid.UUID{inv.InvitedBy},
 				title, body,
-				"/households/"+inv.HouseholdID.String(),
+				"/ajustes",
 				"household-invite-accepted:"+inv.ID.String(),
 			)
 		}

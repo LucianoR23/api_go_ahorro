@@ -181,7 +181,7 @@ func (s *Service) notifySettlement(ctx context.Context, sp domain.SettlementPaym
 			ctx,
 			[]uuid.UUID{sp.ToUser},
 			title, body,
-			"/balances",
+			"/deudas",
 			"settlement:"+sp.ID.String(),
 		)
 	}

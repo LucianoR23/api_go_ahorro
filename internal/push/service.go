@@ -34,7 +34,7 @@ func (c Config) Enabled() bool {
 // Payload es lo que va en el body de la notificación. El Service Worker del
 // frontend lo parsea y lo pasa a showNotification.
 //
-// URL: deep-link para el notificationclick handler (ej: "/expenses/{id}").
+// URL: deep-link para el notificationclick handler (ej: "/movimientos/{id}").
 // Tag: agrupa notifs (un mismo tag reemplaza la anterior).
 type Payload struct {
 	Title string `json:"title"`

@@ -286,7 +286,7 @@ func (s *Service) notifySharedExpense(ctx context.Context, d domain.ExpenseDetai
 				[]uuid.UUID{uid},
 				title,
 				body,
-				"/expenses/"+d.Expense.ID.String(),
+				"/movimientos/"+d.Expense.ID.String(),
 				"expense:"+d.Expense.ID.String(),
 			)
 		}
@@ -640,12 +640,12 @@ func (s *Service) notifyExpenseMutation(ctx context.Context, d domain.ExpenseDet
 	case expenseMutationUpdate:
 		title = "Gasto compartido editado"
 		body = fmt.Sprintf("%s editó \"%s\"", actorName, d.Expense.Description)
-		url = "/expenses/" + d.Expense.ID.String()
+		url = "/movimientos/" + d.Expense.ID.String()
 		tag = "expense-updated:" + d.Expense.ID.String()
 	case expenseMutationDelete:
 		title = "Gasto compartido eliminado"
 		body = fmt.Sprintf("%s eliminó \"%s\"", actorName, d.Expense.Description)
-		url = "/expenses"
+		url = "/movimientos"
 		tag = "expense-deleted:" + d.Expense.ID.String()
 	}
 	for uid := range recipients {
