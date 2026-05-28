@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/auth"
+	"github.com/LucianoR23/api_go_ahorra/internal/auth/google"
 	"github.com/LucianoR23/api_go_ahorra/internal/balances"
 	"github.com/LucianoR23/api_go_ahorra/internal/categories"
 	"github.com/LucianoR23/api_go_ahorra/internal/config"
@@ -109,6 +110,13 @@ func main() {
 	verificationSvc := auth.NewEmailVerificationService(verificationRepo, userRepo, verificationSender, logger, cfg.AppBaseURL)
 	authHandler.SetEmailVerificationService(verificationSvc)
 	authSvc.SetEmailVerifier(verificationSvc)
+
+	// Google OAuth: verifier valida ID tokens contra el JWKS de Google;
+	// identityRepo persiste (provider, subject) ↔ user_id. Si
+	// GOOGLE_OAUTH_CLIENT_ID no está configurado el endpoint /auth/google
+	// existe pero falla con 500 al ser llamado (clientID vacío en Verify).
+	authSvc.SetGoogleVerifier(google.NewVerifier(cfg.GoogleOAuthClientID))
+	authSvc.SetIdentityRepository(users.NewIdentityRepository(pool))
 
 	// categories: repo se construye antes que households porque households.Service
 	// lo recibe como categoriesSeeder (bootstrap de las 7 categorías default

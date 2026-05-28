@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/LucianoR23/api_go_ahorra/internal/auth/google"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/LucianoR23/api_go_ahorra/internal/users"
 )
@@ -20,10 +21,25 @@ import (
 // consumidor": permite mockear en tests sin acoplar users al mock.
 type userRepository interface {
 	Create(ctx context.Context, email, passwordHash, firstName, lastName string) (domain.User, error)
+	CreateWithoutPassword(ctx context.Context, email, firstName, lastName string) (domain.User, error)
 	GetByID(ctx context.Context, id uuid.UUID) (domain.User, error)
 	GetCredentialsByEmail(ctx context.Context, email string) (users.Credentials, error)
 	UpdateProfile(ctx context.Context, id uuid.UUID, firstName, lastName, email string) (domain.User, error)
 	MarkEmailVerified(ctx context.Context, id uuid.UUID) error
+}
+
+// googleVerifier valida ID tokens de Google. Interface en el consumidor
+// para mockear en tests sin pegarle a Google.
+type googleVerifier interface {
+	Verify(ctx context.Context, idToken string) (*google.Claims, error)
+}
+
+// identityRepository: persistencia de identidades OAuth. Get devuelve
+// ErrNotFound si no hay vinculación previa — el service lo usa como señal
+// para arrancar el flujo de auto-vincular por email o crear user nuevo.
+type identityRepository interface {
+	Get(ctx context.Context, provider, subject string) (uuid.UUID, error)
+	Create(ctx context.Context, provider, subject string, userID uuid.UUID, email string) error
 }
 
 // registerBootstrap es lo mínimo que el service necesita para poblar los
@@ -55,12 +71,14 @@ type emailVerifier interface {
 
 // Service orquesta register/login. No toca HTTP.
 type Service struct {
-	repo      userRepository
-	tokens    *TokenIssuer
-	bootstrap registerBootstrap
-	invites   inviteAccepter
-	verifier  emailVerifier
-	logger    *slog.Logger
+	repo           userRepository
+	tokens         *TokenIssuer
+	bootstrap      registerBootstrap
+	invites        inviteAccepter
+	verifier       emailVerifier
+	googleVerifier googleVerifier
+	identities     identityRepository
+	logger         *slog.Logger
 }
 
 func NewService(repo userRepository, tokens *TokenIssuer, bootstrap registerBootstrap, logger *slog.Logger) *Service {
@@ -77,6 +95,12 @@ func (s *Service) SetInviteAccepter(a inviteAccepter) {
 func (s *Service) SetEmailVerifier(v emailVerifier) {
 	s.verifier = v
 }
+
+// SetGoogleVerifier + SetIdentityRepository cablean el flow OAuth Google.
+// Si alguno de los dos está nil, LoginWithGoogle falla con un error de
+// configuración (500) — son obligatorios para que el endpoint funcione.
+func (s *Service) SetGoogleVerifier(v googleVerifier)        { s.googleVerifier = v }
+func (s *Service) SetIdentityRepository(r identityRepository) { s.identities = r }
 
 // TokenPair agrupa los dos tokens + sus expiraciones para que el handler
 // pueda armar la respuesta JSON y la cookie del refresh.
@@ -194,6 +218,14 @@ func (s *Service) Login(ctx context.Context, email, password string) (AuthResult
 		return AuthResult{}, fmt.Errorf("auth.Login: %w", err)
 	}
 
+	// Cuenta registrada solo con Google → no tiene password_hash. Devolvemos
+	// el mismo error genérico para no filtrar el método de autenticación
+	// (anti-enumeration). El user que se confunda va a probar "Continuar con
+	// Google" y va a poder entrar.
+	if !creds.HasPassword {
+		return AuthResult{}, domain.NewAuthError("email o contraseña incorrectos")
+	}
+
 	if err := VerifyPassword(creds.PasswordHash, password); err != nil {
 		return AuthResult{}, domain.NewAuthError("email o contraseña incorrectos")
 	}
@@ -305,6 +337,108 @@ func (s *Service) issueTokens(userID uuid.UUID) (TokenPair, error) {
 		RefreshToken:     refresh,
 		RefreshExpiresAt: refreshExp,
 	}, nil
+}
+
+// LoginWithGoogle valida el ID token y resuelve uno de tres caminos:
+//
+//  1. Identidad ya vinculada (provider=google, subject=X) → login directo.
+//  2. Sin identidad pero el email ya existe en users → auto-vinculamos
+//     y logueamos. Google nos garantiza email_verified=true, así que
+//     marcamos email_verified_at si todavía estaba NULL.
+//  3. Email nuevo → creamos user sin password + bootstrap (Efectivo).
+//
+// isNew=true solo en el caso 3. El frontend lo usa como hint para redirigir
+// directo a /onboarding sin esperar al AuthGate.
+func (s *Service) LoginWithGoogle(ctx context.Context, idToken string) (AuthResult, bool, error) {
+	if s.googleVerifier == nil || s.identities == nil {
+		return AuthResult{}, false, fmt.Errorf("auth.LoginWithGoogle: googleVerifier o identityRepository no configurado")
+	}
+
+	claims, err := s.googleVerifier.Verify(ctx, idToken)
+	if err != nil {
+		return AuthResult{}, false, err
+	}
+	email := normalizeEmail(claims.Email)
+
+	// 1) Identidad ya vinculada → login directo.
+	userID, err := s.identities.Get(ctx, "google", claims.Subject)
+	if err == nil {
+		user, err := s.repo.GetByID(ctx, userID)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				// User soft-deleted pero la identidad sigue (no la borramos
+				// en SoftDelete a propósito — ver migration). Tratamos como
+				// sesión inválida.
+				return AuthResult{}, false, domain.NewAuthError("cuenta no disponible")
+			}
+			return AuthResult{}, false, err
+		}
+		tokens, err := s.issueTokens(user.ID)
+		if err != nil {
+			return AuthResult{}, false, err
+		}
+		return AuthResult{User: user, Tokens: tokens}, false, nil
+	}
+	if !errors.Is(err, domain.ErrNotFound) {
+		return AuthResult{}, false, err
+	}
+
+	// 2) Email ya existe sin identidad → auto-vincular.
+	existing, err := s.repo.GetCredentialsByEmail(ctx, email)
+	if err == nil {
+		if err := s.identities.Create(ctx, "google", claims.Subject, existing.User.ID, claims.Email); err != nil {
+			return AuthResult{}, false, err
+		}
+		// Si el email todavía no estaba verificado, ahora sí lo está
+		// (Google nos lo confirma). Si el UPDATE falla, no abortamos: la
+		// vinculación ya quedó hecha y el user puede entrar.
+		if existing.User.EmailVerifiedAt == nil {
+			if err := s.repo.MarkEmailVerified(ctx, existing.User.ID); err != nil {
+				s.logger.Warn("no se pudo marcar email verificado tras vincular Google",
+					"user_id", existing.User.ID, "error", err)
+			} else {
+				now := time.Now()
+				existing.User.EmailVerifiedAt = &now
+			}
+		}
+		tokens, err := s.issueTokens(existing.User.ID)
+		if err != nil {
+			return AuthResult{}, false, err
+		}
+		return AuthResult{User: existing.User, Tokens: tokens}, false, nil
+	}
+	if !errors.Is(err, domain.ErrNotFound) {
+		return AuthResult{}, false, err
+	}
+
+	// 3) Email nuevo → crear user + bootstrap.
+	given := strings.TrimSpace(claims.GivenName)
+	family := strings.TrimSpace(claims.FamilyName)
+	if given == "" {
+		// Google no siempre manda given_name (cuentas viejas o configs
+		// raras). Sin fallback el INSERT explotaría por validación de
+		// frontend; con esto el user puede editar después en su perfil.
+		given = "Usuario"
+	}
+	user, err := s.repo.CreateWithoutPassword(ctx, email, given, family)
+	if err != nil {
+		return AuthResult{}, false, err
+	}
+	if err := s.identities.Create(ctx, "google", claims.Subject, user.ID, claims.Email); err != nil {
+		return AuthResult{}, false, err
+	}
+	if s.bootstrap != nil {
+		if _, err := s.bootstrap.CreateEfectivoFor(ctx, user.ID); err != nil {
+			// Mismo criterio que Register: no abortamos, el user ya existe.
+			s.logger.Warn("bootstrap falló para user de Google", "user_id", user.ID, "error", err)
+		}
+	}
+
+	tokens, err := s.issueTokens(user.ID)
+	if err != nil {
+		return AuthResult{}, false, err
+	}
+	return AuthResult{User: user, Tokens: tokens}, true, nil
 }
 
 // normalizeEmail: trim + lowercase. CITEXT en DB igualmente matchea case-insensitive,

@@ -283,7 +283,7 @@ type SettlementPayment struct {
 type User struct {
 	ID              uuid.UUID          `json:"id"`
 	Email           string             `json:"email"`
-	PasswordHash    string             `json:"password_hash"`
+	PasswordHash    pgtype.Text        `json:"password_hash"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	FirstName       string             `json:"first_name"`
@@ -291,4 +291,12 @@ type User struct {
 	DeletedAt       pgtype.Timestamptz `json:"deleted_at"`
 	EmailVerifiedAt pgtype.Timestamptz `json:"email_verified_at"`
 	IsSuperadmin    bool               `json:"is_superadmin"`
+}
+
+type UserIdentity struct {
+	Provider string             `json:"provider"`
+	Subject  string             `json:"subject"`
+	UserID   uuid.UUID          `json:"user_id"`
+	Email    string             `json:"email"`
+	LinkedAt pgtype.Timestamptz `json:"linked_at"`
 }

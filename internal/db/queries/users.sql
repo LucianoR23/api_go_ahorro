@@ -14,6 +14,14 @@ VALUES ($1, $2, $3, $4)
 RETURNING *;
 
 
+-- name: CreateUserWithoutPassword :one
+-- Registro vía OAuth (Google): sin password_hash, con email ya verificado
+-- (el provider externo nos garantiza la propiedad del email).
+INSERT INTO users (email, password_hash, first_name, last_name, email_verified_at)
+VALUES ($1, NULL, $2, $3, now())
+RETURNING *;
+
+
 -- name: GetUserByID :one
 -- Filtra soft-deleted. Un token viejo de una cuenta borrada → pgx.ErrNoRows
 -- → el middleware lo trata como sesión inválida.

@@ -32,6 +32,11 @@ type Config struct {
 	// En dev cae a http://localhost:3000.
 	AppBaseURL string
 
+	// Google OAuth: opcional. Si no está, /auth/google falla con 500 al
+	// llamarse (el verifier rechaza por clientID vacío). El resto del API
+	// arranca normal — útil para dev sin haber configurado Google Cloud.
+	GoogleOAuthClientID string
+
 	// VAPID: opcional. Si no hay keys, los endpoints de push siguen
 	// funcionando pero Service.NotifyUsers hace no-op. Útil para dev.
 	// Generar una sola vez con `go run ./cmd/vapidgen` y guardar como
@@ -64,6 +69,7 @@ func Load() (*Config, error) {
 		PasswordResetFromEmail: getOrDefault("PASSWORD_RESET_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
 		VerificationFromEmail:  getOrDefault("VERIFICATION_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
 		AppBaseURL:       getOrDefault("APP_BASE_URL", "http://localhost:3000"),
+		GoogleOAuthClientID: os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
 		VAPIDPublicKey:   os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey:  os.Getenv("VAPID_PRIVATE_KEY"),
 		VAPIDSubject:     getOrDefault("VAPID_SUBJECT", "mailto:admin@ahorra.app"),

@@ -101,6 +101,13 @@ type Querier interface {
 	//   :execrows  ejecuta y devuelve filas afectadas
 	// Crea un usuario nuevo y devuelve la fila completa (para obtener id + timestamps).
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	// Inserta la vinculación. Conflicto en PK (provider, subject) → ErrConflict
+	// (no debería darse en condiciones normales: si Get devolvió NotFound y
+	// alguien crea la misma identidad en paralelo, la segunda inserción falla).
+	CreateUserIdentity(ctx context.Context, arg CreateUserIdentityParams) error
+	// Registro vía OAuth (Google): sin password_hash, con email ya verificado
+	// (el provider externo nos garantiza la propiedad del email).
+	CreateUserWithoutPassword(ctx context.Context, arg CreateUserWithoutPasswordParams) (User, error)
 	DeleteBudgetGoal(ctx context.Context, id uuid.UUID) error
 	DeleteCategory(ctx context.Context, id uuid.UUID) error
 	DeleteCreditCardPeriod(ctx context.Context, arg DeleteCreditCardPeriodParams) error
@@ -160,6 +167,11 @@ type Querier interface {
 	// Filtra soft-deleted. Un token viejo de una cuenta borrada → pgx.ErrNoRows
 	// → el middleware lo trata como sesión inválida.
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
+	// Queries sobre la tabla user_identities (OAuth: hoy Google, mañana otros).
+	// (provider, subject) es PK; el matching de login pasa por acá.
+	// Lookup por (provider, subject). pgx.ErrNoRows si no existe → el service
+	// lo mapea a domain.ErrNotFound y arranca el flujo de auto-vinculación.
+	GetUserIdentity(ctx context.Context, arg GetUserIdentityParams) (UserIdentity, error)
 	// Al emitir un nuevo token, invalidamos los anteriores del user.
 	InvalidateActiveEmailVerificationsForUser(ctx context.Context, userID uuid.UUID) error
 	// Al emitir un nuevo token, invalidamos los anteriores del user (los
@@ -247,6 +259,8 @@ type Querier interface {
 	ListSharesByExpense(ctx context.Context, expenseID uuid.UUID) ([]ExpenseInstallmentShare, error)
 	ListSharesByInstallment(ctx context.Context, installmentID uuid.UUID) ([]ExpenseInstallmentShare, error)
 	ListSplitRulesByHousehold(ctx context.Context, householdID uuid.UUID) ([]HouseholdSplitRule, error)
+	// Para mostrar al user qué providers tiene vinculados en su perfil.
+	ListUserIdentitiesByUser(ctx context.Context, userID uuid.UUID) ([]ListUserIdentitiesByUserRow, error)
 	MarkAllInsightsReadByHousehold(ctx context.Context, arg MarkAllInsightsReadByHouseholdParams) error
 	MarkDailyInsightRead(ctx context.Context, id uuid.UUID) error
 	// Single-use condicional: solo matchea si aún no fue usado y no expiró.

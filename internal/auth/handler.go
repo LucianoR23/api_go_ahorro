@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -86,6 +87,15 @@ func (h *Handler) Mount(r chi.Router) {
 				r.Use(h.rateLimit.Login())
 			}
 			r.Post("/login", h.Login)
+		})
+
+		// Login con Google (ID token flow). Mismo riesgo de abuso (probing
+		// de cuentas) que /login → reusamos el rate-limit de login.
+		r.Group(func(r chi.Router) {
+			if h.rateLimit != nil {
+				r.Use(h.rateLimit.Login())
+			}
+			r.Post("/google", h.LoginWithGoogle)
 		})
 
 		// Refresh: baja superficie pero aplicamos límite amplio.
@@ -221,6 +231,47 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		User:            toUserDTO(result.User),
 		AccessToken:     result.Tokens.AccessToken,
 		AccessExpiresAt: result.Tokens.AccessExpiresAt,
+	})
+}
+
+// ===================== Login con Google =====================
+
+type googleLoginRequest struct {
+	IdToken string `json:"idToken"`
+}
+
+// googleAuthResponse: igual que authResponse pero con isNewUser para que
+// el front pueda redirigir directo a /onboarding sin esperar al AuthGate.
+type googleAuthResponse struct {
+	User            userDTO   `json:"user"`
+	AccessToken     string    `json:"accessToken"`
+	AccessExpiresAt time.Time `json:"accessExpiresAt"`
+	IsNewUser       bool      `json:"isNewUser"`
+}
+
+func (h *Handler) LoginWithGoogle(w http.ResponseWriter, r *http.Request) {
+	var req googleLoginRequest
+	if err := decodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	if strings.TrimSpace(req.IdToken) == "" {
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("idToken", "requerido"))
+		return
+	}
+
+	result, isNew, err := h.svc.LoginWithGoogle(r.Context(), req.IdToken)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+
+	h.setRefreshCookie(w, result.Tokens.RefreshToken, result.Tokens.RefreshExpiresAt)
+	httpx.WriteJSON(w, http.StatusOK, googleAuthResponse{
+		User:            toUserDTO(result.User),
+		AccessToken:     result.Tokens.AccessToken,
+		AccessExpiresAt: result.Tokens.AccessExpiresAt,
+		IsNewUser:       isNew,
 	})
 }
 

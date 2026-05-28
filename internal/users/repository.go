@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/db/sqlc"
@@ -33,9 +34,15 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 // Credentials es lo único que sale del repo con el password hash adentro.
 // Se usa solo en el service de auth para validar login; cualquier otra
 // capa trabaja con domain.User (sin hash).
+//
+// HasPassword distingue users con login local de los OAuth-only (registrados
+// vía Google sin password_hash). El service de Login rechaza HasPassword=false
+// con el mismo error genérico que email inexistente — no filtra qué método
+// usa la cuenta (anti-enumeration).
 type Credentials struct {
 	User         domain.User
 	PasswordHash string
+	HasPassword  bool
 }
 
 // Create inserta un usuario y devuelve la fila mapeada a dominio.
@@ -43,7 +50,7 @@ type Credentials struct {
 func (r *Repository) Create(ctx context.Context, email, passwordHash, firstName, lastName string) (domain.User, error) {
 	row, err := r.q.CreateUser(ctx, sqlcgen.CreateUserParams{
 		Email:        email,
-		PasswordHash: passwordHash,
+		PasswordHash: pgtype.Text{String: passwordHash, Valid: true},
 		FirstName:    firstName,
 		LastName:     lastName,
 	})
@@ -55,6 +62,25 @@ func (r *Repository) Create(ctx context.Context, email, passwordHash, firstName,
 			return domain.User{}, fmt.Errorf("email ya registrado: %w", domain.ErrConflict)
 		}
 		return domain.User{}, fmt.Errorf("users.Create: %w", err)
+	}
+	return toDomain(row), nil
+}
+
+// CreateWithoutPassword inserta un user para registro OAuth (Google).
+// password_hash queda NULL y email_verified_at = now() (el provider externo
+// nos garantiza la propiedad del email). Misma semántica de conflicto que
+// Create: email duplicado → ErrConflict.
+func (r *Repository) CreateWithoutPassword(ctx context.Context, email, firstName, lastName string) (domain.User, error) {
+	row, err := r.q.CreateUserWithoutPassword(ctx, sqlcgen.CreateUserWithoutPasswordParams{
+		Email:     email,
+		FirstName: firstName,
+		LastName:  lastName,
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			return domain.User{}, fmt.Errorf("email ya registrado: %w", domain.ErrConflict)
+		}
+		return domain.User{}, fmt.Errorf("users.CreateWithoutPassword: %w", err)
 	}
 	return toDomain(row), nil
 }
@@ -111,7 +137,7 @@ func (r *Repository) UpdateProfile(ctx context.Context, id uuid.UUID, firstName,
 func (r *Repository) UpdatePasswordHash(ctx context.Context, id uuid.UUID, newHash string) error {
 	if err := r.q.UpdateUserPassword(ctx, sqlcgen.UpdateUserPasswordParams{
 		ID:           id,
-		PasswordHash: newHash,
+		PasswordHash: pgtype.Text{String: newHash, Valid: true},
 	}); err != nil {
 		return fmt.Errorf("users.UpdatePasswordHash: %w", err)
 	}
@@ -179,7 +205,8 @@ func (r *Repository) GetCredentialsByEmail(ctx context.Context, email string) (C
 	}
 	return Credentials{
 		User:         toDomain(row),
-		PasswordHash: row.PasswordHash,
+		PasswordHash: row.PasswordHash.String,
+		HasPassword:  row.PasswordHash.Valid,
 	}, nil
 }
 
@@ -195,7 +222,8 @@ func (r *Repository) GetCredentialsByID(ctx context.Context, id uuid.UUID) (Cred
 	}
 	return Credentials{
 		User:         toDomain(row),
-		PasswordHash: row.PasswordHash,
+		PasswordHash: row.PasswordHash.String,
+		HasPassword:  row.PasswordHash.Valid,
 	}, nil
 }
 

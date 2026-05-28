@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countHouseholdsOwnedByUser = `-- name: CountHouseholdsOwnedByUser :one
@@ -35,10 +36,10 @@ RETURNING id, email, password_hash, created_at, updated_at, first_name, last_nam
 `
 
 type CreateUserParams struct {
-	Email        string `json:"email"`
-	PasswordHash string `json:"password_hash"`
-	FirstName    string `json:"first_name"`
-	LastName     string `json:"last_name"`
+	Email        string      `json:"email"`
+	PasswordHash pgtype.Text `json:"password_hash"`
+	FirstName    string      `json:"first_name"`
+	LastName     string      `json:"last_name"`
 }
 
 // Queries sobre la tabla users.
@@ -58,6 +59,38 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		arg.FirstName,
 		arg.LastName,
 	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.FirstName,
+		&i.LastName,
+		&i.DeletedAt,
+		&i.EmailVerifiedAt,
+		&i.IsSuperadmin,
+	)
+	return i, err
+}
+
+const createUserWithoutPassword = `-- name: CreateUserWithoutPassword :one
+INSERT INTO users (email, password_hash, first_name, last_name, email_verified_at)
+VALUES ($1, NULL, $2, $3, now())
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin
+`
+
+type CreateUserWithoutPasswordParams struct {
+	Email     string `json:"email"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+}
+
+// Registro vía OAuth (Google): sin password_hash, con email ya verificado
+// (el provider externo nos garantiza la propiedad del email).
+func (q *Queries) CreateUserWithoutPassword(ctx context.Context, arg CreateUserWithoutPasswordParams) (User, error) {
+	row := q.db.QueryRow(ctx, createUserWithoutPassword, arg.Email, arg.FirstName, arg.LastName)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -195,8 +228,8 @@ WHERE id = $1
 `
 
 type UpdateUserPasswordParams struct {
-	ID           uuid.UUID `json:"id"`
-	PasswordHash string    `json:"password_hash"`
+	ID           uuid.UUID   `json:"id"`
+	PasswordHash pgtype.Text `json:"password_hash"`
 }
 
 func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
