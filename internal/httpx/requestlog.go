@@ -44,6 +44,14 @@ func (sw *statusWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 
+// Unwrap expone el ResponseWriter subyacente para que http.ResponseController
+// pueda alcanzar la conexión a través de este wrapper (SetReadDeadline /
+// SetWriteDeadline en uploads largos, Flush en SSE). Sin esto, envolver el
+// writer dejaría a ResponseController devolviendo ErrNotSupported.
+func (sw *statusWriter) Unwrap() http.ResponseWriter {
+	return sw.ResponseWriter
+}
+
 // DevRequestLogger: middleware con salida colorida, pensado para dev.
 // Formato por línea:
 //

@@ -40,6 +40,7 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/reports"
 	"github.com/LucianoR23/api_go_ahorra/internal/settlements"
 	"github.com/LucianoR23/api_go_ahorra/internal/splitrules"
+	"github.com/LucianoR23/api_go_ahorra/internal/support"
 	"github.com/LucianoR23/api_go_ahorra/internal/users"
 )
 
@@ -323,12 +324,23 @@ func main() {
 	stopReportsWorker := reportsWorker.Start(context.Background())
 	defer stopReportsWorker()
 
+	// support: proxy al servicio centralizado Lemy Support. Stateless, sin
+	// repo ni migración — solo usa userRepo para resolver el email del
+	// reporter (el JWT solo trae el userID). Si SOPORTE_API_KEY no está, el
+	// módulo queda deshabilitado (endpoints /support/* responden 503).
+	supportSvc := support.NewService(support.Config{
+		BaseURL: cfg.SupportAPIURL,
+		APIKey:  cfg.SupportAPIKey,
+	}, userRepo, logger)
+	supportHandler := support.NewHandler(supportSvc, authMW, logger)
+
 	// ---------- router ----------
 	r := chi.NewRouter()
 
 	// Middlewares globales. El orden importa: primero request-id (todos
 	// los logs siguientes lo heredan), después recovery (atrapa panics),
-	// después logger. El timeout va al final para aplicar a los handlers.
+	// después logger. El timeout de handlers (30s) NO va acá: se aplica por
+	// grupo más abajo para poder excluir el upload de soporte (ver router).
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
@@ -363,73 +375,87 @@ func main() {
 		r.Use(httpx.DevRequestLogger)
 	}
 
-	r.Use(middleware.Timeout(30 * time.Second))
-
-	// Health endpoints fuera de /auth — no requieren autenticación.
+	// Health endpoints fuera de /auth — no requieren autenticación. Quedan
+	// fuera del grupo con timeout: son instantáneos (probes).
 	r.Get("/health/live", httpx.LiveHandler)
 	r.Get("/health/ready", httpx.ReadyHandler(pool))
 
-	// Auth endpoints.
-	authHandler.Mount(r)
+	// El timeout de procesamiento de handlers (30s) se aplica como grupo, no
+	// global, para poder EXCLUIR el upload de soporte (POST /support/tickets):
+	// los videos (≤20MB) tardan más que 30s en conexiones lentas y necesitan
+	// deadlines extendidos. El resto de las rutas conserva el corte de 30s.
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.Timeout(30 * time.Second))
 
-	// Households (todas las rutas requieren auth — el mount lo aplica).
-	householdsHandler.Mount(r)
+		// Auth endpoints.
+		authHandler.Mount(r)
 
-	// Admin households (/admin/households/*): requiere auth + is_superadmin.
-	// Endpoints: listar soft-deleted, restaurar, purgar (DELETE físico con CASCADE).
-	householdsAdminHandler.Mount(r)
+		// Households (todas las rutas requieren auth — el mount lo aplica).
+		householdsHandler.Mount(r)
 
-	// Household invites: /invites/{token} es pública (preview pre-login).
-	// Create/List/Revoke/Accept aplican auth dentro del mount.
-	invitesHandler.Mount(r)
+		// Admin households (/admin/households/*): requiere auth + is_superadmin.
+		// Endpoints: listar soft-deleted, restaurar, purgar (DELETE físico con CASCADE).
+		householdsAdminHandler.Mount(r)
 
-	// Payment methods / banks / credit cards (auth requerido).
-	paymethodsHandler.Mount(r)
+		// Household invites: /invites/{token} es pública (preview pre-login).
+		// Create/List/Revoke/Accept aplican auth dentro del mount.
+		invitesHandler.Mount(r)
 
-	// Credit card periods (auth requerido, ownership validado en service).
-	creditPeriodsHandler.Mount(r)
+		// Payment methods / banks / credit cards (auth requerido).
+		paymethodsHandler.Mount(r)
 
-	// Expenses (auth + household member requerido).
-	expensesHandler.Mount(r)
+		// Credit card periods (auth requerido, ownership validado en service).
+		creditPeriodsHandler.Mount(r)
 
-	// Categories (auth + household member requerido).
-	categoriesHandler.Mount(r)
+		// Expenses (auth + household member requerido).
+		expensesHandler.Mount(r)
 
-	// Exchange rates (auth requerido).
-	fxHandler.Mount(r)
+		// Categories (auth + household member requerido).
+		categoriesHandler.Mount(r)
 
-	// Balances (auth + household member requerido).
-	balancesHandler.Mount(r)
+		// Exchange rates (auth requerido).
+		fxHandler.Mount(r)
 
-	// Settlements (auth + household member requerido).
-	settlementsHandler.Mount(r)
+		// Balances (auth + household member requerido).
+		balancesHandler.Mount(r)
 
-	// Split rules (auth + household member; Update valida owner en service).
-	splitRulesHandler.Mount(r)
+		// Settlements (auth + household member requerido).
+		settlementsHandler.Mount(r)
 
-	// Incomes + recurring-incomes + /totals/income (auth + household member).
-	incomesHandler.Mount(r)
+		// Split rules (auth + household member; Update valida owner en service).
+		splitRulesHandler.Mount(r)
 
-	// Recurring expenses (auth + household member).
-	recurringExpensesHandler.Mount(r)
+		// Incomes + recurring-incomes + /totals/income (auth + household member).
+		incomesHandler.Mount(r)
 
-	// Goals (auth + household member).
-	goalsHandler.Mount(r)
+		// Recurring expenses (auth + household member).
+		recurringExpensesHandler.Mount(r)
 
-	// Insights (auth + household member).
-	insightsHandler.Mount(r)
+		// Goals (auth + household member).
+		goalsHandler.Mount(r)
 
-	// SSE stream para realtime de insights. Auth via ?access_token= (no
-	// header — EventSource del browser no soporta headers custom). Filtra
-	// por household + user dentro del Hub.
-	insightsSSE.Mount(r)
+		// Insights (auth + household member).
+		insightsHandler.Mount(r)
 
-	// Reports (auth + household member).
-	reportsHandler.Mount(r)
+		// SSE stream para realtime de insights. Auth via ?access_token= (no
+		// header — EventSource del browser no soporta headers custom). Filtra
+		// por household + user dentro del Hub.
+		insightsSSE.Mount(r)
 
-	// Push subscriptions + VAPID public key (public key sin auth;
-	// subscribe/unsubscribe requieren auth).
-	pushHandler.Mount(r)
+		// Reports (auth + household member).
+		reportsHandler.Mount(r)
+
+		// Push subscriptions + VAPID public key (public key sin auth;
+		// subscribe/unsubscribe requieren auth).
+		pushHandler.Mount(r)
+	})
+
+	// Support (/support/*): proxy a Lemy Support. Requiere auth (el mount lo
+	// aplica). No usa X-Household-ID — el soporte es por usuario. Se monta
+	// FUERA del grupo con timeout: el handler de upload extiende sus propios
+	// deadlines (Read/Write) con ResponseController; las rutas de lectura/
+	// mensajes aplican el timeout de 30s dentro de su propio Mount.
+	supportHandler.Mount(r)
 
 	// Banner de startup (tipo Fiber) — solo en dev para no ensuciar logs prod.
 	if cfg.Env != "prod" {

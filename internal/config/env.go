@@ -44,6 +44,13 @@ type Config struct {
 	VAPIDPublicKey  string
 	VAPIDPrivateKey string
 	VAPIDSubject    string // "mailto:admin@ahorra.app"
+
+	// Lemy Support: proxy al servicio centralizado de soporte. La API key se
+	// saca del panel (https://soporte.lemydev.com) y se muestra una sola vez.
+	// Server-side only — nunca exponer al front. Sin SupportAPIKey el módulo
+	// queda deshabilitado (endpoints /support/* responden 503).
+	SupportAPIURL string // dev: http://localhost:8081 — prod: https://api-soporte.lemydev.com
+	SupportAPIKey string
 }
 
 // Load lee el archivo .env (si existe) al ambiente del proceso y construye
@@ -56,23 +63,25 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		Port:             getOrDefault("PORT", "8080"),
-		Env:              getOrDefault("ENV", "dev"),
-		LogLevel:         getOrDefault("LOG_LEVEL", "info"),
-		DatabaseURL:      os.Getenv("DATABASE_URL"),
-		JWTSecret:        os.Getenv("JWT_SECRET"),
-		JWTRefreshSecret: os.Getenv("JWT_REFRESH_SECRET"),
-		AllowedOrigins:   splitAndTrim(getOrDefault("ALLOWED_ORIGINS", "http://localhost:3000"), ","),
-		ResendAPIKey:     os.Getenv("RESEND_API_KEY"),
-		ReportFromEmail:  getOrDefault("REPORT_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
+		Port:                   getOrDefault("PORT", "8080"),
+		Env:                    getOrDefault("ENV", "dev"),
+		LogLevel:               getOrDefault("LOG_LEVEL", "info"),
+		DatabaseURL:            os.Getenv("DATABASE_URL"),
+		JWTSecret:              os.Getenv("JWT_SECRET"),
+		JWTRefreshSecret:       os.Getenv("JWT_REFRESH_SECRET"),
+		AllowedOrigins:         splitAndTrim(getOrDefault("ALLOWED_ORIGINS", "http://localhost:3000"), ","),
+		ResendAPIKey:           os.Getenv("RESEND_API_KEY"),
+		ReportFromEmail:        getOrDefault("REPORT_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
 		InviteFromEmail:        getOrDefault("INVITE_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
 		PasswordResetFromEmail: getOrDefault("PASSWORD_RESET_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
 		VerificationFromEmail:  getOrDefault("VERIFICATION_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
-		AppBaseURL:       getOrDefault("APP_BASE_URL", "http://localhost:3000"),
-		GoogleOAuthClientID: os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
-		VAPIDPublicKey:   os.Getenv("VAPID_PUBLIC_KEY"),
-		VAPIDPrivateKey:  os.Getenv("VAPID_PRIVATE_KEY"),
-		VAPIDSubject:     getOrDefault("VAPID_SUBJECT", "mailto:admin@ahorra.app"),
+		AppBaseURL:             getOrDefault("APP_BASE_URL", "http://localhost:3000"),
+		GoogleOAuthClientID:    os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
+		VAPIDPublicKey:         os.Getenv("VAPID_PUBLIC_KEY"),
+		VAPIDPrivateKey:        os.Getenv("VAPID_PRIVATE_KEY"),
+		VAPIDSubject:           getOrDefault("VAPID_SUBJECT", "mailto:admin@ahorra.app"),
+		SupportAPIURL:          getOrDefault("SOPORTE_API_URL", "http://localhost:8081"),
+		SupportAPIKey:          os.Getenv("SOPORTE_API_KEY"),
 	}
 
 	if err := cfg.validate(); err != nil {
