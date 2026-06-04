@@ -217,7 +217,7 @@ func main() {
 	// (la plata entra y ya), pero sí FX (congela rate al recibir igual que
 	// expenses). El worker de recurring_incomes se agrega en CP8.4.
 	incomesRepo := incomes.NewRepository(pool)
-	incomesSvc := incomes.NewService(incomesRepo, householdsRepo, fxSvc)
+	incomesSvc := incomes.NewService(incomesRepo, householdsRepo, fxSvc, logger)
 	incomesHandler := incomes.NewHandler(incomesSvc, authMW, householdsMW, logger)
 	// Worker diario 00:30 local — genera ingresos recurrentes.
 	incomesWorker := incomes.NewWorker(incomesSvc, 0, 30, logger)

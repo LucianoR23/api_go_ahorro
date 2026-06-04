@@ -3,6 +3,7 @@ package incomes
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -29,10 +30,11 @@ type Service struct {
 	repo       *Repository
 	households householdLookup
 	fx         fxConverter
+	logger     *slog.Logger
 }
 
-func NewService(repo *Repository, households householdLookup, fx fxConverter) *Service {
-	return &Service{repo: repo, households: households, fx: fx}
+func NewService(repo *Repository, households householdLookup, fx fxConverter, logger *slog.Logger) *Service {
+	return &Service{repo: repo, households: households, fx: fx, logger: logger}
 }
 
 // CreateInput: payload parseado del handler.
@@ -240,7 +242,7 @@ func (s *Service) CreateRecurring(ctx context.Context, in CreateRecurringInput) 
 	if in.StartsAt.IsZero() {
 		in.StartsAt = time.Now()
 	}
-	return s.repo.CreateRecurring(ctx, CreateRecurringParams{
+	ri, err := s.repo.CreateRecurring(ctx, CreateRecurringParams{
 		HouseholdID:     in.HouseholdID,
 		ReceivedBy:      in.ReceivedBy,
 		PaymentMethodID: in.PaymentMethodID,
@@ -256,6 +258,26 @@ func (s *Service) CreateRecurring(ctx context.Context, in CreateRecurringInput) 
 		StartsAt:        in.StartsAt,
 		EndsAt:          in.EndsAt,
 	})
+	if err != nil {
+		return domain.RecurringIncome{}, err
+	}
+
+	// "Cuenta este mes": si el calendario ya tiene una ocurrencia vencida en
+	// el período en curso (el día del mes ya pasó, o el worker de las 00:30 ya
+	// había corrido hoy), la materializamos al instante en vez de esperar al
+	// próximo ciclo. Best-effort: si falla, la plantilla igual quedó creada.
+	if occ, ok := firstDueOccurrence(ri, time.Now()); ok {
+		if genErr := s.generateOneRecurring(ctx, ri, occ); genErr != nil {
+			if s.logger != nil {
+				s.logger.WarnContext(ctx, "recurring income: primera ocurrencia falló",
+					"templateId", ri.ID.String(), "error", genErr)
+			}
+		} else {
+			lg := occ
+			ri.LastGenerated = &lg
+		}
+	}
+	return ri, nil
 }
 
 func (s *Service) ListRecurring(ctx context.Context, householdID uuid.UUID) ([]domain.RecurringIncome, error) {
@@ -367,45 +389,52 @@ func (s *Service) GenerateDue(ctx context.Context, date time.Time) (int, error) 
 		if !recurrenceMatches(t, date) {
 			continue
 		}
-		// Conversión FX contra la base_currency actual del hogar.
-		hh, err := s.households.GetByID(ctx, t.HouseholdID)
-		if err != nil {
-			return created, err
-		}
-		amountBase, rate, err := s.fx.Convert(ctx, t.Amount, t.Currency, hh.BaseCurrency)
-		if err != nil {
-			return created, err
-		}
-		var rateUsed *float64
-		var rateAt *time.Time
-		if t.Currency != hh.BaseCurrency {
-			r := rate
-			now := time.Now().UTC()
-			rateUsed = &r
-			rateAt = &now
-		}
-		if _, err := s.repo.Create(ctx, CreateParams{
-			HouseholdID:     t.HouseholdID,
-			ReceivedBy:      t.ReceivedBy,
-			PaymentMethodID: t.PaymentMethodID,
-			Amount:          t.Amount,
-			Currency:        t.Currency,
-			AmountBase:      amountBase,
-			BaseCurrency:    hh.BaseCurrency,
-			RateUsed:        rateUsed,
-			RateAt:          rateAt,
-			Source:          t.Source,
-			Description:     t.Description,
-			ReceivedAt:      date,
-		}); err != nil {
-			return created, err
-		}
-		if err := s.repo.MarkRecurringGenerated(ctx, t.ID, date); err != nil {
+		if err := s.generateOneRecurring(ctx, t, date); err != nil {
 			return created, err
 		}
 		created++
 	}
 	return created, nil
+}
+
+// generateOneRecurring materializa UNA ocurrencia de la plantilla `t` con fecha
+// `date`: convierte FX contra la base_currency actual del hogar, crea el income
+// y marca last_generated. Lo comparten el worker (GenerateDue) y CreateRecurring
+// (primera ocurrencia "cuenta este mes").
+func (s *Service) generateOneRecurring(ctx context.Context, t domain.RecurringIncome, date time.Time) error {
+	hh, err := s.households.GetByID(ctx, t.HouseholdID)
+	if err != nil {
+		return err
+	}
+	amountBase, rate, err := s.fx.Convert(ctx, t.Amount, t.Currency, hh.BaseCurrency)
+	if err != nil {
+		return err
+	}
+	var rateUsed *float64
+	var rateAt *time.Time
+	if t.Currency != hh.BaseCurrency {
+		r := rate
+		now := time.Now().UTC()
+		rateUsed = &r
+		rateAt = &now
+	}
+	if _, err := s.repo.Create(ctx, CreateParams{
+		HouseholdID:     t.HouseholdID,
+		ReceivedBy:      t.ReceivedBy,
+		PaymentMethodID: t.PaymentMethodID,
+		Amount:          t.Amount,
+		Currency:        t.Currency,
+		AmountBase:      amountBase,
+		BaseCurrency:    hh.BaseCurrency,
+		RateUsed:        rateUsed,
+		RateAt:          rateAt,
+		Source:          t.Source,
+		Description:     t.Description,
+		ReceivedAt:      date,
+	}); err != nil {
+		return err
+	}
+	return s.repo.MarkRecurringGenerated(ctx, t.ID, date)
 }
 
 // ===================== helpers =====================
@@ -440,6 +469,26 @@ func validateRecurrence(frequency string, dom, dow, moy *int) error {
 		return domain.NewValidationError("frequency", "debe ser monthly/weekly/yearly")
 	}
 	return nil
+}
+
+// firstDueOccurrence devuelve la ocurrencia más reciente del calendario de la
+// plantilla dentro de [startsAt, today], o (zero, false) si no hay ninguna
+// vencida todavía. La usa CreateRecurring para materializar al instante el
+// cargo del período en curso en vez de esperar al próximo ciclo del worker.
+// Escanea hacia atrás desde hoy y corta en la primera coincidencia.
+func firstDueOccurrence(t domain.RecurringIncome, today time.Time) (time.Time, bool) {
+	loc := today.Location()
+	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, loc)
+	start := time.Date(t.StartsAt.Year(), t.StartsAt.Month(), t.StartsAt.Day(), 0, 0, 0, 0, loc)
+	if start.After(today) {
+		return time.Time{}, false
+	}
+	for d := today; !d.Before(start); d = d.AddDate(0, 0, -1) {
+		if recurrenceMatches(t, d) {
+			return d, true
+		}
+	}
+	return time.Time{}, false
 }
 
 // recurrenceMatches: ¿el calendario de la plantilla coincide con `date`?

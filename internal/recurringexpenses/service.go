@@ -103,7 +103,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.RecurringE
 	if in.StartsAt.IsZero() {
 		in.StartsAt = time.Now()
 	}
-	return s.repo.Create(ctx, CreateParams{
+	re, err := s.repo.Create(ctx, CreateParams{
 		HouseholdID:       in.HouseholdID,
 		CreatedBy:         in.CreatedBy,
 		CategoryID:        in.CategoryID,
@@ -123,6 +123,27 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.RecurringE
 		AmountIsVariable:  in.AmountIsVariable,
 		AlertThresholdPct: in.AlertThresholdPct,
 	})
+	if err != nil {
+		return domain.RecurringExpense{}, err
+	}
+
+	// "Cuenta este mes": si el calendario ya tiene una ocurrencia vencida en
+	// el período en curso (el día del mes ya pasó, o el worker de las 00:30 ya
+	// había corrido hoy), la materializamos al instante en vez de esperar al
+	// próximo ciclo. Best-effort: si falla, la plantilla igual quedó creada y
+	// el worker la levantará cuando corresponda.
+	if occ, ok := firstDueOccurrence(re, time.Now()); ok {
+		if genErr := s.generateOne(ctx, re, occ); genErr != nil {
+			if s.logger != nil {
+				s.logger.WarnContext(ctx, "recurring expense: primera ocurrencia falló",
+					"templateId", re.ID.String(), "error", genErr)
+			}
+		} else {
+			lg := occ
+			re.LastGenerated = &lg
+		}
+	}
+	return re, nil
 }
 
 func (s *Service) Get(ctx context.Context, householdID, id uuid.UUID) (domain.RecurringExpense, error) {
@@ -306,46 +327,10 @@ func (s *Service) GenerateDue(ctx context.Context, date time.Time) (int, int, er
 		if !recurrenceMatches(t, date) {
 			continue
 		}
-		// Series de monto variable nacen como draft con el último monto
-		// conocido como estimado (o el de la plantilla si nunca se confirmó
-		// una factura). El user las confirma cuando llega la factura real.
-		amount := t.Amount
-		status := ""
-		if t.AmountIsVariable {
-			status = "draft"
-			if t.LastAmount != nil {
-				amount = *t.LastAmount
-			}
-		}
-		_, err := s.expenses.Create(ctx, expenses.CreateInput{
-			HouseholdID:        t.HouseholdID,
-			CreatedBy:          t.CreatedBy,
-			CategoryID:         t.CategoryID,
-			PaymentMethodID:    t.PaymentMethodID,
-			Amount:             amount,
-			Currency:           t.Currency,
-			Description:        t.Description,
-			SpentAt:            date,
-			Installments:       t.Installments,
-			IsShared:           t.IsShared,
-			RecurringExpenseID: &t.ID,
-			Status:             status,
-		})
-		if err != nil {
+		if err := s.generateOne(ctx, t, date); err != nil {
 			failed++
 			if s.logger != nil {
-				s.logger.WarnContext(ctx, "recurring expense create falló",
-					"templateId", t.ID.String(), "error", err)
-			}
-			continue
-		}
-		if err := s.repo.MarkGenerated(ctx, t.ID, date); err != nil {
-			// El expense ya se creó — si esto falla, el próximo tick
-			// intentaría duplicar. Lo logueamos pero no revertimos: el
-			// user puede borrar el duplicado manualmente si pasa.
-			failed++
-			if s.logger != nil {
-				s.logger.WarnContext(ctx, "recurring expense markGenerated falló",
+				s.logger.WarnContext(ctx, "recurring expense generateOne falló",
 					"templateId", t.ID.String(), "error", err)
 			}
 			continue
@@ -353,6 +338,45 @@ func (s *Service) GenerateDue(ctx context.Context, date time.Time) (int, int, er
 		created++
 	}
 	return created, failed, nil
+}
+
+// generateOne materializa UNA ocurrencia de la plantilla `t` con fecha `date`:
+// crea el expense (delegando en expenses.Create, que resuelve cuotas + shares
+// + FX + credit_card_periods) y marca last_generated. Lo comparten el worker
+// (GenerateDue) y Create (primera ocurrencia "cuenta este mes").
+//
+// Idempotencia: si Create funciona pero MarkGenerated falla, el expense ya
+// quedó creado y el próximo tick podría duplicarlo. Devolvemos el error para
+// que el caller lo loguee; no revertimos (el user puede borrar el duplicado).
+func (s *Service) generateOne(ctx context.Context, t domain.RecurringExpense, date time.Time) error {
+	// Series de monto variable nacen como draft con el último monto conocido
+	// como estimado (o el de la plantilla si nunca se confirmó una factura).
+	// El user las confirma cuando llega la factura real.
+	amount := t.Amount
+	status := ""
+	if t.AmountIsVariable {
+		status = "draft"
+		if t.LastAmount != nil {
+			amount = *t.LastAmount
+		}
+	}
+	if _, err := s.expenses.Create(ctx, expenses.CreateInput{
+		HouseholdID:        t.HouseholdID,
+		CreatedBy:          t.CreatedBy,
+		CategoryID:         t.CategoryID,
+		PaymentMethodID:    t.PaymentMethodID,
+		Amount:             amount,
+		Currency:           t.Currency,
+		Description:        t.Description,
+		SpentAt:            date,
+		Installments:       t.Installments,
+		IsShared:           t.IsShared,
+		RecurringExpenseID: &t.ID,
+		Status:             status,
+	}); err != nil {
+		return err
+	}
+	return s.repo.MarkGenerated(ctx, t.ID, date)
 }
 
 // ===================== helpers =====================
@@ -399,6 +423,31 @@ func validateRecurrence(frequency string, dom, dow, moy *int) error {
 		return domain.NewValidationError("frequency", "debe ser monthly/weekly/yearly")
 	}
 	return nil
+}
+
+// firstDueOccurrence devuelve la ocurrencia más reciente del calendario de la
+// plantilla dentro de [startsAt, today], o (zero, false) si no hay ninguna
+// vencida todavía (startsAt en el futuro, o el día configurado aún no llegó
+// este período).
+//
+// La usa Create para materializar al instante el cargo del período en curso
+// cuando el día ya pasó —o el worker de las 00:30 ya había corrido hoy— en vez
+// de esperar al próximo ciclo. Escanea hacia atrás desde hoy y corta en la
+// primera coincidencia, así que para monthly/weekly/yearly válidos hace pocas
+// vueltas (≤ ~366) aunque startsAt sea muy viejo.
+func firstDueOccurrence(t domain.RecurringExpense, today time.Time) (time.Time, bool) {
+	loc := today.Location()
+	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, loc)
+	start := time.Date(t.StartsAt.Year(), t.StartsAt.Month(), t.StartsAt.Day(), 0, 0, 0, 0, loc)
+	if start.After(today) {
+		return time.Time{}, false
+	}
+	for d := today; !d.Before(start); d = d.AddDate(0, 0, -1) {
+		if recurrenceMatches(t, d) {
+			return d, true
+		}
+	}
+	return time.Time{}, false
 }
 
 func recurrenceMatches(t domain.RecurringExpense, date time.Time) bool {
