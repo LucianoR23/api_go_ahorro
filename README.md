@@ -92,7 +92,9 @@ Ver [`.env.example`](./.env.example). Resumen:
 | `PORT` | no (8080) | Puerto HTTP |
 | `ENV` | no (dev) | `dev` o `prod`. En `prod`: logs JSON + cookie refresh con Secure=true |
 | `LOG_LEVEL` | no (info) | `debug` / `info` / `warn` / `error` |
-| `DATABASE_URL` | sí | `postgres://user:pw@host:5432/db?sslmode=...` |
+| `DATABASE_URL` | sí | `postgres://user:pw@host:5432/db?sslmode=...` (en deploys: rol solo DML) |
+| `MIGRATE_ON_START` | no (false) | `true` = aplica las migraciones embebidas al arrancar, con advisory lock; si fallan o la DB está dirty, el proceso sale con 1 |
+| `MIGRATE_DATABASE_URL` | si `MIGRATE_ON_START=true` | URL del rol dueño del schema (DDL). Sin fallback a `DATABASE_URL` |
 | `JWT_SECRET` | sí | mínimo 32 chars |
 | `JWT_REFRESH_SECRET` | sí | mínimo 32 chars, distinto del anterior |
 | `ALLOWED_ORIGINS` | no (localhost:3005) | CORS, separado por coma |
@@ -131,9 +133,9 @@ La referencia de endpoints está en los handlers (`internal/*/handler.go`); un r
 
 ## Deploy
 
-Se despliega en Coolify desde el `Dockerfile` (los pasos de staging/prod se documentan en `DEPLOY.md` con el ítem 0.10 del plan v2).
+Se despliega en Coolify desde el `Dockerfile`. Pasos, roles de DB y variables: [`DEPLOY.md`](./DEPLOY.md). Las migraciones van embebidas en el binario y se aplican al arrancar con `MIGRATE_ON_START=true`.
 
-La imagen Docker es multi-stage (alpine build + alpine runtime) y pesa ~20MB. Expose `:8080`. Healthcheck incluido en `/health/live`.
+La imagen Docker es multi-stage (alpine build + alpine runtime) y pesa ~45MB. Expose `:8080`. Healthcheck incluido en `/health/live`.
 
 ```bash
 docker build -t ahorra-api .

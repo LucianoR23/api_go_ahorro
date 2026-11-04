@@ -4,6 +4,15 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.10 — Migrations on deploy
+- New dependency: `github.com/golang-migrate/migrate/v4` v4.20.1 (pgx/v5 driver + `iofs` source). govulncheck: 0 reachable.
+- Migrations are embedded in the binary (`migrations/embed.go`); the Dockerfile no longer copies the folder.
+- `internal/dbmigrate.Up`: applies pending migrations under a Postgres advisory lock (2 min wait), refuses a dirty database, never logs the password.
+- `MIGRATE_ON_START` (default `false`) + `MIGRATE_DATABASE_URL` (required when on, no fallback to `DATABASE_URL`). On failure the API exits 1 before serving, so Coolify keeps the previous container.
+- Deploys use two roles: `valuo_migrate` (schema owner, DDL) for migrations and `valuo_app` (DML only) at runtime. New `DEPLOY.md` documents roles, env vars and the dirty-DB procedure.
+- Tests: config parsing (`internal/config`), URL/redaction/embedding units, and an integration test (`DBMIGRATE_TEST_DATABASE_URL`, skipped otherwise; testcontainers in 0.11) covering concurrent startup (exactly one instance migrates), idempotent re-run and dirty refusal. Verified against Postgres 18.6 with staging-like roles: app role can read/write but not `CREATE`/`DROP`; Docker image migrates an empty DB and registration returns 201.
+- Note: govulncheck reports GO-2026-5932 (`x/crypto/openpgp`, unmaintained) in a required module; not imported by this code. Only fixed in an untagged pseudo-version; revisit when x/crypto tags a release.
+
 ### 0.15c — Toolchain refresh & vulnerable dependencies
 - Go 1.25 (EOL 2026-08-19) → `go 1.27.0` + `toolchain go1.27.3` in `go.mod` (Go auto-downloads the exact toolchain on every machine).
 - Docker: build `golang:1.27.3-alpine3.24`, runtime `alpine:3.24.3` (3.20 was EOL).

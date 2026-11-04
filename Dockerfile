@@ -41,7 +41,7 @@ RUN apk add --no-cache ca-certificates tzdata && \
 
 WORKDIR /app
 COPY --from=build /out/api /app/api
-COPY migrations /app/migrations
+# Migrations are embedded in the binary (migrations/embed.go); no folder needed.
 
 USER app
 

@@ -5,16 +5,25 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
 // Config concentra todas las variables de entorno tipadas que la app necesita.
 // Se construye una sola vez en arranque desde Load().
 type Config struct {
-	Port             string
-	Env              string
-	LogLevel         string
-	DatabaseURL      string
+	Port        string
+	Env         string
+	LogLevel    string
+	DatabaseURL string
+
+	// Migrations on startup (MIGRATE_ON_START, default false). When on, the
+	// API applies pending migrations with MigrateDatabaseURL (a schema-owner
+	// role) before opening the runtime pool. There is deliberately no
+	// fallback to DatabaseURL: the runtime role must not be able to run DDL.
+	MigrateOnStart     bool
+	MigrateDatabaseURL string
+
 	JWTSecret        string
 	JWTRefreshSecret string
 	AllowedOrigins   []string
@@ -62,11 +71,18 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("config: cargar .env: %w", err)
 	}
 
+	migrateOnStart, err := parseBool("MIGRATE_ON_START", false)
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		Port:                   getOrDefault("PORT", "8080"),
 		Env:                    getOrDefault("ENV", "dev"),
 		LogLevel:               getOrDefault("LOG_LEVEL", "info"),
 		DatabaseURL:            os.Getenv("DATABASE_URL"),
+		MigrateOnStart:         migrateOnStart,
+		MigrateDatabaseURL:     os.Getenv("MIGRATE_DATABASE_URL"),
 		JWTSecret:              os.Getenv("JWT_SECRET"),
 		JWTRefreshSecret:       os.Getenv("JWT_REFRESH_SECRET"),
 		AllowedOrigins:         splitAndTrim(getOrDefault("ALLOWED_ORIGINS", "http://localhost:3005"), ","),
@@ -100,6 +116,9 @@ func (c *Config) validate() error {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("config: %s es obligatorio", name)
 		}
+	}
+	if c.MigrateOnStart && strings.TrimSpace(c.MigrateDatabaseURL) == "" {
+		return fmt.Errorf("config: MIGRATE_DATABASE_URL es obligatorio con MIGRATE_ON_START=true")
 	}
 	if len(c.JWTSecret) < 32 {
 		return fmt.Errorf("config: JWT_SECRET debe tener al menos 32 caracteres")
@@ -171,6 +190,20 @@ func getOrDefault(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// parseBool reads a boolean env var (strconv.ParseBool syntax). Empty means
+// def; anything unparsable is an error instead of silently falling back.
+func parseBool(key string, def bool) (bool, error) {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("config: %s debe ser true o false, no %q", key, v)
+	}
+	return b, nil
 }
 
 func splitAndTrim(s, sep string) []string {

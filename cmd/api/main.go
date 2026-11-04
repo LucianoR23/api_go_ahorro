@@ -25,6 +25,7 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/config"
 	"github.com/LucianoR23/api_go_ahorra/internal/creditperiods"
 	"github.com/LucianoR23/api_go_ahorra/internal/db"
+	"github.com/LucianoR23/api_go_ahorra/internal/dbmigrate"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/LucianoR23/api_go_ahorra/internal/email"
 	"github.com/LucianoR23/api_go_ahorra/internal/expenses"
@@ -42,6 +43,7 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/splitrules"
 	"github.com/LucianoR23/api_go_ahorra/internal/support"
 	"github.com/LucianoR23/api_go_ahorra/internal/users"
+	"github.com/LucianoR23/api_go_ahorra/migrations"
 )
 
 func main() {
@@ -53,6 +55,19 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("config cargada", "env", cfg.Env, "port", cfg.Port)
+
+	// ---------- migrations (opt-in) ----------
+	// Run before opening the runtime pool, with the schema-owner role. Any
+	// failure (including a dirty DB) aborts startup so the deploy fails and
+	// the previous container keeps serving.
+	if cfg.MigrateOnStart {
+		res, err := dbmigrate.Up(cfg.MigrateDatabaseURL, migrations.FS, logger)
+		if err != nil {
+			logger.Error("migrations failed", "error", err, "from_version", res.From, "at_version", res.To)
+			os.Exit(1)
+		}
+		logger.Info("migrations applied", "from_version", res.From, "to_version", res.To, "changed", res.Changed)
+	}
 
 	// ---------- conexión a DB ----------
 	// Usamos un context con timeout solo para el arranque. Para el server
