@@ -4,14 +4,14 @@ Backend en Go para Ahorra — app de gestión de gastos multi-hogar, multi-moned
 
 ## Stack
 
-- **Go 1.26** con [chi](https://github.com/go-chi/chi) como router HTTP
-- **PostgreSQL 15+** (corre contra Supabase o Postgres vanilla)
+- **Go** (versión fijada en `go.mod`) con [chi](https://github.com/go-chi/chi) como router HTTP
+- **PostgreSQL 15+** (prod: Postgres en Coolify; dev: `docker-compose.yml`)
 - **pgx/v5** + [sqlc](https://sqlc.dev) para queries tipadas
 - **golang-migrate** para migraciones versionadas
 - **JWT** (access 15min + refresh 7 días en HttpOnly cookie)
 - **Resend** para emails transaccionales (reportes mensuales)
 
-Sin Docker local, sin Redis, sin CLI de admin. Todo se configura vía env vars y se despliega como un binario único.
+Sin Redis ni CLI de admin. Todo se configura vía env vars y se despliega como un binario único. Para desarrollo hay un `docker-compose.yml` con Postgres.
 
 ## Estructura
 
@@ -47,8 +47,8 @@ migrations/           golang-migrate up/down
 
 ### Prerrequisitos
 
-- Go 1.26+
-- Postgres corriendo localmente (puerto 5432) o una URL de Supabase/cloud.
+- Go (la versión de `go.mod`)
+- Docker: `docker compose up -d` levanta Postgres en `localhost:5433`.
 - [golang-migrate](https://github.com/golang-migrate/migrate) instalado:
   ```
   go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
@@ -95,9 +95,11 @@ Ver [`.env.example`](./.env.example). Resumen:
 | `DATABASE_URL` | sí | `postgres://user:pw@host:5432/db?sslmode=...` |
 | `JWT_SECRET` | sí | mínimo 32 chars |
 | `JWT_REFRESH_SECRET` | sí | mínimo 32 chars, distinto del anterior |
-| `ALLOWED_ORIGINS` | no (localhost:3000) | CORS, separado por coma |
+| `ALLOWED_ORIGINS` | no (localhost:3005) | CORS, separado por coma |
 | `RESEND_API_KEY` | no | si falta, el worker de reports loguea skip y no envía |
 | `REPORT_FROM_EMAIL` | no | remitente de reportes (dominio verificado en Resend) |
+| `GOOGLE_OAUTH_CLIENT_ID` | no | OAuth web client ID; audiencia de los ID tokens de Google. Sin ella `/auth/google` responde 500 |
+| `APP_BASE_URL` | no (localhost:3005) | URL pública del front para los links de los emails |
 
 ## Arquitectura
 
@@ -106,7 +108,6 @@ Ver [`.env.example`](./.env.example). Resumen:
 - `repository.go` — wraps del código sqlc, mapea row → domain
 - `service.go` — lógica de negocio (validación, FX, shares, cuotas)
 - `handler.go` — HTTP, DTOs, parsing de query params
-- `*_test.go` — tests unitarios del service con mocks
 
 **Transacciones**: escrituras multi-tabla usan `pgx.BeginFunc`. Ejemplos: crear un gasto con N cuotas y sus shares es una sola tx; crear un hogar semilla las 7 categorías default y el weight=1.0 del owner en la misma tx.
 
@@ -126,11 +127,11 @@ Todos catchean errores per-hogar para no trabar al siguiente.
 
 ## Endpoints
 
-Ver [`../API_REFERENCE.md`](../API_REFERENCE.md) para la referencia completa con request/response de cada endpoint.
+La referencia de endpoints está en los handlers (`internal/*/handler.go`); un resumen vive en la auditoría del workspace (`ahorra-current-state.md` §5).
 
 ## Deploy
 
-Ver [`../COOLIFY_DEPLOY.md`](../COOLIFY_DEPLOY.md) para la guía paso a paso de despliegue en Coolify.
+Se despliega en Coolify desde el `Dockerfile` (los pasos de staging/prod se documentan en `DEPLOY.md` con el ítem 0.10 del plan v2).
 
 La imagen Docker es multi-stage (alpine build + alpine runtime) y pesa ~20MB. Expose `:8080`. Healthcheck incluido en `/health/live`.
 
@@ -144,7 +145,7 @@ docker run --rm -p 8080:8080 --env-file .env ahorra-api
 - **Dates**: `YYYY-MM-DD` en request/response. Timestamps en ISO-8601 UTC.
 - **Money**: `float64` con 2 decimales. Los campos `amount_base` ya están convertidos a la moneda base del hogar (denormalizado).
 - **IDs**: UUIDs v4 en todas las tablas.
-- **Soft deletes**: no se usan. Borrar es borrar.
+- **Soft deletes**: `users` y `households` usan `deleted_at`; el resto se borra físicamente.
 - **Paginación**: offset/limit simple. Migrar a keyset cuando crezca el volumen.
 
 ## Testing
@@ -155,10 +156,10 @@ go test -race ./...    # con detector de races (workers)
 go vet ./...
 ```
 
-Los tests de service usan mocks de repo; los de repo tocan una DB real (configurable por `TEST_DATABASE_URL`).
+Todavía no hay tests: la batería (unit + integración con testcontainers) llega con los ítems 0.11 y 0.21 del plan v2.
 
 ## Contribuir
 
 - No correr `sqlc generate` sin avisar — el código generado está versionado.
 - Una migración = un cambio atómico. Up + Down reversibles.
-- Commits en español, concisos, con contexto en el body (`git commit -m -m`).
+- Commits en inglés con Conventional Commits y el ID del ítem (`fix(expenses): ... [0.1]`).

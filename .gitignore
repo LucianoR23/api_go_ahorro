@@ -26,3 +26,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Claude Code local settings (per machine)
+.claude/settings.local.json

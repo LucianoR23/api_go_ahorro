@@ -29,7 +29,7 @@ type Config struct {
 
 	// AppBaseURL: URL pública del frontend (ej: https://app.ahorra.app).
 	// Se usa para armar los links de invitación que van en los mails.
-	// En dev cae a http://localhost:3000.
+	// En dev cae a http://localhost:3005.
 	AppBaseURL string
 
 	// Google OAuth: opcional. Si no está, /auth/google falla con 500 al
@@ -69,13 +69,13 @@ func Load() (*Config, error) {
 		DatabaseURL:            os.Getenv("DATABASE_URL"),
 		JWTSecret:              os.Getenv("JWT_SECRET"),
 		JWTRefreshSecret:       os.Getenv("JWT_REFRESH_SECRET"),
-		AllowedOrigins:         splitAndTrim(getOrDefault("ALLOWED_ORIGINS", "http://localhost:3000"), ","),
+		AllowedOrigins:         splitAndTrim(getOrDefault("ALLOWED_ORIGINS", "http://localhost:3005"), ","),
 		ResendAPIKey:           os.Getenv("RESEND_API_KEY"),
 		ReportFromEmail:        getOrDefault("REPORT_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
 		InviteFromEmail:        getOrDefault("INVITE_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
 		PasswordResetFromEmail: getOrDefault("PASSWORD_RESET_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
 		VerificationFromEmail:  getOrDefault("VERIFICATION_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
-		AppBaseURL:             getOrDefault("APP_BASE_URL", "http://localhost:3000"),
+		AppBaseURL:             getOrDefault("APP_BASE_URL", "http://localhost:3005"),
 		GoogleOAuthClientID:    os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
 		VAPIDPublicKey:         os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey:        os.Getenv("VAPID_PRIVATE_KEY"),
