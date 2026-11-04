@@ -2,8 +2,8 @@
 
 # ---------- build stage ----------
 # Usamos la imagen oficial de Go. Alpine porque pesa menos (~300MB vs ~1GB).
-# Cambiar la versión acá cuando bumpees go.mod.
-FROM golang:1.25-alpine AS build
+# Keep in sync with the `toolchain` line in go.mod (exact tag, supported Alpine).
+FROM golang:1.27.3-alpine3.24 AS build
 
 # git es necesario si algún mod tiene deps de repos privados; ca-certs para
 # que go mod download pueda hablar con proxy.golang.org por HTTPS.
@@ -34,7 +34,7 @@ RUN go build \
 # ---------- runtime stage ----------
 # Alpine mínimo con ca-certs + tzdata (necesario para time.LoadLocation si
 # algún día usamos timezones distintos). ~8MB final.
-FROM alpine:3.20
+FROM alpine:3.24.3
 
 RUN apk add --no-cache ca-certificates tzdata && \
     adduser -D -u 10001 app

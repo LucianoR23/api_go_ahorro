@@ -1,16 +1,18 @@
 services:
   postgres:
-    image: supabase/postgres:17.4.1.032
+    # Official image, same major as staging/prod (Postgres 18).
+    image: postgres:18.6-alpine3.24
     container_name: ahorra-postgres-dev
     restart: unless-stopped
     environment:
-      # supabase/postgres solo respeta POSTGRES_PASSWORD (para el superuser 'postgres').
-      # El rol 'ahorra' y la DB 'ahorra' se crean vía docker/initdb/01-ahorra.sql
+      # Superuser 'postgres' only for bootstrap; the app uses the least-privilege
+      # role 'ahorra' and DB 'ahorra' created by docker/initdb/01-ahorra.sql.
       POSTGRES_PASSWORD: ahorra_dev_pw
     ports:
       - "5433:5432"
     volumes:
-      - ahorra_pgdata:/var/lib/postgresql/data
+      # Postgres 18+ images keep data under /var/lib/postgresql/<major>/docker.
+      - ahorra_pgdata18:/var/lib/postgresql
       - ./docker/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -19,4 +21,4 @@ services:
       retries: 10
 
 volumes:
-  ahorra_pgdata:
+  ahorra_pgdata18:

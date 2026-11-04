@@ -1,6 +1,6 @@
--- Script de inicialización para supabase/postgres.
--- Crea el rol y la base de datos que usa la app (la imagen no respeta
--- POSTGRES_USER / POSTGRES_DB como la imagen oficial de postgres).
+-- Dev bootstrap for the official postgres image.
+-- Creates the least-privilege app role and its database (the superuser
+-- 'postgres' is only used for bootstrap).
 -- Este archivo se ejecuta solo en la primera inicialización del volumen.
 
 CREATE ROLE ahorra WITH LOGIN PASSWORD 'ahorra_dev_pw';
