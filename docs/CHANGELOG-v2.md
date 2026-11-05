@@ -4,6 +4,15 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.21b: auth and users characterization tests
+- `internal/auth/*_test.go` (77 subtests, real router + fresh database through `apitest`). Covered: register (normalization, cookie flags, verification email, Efectivo bootstrap, duplicate email, every validation rule, malformed or unknown JSON), login (anti-enumeration: same body for wrong password and unknown email; Google-only accounts), every way an access token can be missing or invalid (scheme, refresh-as-access, wrong secret, expired, wrong `typ`) on all authenticated auth routes, refresh rotation and cookie clearing, logout, Google sign-in (new user, repeat login, linking, `Usuario` fallback, soft-deleted account, bad or empty token), forgot/reset (single-use, the newer link invalidates the older one, expiry, weak password keeps the token, Google-only account sets a password), change password (also burns pending reset links), email verification and resend, `GET/PATCH/DELETE /me` (soft delete anonymizes and frees the email, owners must transfer first), and the login and forgot-password rate limits.
+- `apitest`: `Res.Cookie`, `Res.RefreshCookieValue`, `WithRefreshCookie`, `Server.Login`, `Server.Refresh`.
+- Known bugs pinned (`KnownBug`):
+  - 0.5: logout, password reset, password change and account deletion leave existing refresh tokens valid; Google auto-links to an account whose email was never verified; changing the email keeps the verified flag.
+  - 0.6: a client rotating `X-Forwarded-For` gets around the auth rate limits.
+  - 0.1: decoder errors reach the client in English (`json: unknown field ...`).
+- Coverage: `internal/auth` + `internal/users` at 77.3% from these tests; module total 4.9% → 11.6%.
+
 ### 0.21a — API test harness
 - `internal/app`: the wiring (repos, services, handlers, router, background jobs) moved out of `main()` with no behavior change. `app.New(ctx, cfg, pool, logger, opts)` returns the real router (`Router()`) and `Start(ctx)` for the jobs (same order, stopped in reverse). `Options` swaps only external dependencies: email sender, Google verifier, FX HTTP client, auth rate limiter; zero values are production's. `cmd/api/main.go` keeps config, migrations, pool, server and signals.
 - `internal/testutil/testdb`: Postgres 18 via testcontainers v0.44.0 (or `TEST_DATABASE_URL`), migrations applied once to a template, each test gets its own database cloned from it. Skips locally without Docker, fails in CI.
