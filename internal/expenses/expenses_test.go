@@ -374,6 +374,10 @@ func TestEditAndDeleteExpenses(t *testing.T) {
 		if got.Description != "Editado" || got.SpentAt != "2026-02-01" || got.Amount != 100 {
 			t.Errorf("edited = %+v", got)
 		}
+		partial := h.do(t, h.owner, http.MethodPatch, "/expenses/"+e.ID, map[string]any{"description": "Solo la descripción"})
+		testutil.KnownBug(t, "0.1", "PATCH /expenses/{id} is a full replace: a partial edit without spentAt is rejected", func(t testing.TB) {
+			partial.Status(t, http.StatusOK)
+		})
 		h.do(t, h.owner, http.MethodPatch, "/expenses/"+e.ID, map[string]any{"description": "", "spentAt": "2026-02-01"}).
 			WantError(t, http.StatusUnprocessableEntity, "validation", "description")
 		h.do(t, h.owner, http.MethodPatch, "/expenses/"+e.ID, map[string]any{"description": "x", "spentAt": ""}).
@@ -405,6 +409,10 @@ func TestEditAndDeleteExpenses(t *testing.T) {
 		}
 
 		h.do(t, h.owner, http.MethodPatch, path+"2", map[string]any{"dueDate": "2026-12-01"}).WantError(t, http.StatusUnprocessableEntity, "validation", "dueDate")
+		nullBilling := h.do(t, h.owner, http.MethodPatch, path+"2", map[string]any{"billingDate": nil, "isPaid": true})
+		testutil.KnownBug(t, "0.1", "billingDate: null on PATCH installments is silently ignored instead of rejected or applied", func(t testing.TB) {
+			nullBilling.Status(t, http.StatusUnprocessableEntity)
+		})
 		h.do(t, h.owner, http.MethodPatch, path+"2", map[string]any{"dueDate": 5}).WantError(t, http.StatusUnprocessableEntity, "validation", "dueDate")
 		h.do(t, h.owner, http.MethodPatch, path+"2", map[string]any{"billingDate": "mañana"}).WantError(t, http.StatusUnprocessableEntity, "validation", "billingDate")
 		h.do(t, h.owner, http.MethodPatch, path+"2", map[string]any{}).WantError(t, http.StatusUnprocessableEntity, "validation", "body")

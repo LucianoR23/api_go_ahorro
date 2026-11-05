@@ -251,6 +251,13 @@ func TestSettlements(t *testing.T) {
 			h.do(t, h.owner, http.MethodGet, "/settlements"+q, nil).WantError(t, http.StatusUnprocessableEntity, "validation", field)
 		}
 
+		page := h.do(t, h.owner, http.MethodGet, "/settlements?limit=1", nil)
+		testutil.KnownBug(t, "0.1", "GET /settlements has no totalCount, so the app pages without knowing the total", func(t testing.TB) {
+			if !strings.Contains(string(page.Body), `"totalCount":3`) {
+				t.Errorf("page = %s", page.Body)
+			}
+		})
+
 		res := h.do(t, h.owner, http.MethodGet, "/settlements?offset=3000000000", nil)
 		testutil.KnownBug(t, "0.1", "settlements offset above 2^31-1 overflows int32 and the query fails with 500", func(t testing.TB) {
 			if res.Code == http.StatusInternalServerError {
