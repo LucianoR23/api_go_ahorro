@@ -22,7 +22,7 @@ linters:
         text: G101
 
       # chi RealIP is deprecated and spoofable: replaced in 0.6 (TRUSTED_PROXIES).
-      - path: cmd/api/main\.go
+      - path: internal/app/app\.go
         linters: [staticcheck]
         text: "SA1019: github.com/go-chi/chi/v5/middleware.RealIP"
 
