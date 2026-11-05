@@ -12,6 +12,10 @@
 //	func TestMain(m *testing.M) { os.Exit(testdb.Main(m)) }
 //
 // so the container is removed when the package's tests finish.
+//
+// Without a database the tests skip locally, but fail when CI or
+// TESTDB_REQUIRED is set (scripts/check.sh sets it, so a local check never
+// passes without having run them).
 package testdb
 
 import (
@@ -111,7 +115,7 @@ func ensureServer(t testing.TB) {
 	t.Helper()
 	once.Do(func() { setupErr = setup() })
 	if setupErr != nil {
-		if os.Getenv("CI") == "" {
+		if os.Getenv("CI") == "" && os.Getenv("TESTDB_REQUIRED") == "" {
 			t.Skipf("testdb: no database available (start Docker or set TEST_DATABASE_URL): %v", setupErr)
 		}
 		t.Fatalf("testdb: %v", setupErr)
@@ -125,12 +129,7 @@ func setup() error {
 	if u := os.Getenv("TEST_DATABASE_URL"); u != "" {
 		adminURL = u
 	} else {
-		ctr, err := tcpostgres.Run(ctx, Image,
-			tcpostgres.WithDatabase("postgres"),
-			tcpostgres.WithUsername("postgres"),
-			tcpostgres.WithPassword("testdb_only_pw"),
-			tcpostgres.BasicWaitStrategies(),
-		)
+		ctr, err := runContainer(ctx)
 		if err != nil {
 			return fmt.Errorf("start postgres container: %w", err)
 		}
@@ -153,6 +152,34 @@ func setup() error {
 		return fmt.Errorf("migrate template: %w", err)
 	}
 	return nil
+}
+
+// runContainer starts the Postgres container, retrying a few times: on
+// Windows, Docker Desktop's named pipe sometimes refuses the provider probe
+// when every test package starts its container at once ("get provider").
+func runContainer(ctx context.Context) (*tcpostgres.PostgresContainer, error) {
+	var lastErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		ctr, err := tcpostgres.Run(ctx, Image,
+			tcpostgres.WithDatabase("postgres"),
+			tcpostgres.WithUsername("postgres"),
+			tcpostgres.WithPassword("testdb_only_pw"),
+			tcpostgres.BasicWaitStrategies(),
+		)
+		if err == nil {
+			return ctr, nil
+		}
+		lastErr = err
+		if ctr != nil {
+			_ = testcontainers.TerminateContainer(ctr)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, lastErr
+		case <-time.After(time.Duration(attempt) * time.Second):
+		}
+	}
+	return nil, lastErr
 }
 
 func adminExec(ctx context.Context, sql string) error {

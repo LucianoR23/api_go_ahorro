@@ -4,6 +4,11 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.21: test infrastructure hardening
+- `./scripts/check.sh` sets `TESTDB_REQUIRED=1`: without a database the integration tests now fail there (as in CI) instead of skipping. Before, a local check could pass with every database test skipped, which is how a Docker hiccup went unnoticed.
+- `testdb` retries starting the container (5 attempts with backoff): on Windows, Docker Desktop's pipe sometimes refuses the testcontainers provider probe when all packages start their containers at once.
+- `auth.SetBcryptCostForTests`, called by `apitest` with bcrypt's minimum cost. Production keeps cost 12. CI's auth tests took 160 to 224 s and one `change-password` request crossed the 30 s request timeout under `-race` (an intermittent 500); local auth tests went from about 25 s to under 30 s total with far fewer slow requests.
+
 ### Fix: discarded FX rates no longer reach the cache (found in 0.21d)
 - When Bluelytics returned a rate of 0, refresh skipped it in the database but still put it in the in-memory cache, so `GET /exchange-rates/current` could show a currency at 0 until the next good refresh. Only valid rates reach the cache now; a discarded one keeps the last good value. Conversions were not affected (they already ignored a 0 and read the database).
 - The 0.21d `KnownBug` is now a regular regression test (good snapshot, then one with a 0: the cache keeps the last good rate).

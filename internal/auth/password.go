@@ -16,7 +16,15 @@ import (
 // (~250ms por hash) y duplica el costo de un bruteforce.
 // Si el servidor va a hashear muchos logins por segundo y se vuelve
 // bottleneck, bajar a 11 es aceptable.
-const bcryptCost = 12
+const DefaultBcryptCost = 12
+
+var bcryptCost = DefaultBcryptCost
+
+// SetBcryptCostForTests lowers the bcrypt cost for the whole process. Only
+// test harnesses call it (apitest, before any test runs): cost 12 under the
+// race detector on a loaded CI runner can push auth requests past the 30s
+// request timeout. Production never calls it.
+func SetBcryptCostForTests(cost int) { bcryptCost = cost }
 
 // HashPassword produce un hash bcrypt listo para guardar en DB.
 // bcrypt internamente genera el salt y lo embebe en el string resultante.
