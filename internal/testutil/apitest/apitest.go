@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/app"
 	"github.com/LucianoR23/api_go_ahorra/internal/auth"
@@ -52,6 +53,12 @@ func WithRealRateLimits() Option {
 // WithConfig edits the Config (e.g. SupportAPIURL pointing at a fake server).
 func WithConfig(f func(*config.Config)) Option {
 	return func(c *config.Config, _ *app.Options) { f(c) }
+}
+
+func init() {
+	// Hashing at cost 12 dominates auth test time (and hits the request
+	// timeout under -race on CI); verification works the same at any cost.
+	auth.SetBcryptCostForTests(bcrypt.MinCost)
 }
 
 // New starts the API on an httptest server with a fresh, migrated database.
