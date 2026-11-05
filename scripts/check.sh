@@ -38,8 +38,7 @@ if [ -z "${TEST_DATABASE_URL:-}" ]; then
   until docker exec "$pg_cid" pg_isready -q -h 127.0.0.1 -U postgres; do sleep 1; done
   export TEST_DATABASE_URL="postgres://postgres:check_only_pw@127.0.0.1:${pg_port}/postgres?sslmode=disable"
 fi
-step "test";           TESTDB_REQUIRED=1 go test -count=1 -coverprofile=coverage.out ./...
-step "coverage";       go tool cover -func=coverage.out | tail -1
+step "test + coverage gate"; TESTDB_REQUIRED=1 ./scripts/coverage.sh
 step "govulncheck";    go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" ./...
 step "gitleaks";       go run github.com/zricethezav/gitleaks/v8@v8.30.1 git . --redact --no-banner
 

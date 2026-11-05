@@ -159,6 +159,7 @@ go test -race ./...    # con detector de races (no soportado en Windows ARM64; C
 ```
 
 - CI: `.github/workflows/ci.yml` en cada push a `next` y en cada PR hacia `next`. Un ítem no está terminado con CI en rojo.
+- Cobertura: `scripts/coverage.sh` mide la cobertura entre paquetes de `internal/` (sin sqlc ni testutil) y falla si baja del piso de `.coverage-floor` o si el piso baja respecto de `next`. Línea base y huecos conocidos: `docs/testing/coverage-baseline.md`. Si un PR sube la cobertura, subí el piso en el mismo PR.
 - Lint: golangci-lint v2 con `.golangci.yml` (gofmt, staticcheck, gosec, errcheck...). Las exclusiones existentes apuntan al ítem del plan que las elimina; no se agregan exclusiones para código nuevo.
 - Bugs conocidos de la auditoría: `testutil.KnownBug(t, "<ítem>", ...)` pasa mientras el bug se reproduce y falla cuando se arregla, para que el ítem que lo arregla lo convierta en test normal.
 - Tiempo determinístico: los workers tienen un clock inyectable (`now`); los tests usan `testutil.Location` (`America/Argentina/Buenos_Aires`) y `testutil.FixedClock`.
