@@ -4,6 +4,17 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.21d: banks, payment methods, cards, periods, categories and FX tests
+- `internal/paymethods`: banks (create, rename, deactivate/activate, revive by name, duplicate name, per-user privacy), payment methods (Efectivo bootstrap, `allowsInstallments` forced by kind except wallets, credit cards with current and next period and a debit account, every card validation rule, revive by name including cards, kind clash on revive, last active method cannot be deactivated, `includeInactive`), update rules (PATCH replaces `bankId` and `lastFour`), card update, and IDOR checks (another user's methods, bank or debit account).
+- `internal/creditperiods`: upsert/overwrite/list/delete, status (passed, upcoming, no periods), validation (period format, dates, closing date outside the period), only the caller's credit cards.
+- `internal/categories`: defaults on a new household, any member can create/edit/delete, defaults for icon and color (PATCH resets them when omitted), 40-character limit counted in characters, duplicate name, isolation between households.
+- `internal/fxrates`: the Bluelytics mapping against a local fake server, upstream errors, refresh into the database (idempotent), cache hydration, the cold-cache path of `Convert`, a failed refresh keeps the cache; `GET /exchange-rates/current`.
+- `apitest`: `CreatePaymentMethod`, `CreateCreditCard`, `Cash`.
+- Known bugs pinned (`KnownBug`):
+  - 0.2: card status takes "today" in UTC, so from 21:00 in Buenos Aires on the due date the period already shows as overdue.
+  - **New, not in the audit (unassigned):** a rate that refresh discards as invalid (0) is still put in the cache and served by `GET /exchange-rates/current`.
+- Coverage: paymethods 77.8%, creditperiods 80.1%, categories 83.0%, fxrates 74.7%; module total 21.6% → 30.9%.
+
 ### 0.21c: households, invites, roles, admin, push and support tests
 - `internal/households`: create (defaults: categories and the owner's split rule), list isolation, read/update/delete authorization (owner, member, outsider), the `X-Household-ID` middleware, leaving, removing members, ownership transfer, membership removed on account deletion, soft delete, and the superadmin list/get/restore/purge endpoints.
 - Invites: email and link, public preview, register with an invite (joins, email verified, no verification mail), register or accept with someone else's invite, accept while logged in (seeds the split rule), single use, inviting a current member, owner-only management, list pending, revoke, resend (new token, old one dead), expiry, failed delivery still returns a shareable token.
