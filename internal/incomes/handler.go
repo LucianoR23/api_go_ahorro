@@ -134,23 +134,23 @@ type setActiveReq struct {
 }
 
 type recurringDTO struct {
-	ID              string     `json:"id"`
-	HouseholdID     string     `json:"householdId"`
-	ReceivedBy      string     `json:"receivedBy"`
-	PaymentMethodID *string    `json:"paymentMethodId,omitempty"`
-	Amount          float64    `json:"amount"`
-	Currency        string     `json:"currency"`
-	Description     string     `json:"description"`
-	Source          string     `json:"source"`
-	Frequency       string     `json:"frequency"`
-	DayOfMonth      *int       `json:"dayOfMonth,omitempty"`
-	DayOfWeek       *int       `json:"dayOfWeek,omitempty"`
-	MonthOfYear     *int       `json:"monthOfYear,omitempty"`
-	IsActive        bool       `json:"isActive"`
-	StartsAt        string     `json:"startsAt"`
-	EndsAt          *string    `json:"endsAt,omitempty"`
-	LastGenerated   *string    `json:"lastGenerated,omitempty"`
-	CreatedAt       time.Time  `json:"createdAt"`
+	ID              string    `json:"id"`
+	HouseholdID     string    `json:"householdId"`
+	ReceivedBy      string    `json:"receivedBy"`
+	PaymentMethodID *string   `json:"paymentMethodId,omitempty"`
+	Amount          float64   `json:"amount"`
+	Currency        string    `json:"currency"`
+	Description     string    `json:"description"`
+	Source          string    `json:"source"`
+	Frequency       string    `json:"frequency"`
+	DayOfMonth      *int      `json:"dayOfMonth,omitempty"`
+	DayOfWeek       *int      `json:"dayOfWeek,omitempty"`
+	MonthOfYear     *int      `json:"monthOfYear,omitempty"`
+	IsActive        bool      `json:"isActive"`
+	StartsAt        string    `json:"startsAt"`
+	EndsAt          *string   `json:"endsAt,omitempty"`
+	LastGenerated   *string   `json:"lastGenerated,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
 }
 
 type totalsIncomeDTO struct {

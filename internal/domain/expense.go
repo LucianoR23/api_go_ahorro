@@ -58,9 +58,9 @@ type ExpenseInstallment struct {
 
 // InstallmentShare: cuánto debe el user X por la cuota Y.
 type InstallmentShare struct {
-	InstallmentID   uuid.UUID
-	UserID          uuid.UUID
-	AmountBaseOwed  float64
+	InstallmentID  uuid.UUID
+	UserID         uuid.UUID
+	AmountBaseOwed float64
 }
 
 // ExpenseDetail: vista completa (expense + installments + shares)

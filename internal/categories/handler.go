@@ -17,10 +17,10 @@ import (
 )
 
 type Handler struct {
-	svc       *Service
-	logger    *slog.Logger
-	authMW    *auth.Middleware
-	hhMW      *households.Middleware
+	svc    *Service
+	logger *slog.Logger
+	authMW *auth.Middleware
+	hhMW   *households.Middleware
 }
 
 func NewHandler(svc *Service, authMW *auth.Middleware, hhMW *households.Middleware, logger *slog.Logger) *Handler {

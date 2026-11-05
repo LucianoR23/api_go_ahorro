@@ -36,6 +36,7 @@ type inviteEmailSender interface {
 //     entonces dos clicks concurrentes con el mismo token → uno gana, otro 409.
 //   - un mismo email puede tener una sola invitación activa por hogar
 //     (unique parcial en la migration).
+//
 // invitesInsightCreator: dependencia opcional para que aceptar una invitación
 // genere un insight visible en /notificaciones del invitado. Nil-safe.
 type invitesInsightCreator interface {
@@ -90,10 +91,10 @@ func (s *InvitesService) SetInsightCreator(c invitesInsightCreator) {
 // InviteResult es lo que se devuelve al crear una invitación. El token
 // plano solo vuelve acá — después solo se guarda el hash.
 type InviteResult struct {
-	Invite     domain.HouseholdInvite
-	Token      string // plano, one-shot. Frontend puede mostrarlo como fallback.
-	AcceptURL  string
-	EmailSent  bool
+	Invite    domain.HouseholdInvite
+	Token     string // plano, one-shot. Frontend puede mostrarlo como fallback.
+	AcceptURL string
+	EmailSent bool
 }
 
 // Create emite una invitación: genera token, persiste hash, manda email.

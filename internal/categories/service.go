@@ -102,4 +102,3 @@ func (s *Service) requireCategoryInHousehold(ctx context.Context, householdID, c
 	}
 	return nil
 }
-

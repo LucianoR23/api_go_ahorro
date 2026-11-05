@@ -16,6 +16,7 @@ import (
 // Alternativas consideradas:
 //   - path param /households/{id}/expenses → verbose, duplicaría rutas.
 //   - query param ?household=... → funciona pero se mezcla con filtros.
+//
 // Header es limpio y standard para "contexto de tenant".
 const HouseholdHeader = "X-Household-ID"
 

@@ -53,15 +53,15 @@ func (h *Handler) Mount(r chi.Router) {
 // ===================== request DTOs =====================
 
 type createReq struct {
-	CategoryID      *uuid.UUID          `json:"categoryId,omitempty"`
-	PaymentMethodID uuid.UUID           `json:"paymentMethodId"`
-	Amount          float64             `json:"amount"`
-	Currency        string              `json:"currency"`
-	Description     string              `json:"description"`
-	SpentAt         string              `json:"spentAt"` // YYYY-MM-DD
-	Installments    int                 `json:"installments"`
-	IsShared        bool                `json:"isShared"`
-	SharesOverride  []shareOverrideReq  `json:"sharesOverride,omitempty"`
+	CategoryID      *uuid.UUID         `json:"categoryId,omitempty"`
+	PaymentMethodID uuid.UUID          `json:"paymentMethodId"`
+	Amount          float64            `json:"amount"`
+	Currency        string             `json:"currency"`
+	Description     string             `json:"description"`
+	SpentAt         string             `json:"spentAt"` // YYYY-MM-DD
+	Installments    int                `json:"installments"`
+	IsShared        bool               `json:"isShared"`
+	SharesOverride  []shareOverrideReq `json:"sharesOverride,omitempty"`
 }
 
 type shareOverrideReq struct {

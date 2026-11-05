@@ -65,9 +65,9 @@ type SeriesStats struct {
 // SeriesPoint: un cargo confirmado dentro de una serie. VariationPct compara
 // contra el punto inmediatamente anterior (más viejo). nil en el más antiguo.
 type SeriesPoint struct {
-	ExpenseID     uuid.UUID
-	Amount        float64
-	Currency      string
-	SpentAt       time.Time
-	VariationPct  *float64
+	ExpenseID    uuid.UUID
+	Amount       float64
+	Currency     string
+	SpentAt      time.Time
+	VariationPct *float64
 }

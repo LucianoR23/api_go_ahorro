@@ -90,8 +90,8 @@ type creditCardDTO struct {
 
 type paymentMethodWithCardDTO struct {
 	paymentMethodDTO
-	CreditCard *creditCardDTO          `json:"creditCard,omitempty"`
-	Periods    []creditCardPeriodDTO   `json:"periods,omitempty"`
+	CreditCard *creditCardDTO        `json:"creditCard,omitempty"`
+	Periods    []creditCardPeriodDTO `json:"periods,omitempty"`
 }
 
 type creditCardPeriodDTO struct {

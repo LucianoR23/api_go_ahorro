@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/google/uuid"
 	webpush "github.com/SherClockHolmes/webpush-go"
+	"github.com/google/uuid"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 )
@@ -221,4 +221,3 @@ func truncate(s string, n int) string {
 	}
 	return s[:n] + "…"
 }
-

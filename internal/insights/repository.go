@@ -96,8 +96,8 @@ type ListFilters struct {
 	To          *time.Time
 	InsightType *string
 	// Q: búsqueda full-text simple en title/body (ILIKE %q%). Vacío = sin filtro.
-	Q     string
-	Limit int32
+	Q      string
+	Limit  int32
 	Offset int32
 }
 
@@ -153,11 +153,11 @@ func (r *Repository) ListByHousehold(ctx context.Context, householdID uuid.UUID,
 	var out []domain.DailyInsight
 	for rows.Next() {
 		var (
-			ins        domain.DailyInsight
-			userID     *uuid.UUID
-			refID      *uuid.UUID
-			insDate    pgtype.Date
-			createdAt  pgtype.Timestamptz
+			ins       domain.DailyInsight
+			userID    *uuid.UUID
+			refID     *uuid.UUID
+			insDate   pgtype.Date
+			createdAt pgtype.Timestamptz
 		)
 		if err := rows.Scan(
 			&ins.ID, &ins.HouseholdID, &userID, &insDate, &ins.InsightType,

@@ -94,4 +94,3 @@ func (s *AccountService) SoftDelete(ctx context.Context, userID uuid.UUID) error
 	s.logger.InfoContext(ctx, "cuenta dada de baja (soft delete)", "user_id", userID)
 	return nil
 }
-

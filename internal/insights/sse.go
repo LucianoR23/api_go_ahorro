@@ -47,12 +47,13 @@ func (h *SSEHandler) Mount(r chi.Router) {
 }
 
 // Stream: SSE long-lived. Eventos:
-//   * insight.created → {insight: insightDTO}
-//   * (línea ": ping") cada 25s para evitar que reverse proxies corten conn idle.
+//   - insight.created → {insight: insightDTO}
+//   - (línea ": ping") cada 25s para evitar que reverse proxies corten conn idle.
 //
 // Query params:
-//   ?access_token=<JWT>   obligatorio (Bearer del access token)
-//   ?householdId=<uuid>   obligatorio
+//
+//	?access_token=<JWT>   obligatorio (Bearer del access token)
+//	?householdId=<uuid>   obligatorio
 func (h *SSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {

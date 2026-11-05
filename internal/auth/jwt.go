@@ -31,9 +31,9 @@ const (
 )
 
 // Claims es el payload del JWT que emitimos.
-// - Subject: user_id en formato UUID string
-// - Typ:     access | refresh (para que un refresh no pueda usarse
-//            como access aunque se mezclen los secrets)
+//   - Subject: user_id en formato UUID string
+//   - Typ:     access | refresh (para que un refresh no pueda usarse
+//     como access aunque se mezclen los secrets)
 //
 // No incluimos email/name acá: los claims son públicos (están en el
 // token), y esos datos los resuelve el handler desde DB si los necesita.

@@ -91,8 +91,8 @@ type AuthError struct {
 	Message string
 }
 
-func (e *AuthError) Error() string  { return e.Message }
-func (e *AuthError) Unwrap() error  { return ErrUnauthorized }
+func (e *AuthError) Error() string { return e.Message }
+func (e *AuthError) Unwrap() error { return ErrUnauthorized }
 
 func NewAuthError(message string) *AuthError {
 	return &AuthError{Message: message}
