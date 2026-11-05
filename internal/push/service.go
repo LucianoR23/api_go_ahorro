@@ -1,6 +1,7 @@
 package push
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -191,7 +192,11 @@ func (s *Service) sendOne(ctx context.Context, sub Subscription, body []byte, op
 			Auth:   sub.Auth,
 		},
 	}
-	resp, err := webpush.SendNotification(body, ws, opts)
+	// webpush-go (v1.4.0) pads the payload by writing into the slice it is
+	// given (bytes.NewBuffer(message).Write), and body is shared by every
+	// device of this delivery: each send needs its own copy or the goroutines
+	// race on the same backing array.
+	resp, err := webpush.SendNotification(bytes.Clone(body), ws, opts)
 	if err != nil {
 		s.logger.WarnContext(ctx, "push: send falló",
 			"error", err, "user_id", sub.UserID, "endpoint", truncate(sub.Endpoint, 60))

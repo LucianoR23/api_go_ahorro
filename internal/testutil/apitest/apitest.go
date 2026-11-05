@@ -148,6 +148,7 @@ func (s *Server) Do(t testing.TB, r Req) *Res {
 		req.Header.Set("X-Household-ID", r.Household)
 	}
 	for k, vs := range r.Header {
+		req.Header.Del(k) // explicit headers replace the defaults above
 		for _, v := range vs {
 			req.Header.Add(k, v)
 		}
