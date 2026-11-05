@@ -2,8 +2,8 @@
 # Local mirror of CI (.github/workflows/ci.yml). Run from Git Bash before pushing:
 #   ./scripts/check.sh
 # Tool versions must match the workflow. Needs: Go (toolchain from go.mod), sqlc 1.30.0.
-# Optional: DBMIGRATE_TEST_DATABASE_URL pointing at an EMPTY database to run the
-# migrations integration test (skipped otherwise).
+# Integration tests need Docker running (testcontainers) or TEST_DATABASE_URL
+# (superuser URL to a Postgres 18 server); without either they are skipped.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
