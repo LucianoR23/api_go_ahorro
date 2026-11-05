@@ -170,6 +170,11 @@ In Coolify, every database resource: **Make it publicly available = off**.
 
 ### 6.4 Automatic security updates ☐
 
+**Found 2026-11-05:** an `apt-get update` hung since 2026-04-12 held the lists
+lock, so the daily job ran on April's package lists and applied nothing for about
+7 months. Fix: `server-ops/step1-updates-fail2ban.sh` (kills it, refreshes,
+applies the allowed updates with needrestart suspended, installs fail2ban).
+
 Ubuntu cloud images ship `unattended-upgrades` enabled; the inventory confirms it
 (`APT::Periodic::Unattended-Upgrade "1";`). A Coolify "could not get lock
 /var/lib/apt/lists" alert while it runs is expected (both use apt at the same
@@ -192,7 +197,10 @@ The published privacy policy promises technical logs with IPs are kept **7 days*
 (`valuo_web/src/config/legal.ts`). Size caps (`json-file` with `max-size`) do not
 guarantee age: a quiet container never rotates and its live file keeps weeks of
 lines. Send container logs to journald and let journald expire them by age
-(`docker logs` and Coolify's log view keep working):
+(`docker logs` and Coolify's log view keep working). **Decided 2026-11-05: global,
+7 days for every project on the server** (container stdout/stderr and the system
+journal: app request and error logs, Traefik errors, Postgres logs, SSH logins;
+never databases, deployment history, volumes or backups). Can be lengthened later.
 
 ```bash
 sudo mkdir -p /etc/systemd/journald.conf.d
