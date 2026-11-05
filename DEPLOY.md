@@ -106,14 +106,24 @@ Then register a user from the front.
 
 ## 6. Server hardening (plan 0.20)
 
-One Coolify server (Oracle Cloud, Ubuntu 24.04 aarch64) runs everything: the
-staging app and API, the landing and the old production app. Each step says
-what it touches. Order matters: inventory first, then the steps that cannot
+One Coolify server (Oracle Cloud, Ubuntu 24.04 aarch64) runs the staging app
+and API, the landing and the old production app, **plus other projects of the
+owner** (terrua, soporte, portfolio, rentar, beszel). Restarting the proxy or
+Docker affects all of them; each step says what it touches. Order matters: inventory first, then the steps that cannot
 lock you out, SSH last with a second session open.
 
 Status legend: ☐ to do · ☑ done (date).
 
 ### 6.0 Inventory (read only, run first and keep the output)
+
+Script: `valuo_workspace/server-ops/inventory.sh` (outputs are git-ignored).
+Findings 2026-11-05: password and keyboard-interactive login already off; root
+only by key (`without-password`; keys: Oracle's "login as ubuntu" block and
+Coolify's); `MaxAuthTries 6`, `X11Forwarding yes`; unattended-upgrades active;
+fail2ban not installed; Docker `json-file` 10m x 3; journald 2.3 GB, no age
+limit; Postgres ports published only on 127.0.0.1; Oracle ingress open for 22,
+80, 443 **and 3000, 8000, 6001** (nothing listens on 3000; Coolify is used
+through its domain); an `apt-get update` held the apt lock.
 
 ```bash
 lsb_release -ds; uname -m
@@ -139,7 +149,9 @@ of the instance, and how you open Coolify (domain or `:8000`).
 Docker publishes ports through its own iptables chains, which bypass `ufw` and
 the host's INPUT rules, so the **cloud firewall is the one that counts**.
 Ingress allowed: TCP 22 (SSH), 80 and 443. Nothing else: no 5432 (Postgres),
-no 8000/6001/6002 (Coolify) once the panel has its own domain. Do not enable
+no 8000/6001/6002 (Coolify) once the panel has its own domain. Remove 3000
+first (nothing listens there), then 8000, then 6001, checking the panel (live
+deployment logs, terminal) after each; re-adding a rule in the console undoes it. Do not enable
 `ufw` on this image: Oracle ships its own iptables rules and Docker manages the
 rest; mixing them breaks container networking.
 
@@ -188,10 +200,15 @@ printf '[Journal]\nMaxRetentionSec=7day\nSystemMaxUse=2G\n' \
   | sudo tee /etc/systemd/journald.conf.d/retention.conf >/dev/null
 sudo systemctl restart systemd-journald
 
-# Docker: journald driver; live-restore keeps containers running while dockerd restarts.
-# MERGE with any existing /etc/docker/daemon.json instead of overwriting it.
-echo '{ "log-driver": "journald", "live-restore": true }' | sudo tee /etc/docker/daemon.json >/dev/null
-sudo systemctl restart docker
+# Docker: journald driver; live-restore keeps containers running while dockerd
+# restarts. Keep the existing default-address-pools (Coolify's networks).
+sudo cp -a /etc/docker/daemon.json /etc/docker/daemon.json.bak-0.20
+printf '%s\n' '{' \
+  '  "log-driver": "journald",' \
+  '  "live-restore": true,' \
+  '  "default-address-pools": [ {"base":"10.0.0.0/8","size":24} ]' \
+  '}' | sudo tee /etc/docker/daemon.json >/dev/null
+sudo dockerd --validate --config-file /etc/docker/daemon.json && sudo systemctl restart docker
 ```
 
 - The new driver applies to containers when they are **recreated**: redeploy each
@@ -208,6 +225,30 @@ Verify: `docker info --format '{{.LoggingDriver}}'` gives `journald`; after a we
 
 ### 6.7 Traefik (Coolify proxy) on the current minor ☐
 
+**State 2026-11-05:** the proxy compose uses the floating tag `traefik:v3.6` but
+runs v3.6.13 (the image was never pulled again); the v3.6 line got its last
+patch (v3.6.25) in August 2026, so it no longer receives fixes. Target:
+**`traefik:v3.7.17`** (latest v3.7 patch on Docker Hub, 2026-11-05), pinned.
+
+Steps (Coolify → Servers → localhost → Proxy):
+
+1. Backup the proxy state (certificates live in `acme.json`):
+   `sudo cp -a /data/coolify/proxy /data/coolify/proxy.bak-0.20`.
+2. Check the dynamic config for BasicAuth with an empty user list (3.7.3):
+   `sudo grep -ril basicauth /data/coolify/proxy/dynamic/ || echo none`.
+3. In the proxy configuration change `image: 'traefik:v3.6'` to
+   `image: 'traefik:v3.7.17'`, **Save**, then **Restart Proxy** (all sites on the
+   server drop for a few seconds).
+4. Verify: `docker exec coolify-proxy traefik version` shows 3.7.17; the
+   Coolify panel loads on its domain; `https://next.valuo.ar`,
+   `https://api-next.valuo.ar/health/ready`, `https://preview.valuo.ar` and the
+   other projects' sites answer with valid certificates;
+   `docker logs --since 5m coolify-proxy` has no errors.
+5. Rollback: set the image back to `traefik:v3.6.13`, Save, Restart Proxy
+   (or restore the backup folder if certificates were affected).
+
+Notes from the migration guide:
+
 Coolify reports v3.6.13; v3.7 is current and its patches fix several CVEs. The
 v3.7 migration notes are mostly Kubernetes (Gateway API, CRDs, Ingress NGINX),
 which Coolify does not use (Docker provider). The ones that could matter here:
@@ -216,11 +257,6 @@ result has `.`/`..` segments (3.7.3), a `Host` rule of `*` matches every request
 (3.7.7), CONNECT and h2c upgrades are rejected (3.7.9 to 3.7.15), more than 500
 header values give 431 (3.7.17). None applies to our apps.
 
-Upgrade in Coolify: Servers → localhost → Proxy → set the v3.7 tag offered,
-restart the proxy (a few seconds of downtime for every site on the server, old
-production included). Then check `https://next.valuo.ar`,
-`https://api-next.valuo.ar/health/ready`, `https://preview.valuo.ar` and the
-certificates.
 
 ### 6.8 SSH: keys only, no password, root only by key ☐ (last; keep a second session open)
 
