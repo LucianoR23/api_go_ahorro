@@ -19,7 +19,7 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
   - 0.4: the monthly report counts unconfirmed drafts.
   - 0.6: personal insights are visible and editable by every member; `/insights/generate` is open to any member with any `?at=`; a goal's category is not checked against the household.
   - 0.9: the SSE stream is cut by the 30 s request timeout; **new, not in the audit:** in dev the stream always answers 500, because the dev request logger's writer has no `Flush` and the handler type-asserts `http.Flusher` (0.9's switch to `http.ResponseController` fixes it).
-  - **New, not in the audit (unassigned):** goal progress ignores the goal's currency, so ARS spending is measured against a target set in USD or EUR.
+  - **New, not in the audit (assigned to 0.1):** goal progress ignores the goal's currency, so ARS spending is measured against a target set in USD or EUR.
 - Coverage: goals 80.2%, insights 76.8%, reports 72.7%; module total 49.5% → 61.1%.
 
 ### 0.21f (part 1): incomes, recurring incomes and recurring expenses tests
