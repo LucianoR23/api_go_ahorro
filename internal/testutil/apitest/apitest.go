@@ -43,18 +43,30 @@ type Server struct {
 	Jobs app.Jobs
 }
 
-// Option tweaks the Config or the app.Options before the API is built.
-type Option func(*config.Config, *app.Options)
+// Option tweaks the server before the API is built.
+type Option func(*settings)
+
+type settings struct {
+	cfg      *config.Config
+	opts     *app.Options
+	realtime bool
+}
 
 // WithRealRateLimits keeps the production auth rate limiter (off by default
 // so tests can create many users).
 func WithRealRateLimits() Option {
-	return func(_ *config.Config, o *app.Options) { o.AuthRateLimiter = auth.NewInMemoryRateLimiter() }
+	return func(s *settings) { s.opts.AuthRateLimiter = auth.NewInMemoryRateLimiter() }
+}
+
+// WithRealtime starts the insights listener, so GET /insights/stream
+// delivers events. Background workers stay off.
+func WithRealtime() Option {
+	return func(s *settings) { s.realtime = true }
 }
 
 // WithConfig edits the Config (e.g. SupportAPIURL pointing at a fake server).
 func WithConfig(f func(*config.Config)) Option {
-	return func(c *config.Config, _ *app.Options) { f(c) }
+	return func(s *settings) { f(s.cfg) }
 }
 
 func init() {
@@ -93,14 +105,20 @@ func New(t testing.TB, opts ...Option) *Server {
 		AuthRateLimiter: noLimits{},
 		FXHTTPClient:    &http.Client{Transport: blockedTransport{}},
 	}
+	st := settings{cfg: cfg, opts: &appOpts}
 	for _, o := range opts {
-		o(cfg, &appOpts)
+		o(&st)
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	a, err := app.New(context.Background(), cfg, pool, logger, appOpts)
 	if err != nil {
 		t.Fatalf("apitest: build app: %v", err)
+	}
+	if st.realtime {
+		ctx, cancel := context.WithCancel(context.Background())
+		stop := a.StartRealtime(ctx)
+		t.Cleanup(func() { cancel(); stop() })
 	}
 	srv := httptest.NewServer(a.Router())
 	t.Cleanup(srv.Close)
