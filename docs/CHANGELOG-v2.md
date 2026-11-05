@@ -14,7 +14,7 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
   - 0.6: the push upsert hands an endpoint to whichever user subscribes it last; any URL is accepted as a push endpoint (blind SSRF).
   - 0.1: the support proxy passes an upstream 401 through, which the app reads as an expired session.
   - **New, not in the audit (assigned to 0.8):** an owner who soft-deleted their only household still cannot delete the account, because the owned-households count includes deleted households.
-- Coverage: households 79.2%, push 77.6%, support 80.6%; module total 11.6% → 21%+.
+- Coverage: households 79.2%, push 77.6%, support 80.6%; module total 11.6% → 21.6%.
 
 ### 0.21b: auth and users characterization tests
 - `internal/auth/*_test.go` (77 subtests, real router + fresh database through `apitest`). Covered: register (normalization, cookie flags, verification email, Efectivo bootstrap, duplicate email, every validation rule, malformed or unknown JSON), login (anti-enumeration: same body for wrong password and unknown email; Google-only accounts), every way an access token can be missing or invalid (scheme, refresh-as-access, wrong secret, expired, wrong `typ`) on all authenticated auth routes, refresh rotation and cookie clearing, logout, Google sign-in (new user, repeat login, linking, `Usuario` fallback, soft-deleted account, bad or empty token), forgot/reset (single-use, the newer link invalidates the older one, expiry, weak password keeps the token, Google-only account sets a password), change password (also burns pending reset links), email verification and resend, `GET/PATCH/DELETE /me` (soft delete anonymizes and frees the email, owners must transfer first), and the login and forgot-password rate limits.
