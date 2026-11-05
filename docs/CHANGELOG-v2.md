@@ -4,6 +4,19 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.21f (part 2): goals, insights and reports tests
+- `internal/goals`: CRUD with defaults, list filters, validation, household scoping; progress for household and personal goals (own expenses plus the share of shared ones), category limits, savings (income minus spending), monthly and Monday-to-Sunday weekly ranges, credit installments counted in the month they are due, ok/warning/exceeded thresholds, `?at=` (an invalid one falls back to today).
+- `internal/insights`: the generators run through `App.Jobs` for fixed dates (goal alerts at 80% and 100%, savings alert from day 20, Sunday weekly review against the previous week, credit period reminder on the closing day to the card owner, installment due in 3 days); endpoints (get, unread count, mark read, mark all read, delete, list filters with malformed values ignored, manual generation, household scoping); the SSE stream (auth and membership errors, the `ready` event, and a new personal insight delivered live through LISTEN/NOTIFY).
+- `internal/reports`: monthly report (spent by date, billed and due by installment, categories with "Sin categoría", fixed vs variable), empty month, default month, validation, household scoping; trends (one point per month, net = income - due, default 6 and cap 24 months); AI export with its prompt; the monthly summary email to every member.
+- Wiring, no behavior change: `App.StartRealtime` starts only the insights listener (apitest `WithRealtime()`); `Jobs.MonthlyReports`; the reports worker takes a `Sender` interface and the app passes `opts.NewEmailSender(cfg.ReportFromEmail)`, the same Resend implementation as before. `reports.ResendSender` is now unused and goes in 0.15b. apitest options now carry harness settings instead of only `Config` and `app.Options`.
+- Known bugs pinned (`KnownBug`):
+  - 0.3: household-level insights (no user) are duplicated when the job runs twice in a day; a second personal goal over its limit gets no alert the same day; installment due-soon alerts dedupe on the expense, so only the first installment is announced.
+  - 0.4: the monthly report counts unconfirmed drafts.
+  - 0.6: personal insights are visible and editable by every member; `/insights/generate` is open to any member with any `?at=`; a goal's category is not checked against the household.
+  - 0.9: the SSE stream is cut by the 30 s request timeout; **new, not in the audit:** in dev the stream always answers 500, because the dev request logger's writer has no `Flush` and the handler type-asserts `http.Flusher` (0.9's switch to `http.ResponseController` fixes it).
+  - **New, not in the audit (unassigned):** goal progress ignores the goal's currency, so ARS spending is measured against a target set in USD or EUR.
+- Coverage: goals 80.2%, insights 76.8%, reports 72.7%; module total 49.5% → 61.1%.
+
 ### 0.21f (part 1): incomes, recurring incomes and recurring expenses tests
 - `internal/app`: `App.Jobs()` exposes the units of work behind the workers (recurring expenses, recurring incomes, insights) so tests run a given day's generation without the schedulers; `apitest.Server.Jobs`. Wiring only, no behavior change.
 - `internal/incomes`: create (on behalf of another member, foreign currency), read, edit (amount is not editable), delete, validation, list filters, `GET /totals/income` (explicit and default range), household scoping; recurring incomes CRUD, activation, every recurrence rule, the latest occurrence booked on creation (no backfill), and the daily job (matching days only, day 31 clamps to February, once per day, inactive templates skipped).

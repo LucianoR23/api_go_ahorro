@@ -73,6 +73,7 @@ type Options struct {
 type App struct {
 	router   *chi.Mux
 	starters []func(context.Context) func()
+	realtime func(context.Context) func() // insights LISTEN/NOTIFY listener (also in starters)
 	jobs     Jobs
 }
 
@@ -86,6 +87,8 @@ type Jobs struct {
 	RecurringIncomes func(ctx context.Context, date time.Time) (created int, err error)
 	// Insights generates the daily insights of every household at "at".
 	Insights func(ctx context.Context, at time.Time) (generated, failed int, err error)
+	// MonthlyReports emails the previous month's summary as of "at".
+	MonthlyReports func(ctx context.Context, at time.Time)
 }
 
 // Jobs returns the background jobs' units of work.
@@ -108,6 +111,11 @@ func (a *App) Start(ctx context.Context) (stop func()) {
 		}
 	}
 }
+
+// StartRealtime launches only the insights listener that feeds the SSE
+// stream, without the workers (which run once on start). For tests; never
+// call it together with Start, which already includes the listener.
+func (a *App) StartRealtime(ctx context.Context) (stop func()) { return a.realtime(ctx) }
 
 // New builds the App. ctx bounds the startup work (FX cache hydration).
 func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *slog.Logger, opts Options) (*App, error) {
@@ -344,6 +352,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	insightsHub := insights.NewHub(logger)
 	insightsListener := insights.NewListener(pool, insightsHub, logger)
 	a.starters = append(a.starters, insightsListener.Start)
+	a.realtime = insightsListener.Start
 	insightsHandler := insights.NewHandler(insightsSvc, authMW, householdsMW, logger)
 	insightsSSE := insights.NewSSEHandler(insightsHub, insightsRepo, tokenIssuer,
 		func(ctx context.Context, hh, u uuid.UUID) (bool, error) {
@@ -373,9 +382,10 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 
 	// Resend sender + worker mensual. Si RESEND_API_KEY no está, el worker
 	// arranca igual pero no envía — útil para dev sin credenciales.
-	reportsSender := reports.NewResendSender(cfg.ResendAPIKey, cfg.ReportFromEmail)
+	reportsSender := opts.NewEmailSender(cfg.ReportFromEmail)
 	reportsWorker := reports.NewWorker(reportsSvc, householdsRepo, reportsSender, 8, 0, logger)
 	a.starters = append(a.starters, reportsWorker.Start)
+	a.jobs.MonthlyReports = reportsWorker.RunOnce
 
 	// support: proxy al servicio centralizado Lemy Support. Stateless, sin
 	// repo ni migración — solo usa userRepo para resolver el email del

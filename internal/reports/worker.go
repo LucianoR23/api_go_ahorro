@@ -23,7 +23,7 @@ type allHouseholdsLister interface {
 type Worker struct {
 	svc        *Service
 	households allHouseholdsLister
-	sender     *ResendSender
+	sender     Sender
 	hour       int
 	minute     int
 	logger     *slog.Logger
@@ -32,7 +32,14 @@ type Worker struct {
 	now func() time.Time
 }
 
-func NewWorker(svc *Service, households allHouseholdsLister, sender *ResendSender, hour, minute int, logger *slog.Logger) *Worker {
+// Sender delivers the monthly email. Production passes the shared Resend
+// sender (same implementation as ResendSender in this package).
+type Sender interface {
+	Configured() bool
+	Send(ctx context.Context, to []string, subject, html string) error
+}
+
+func NewWorker(svc *Service, households allHouseholdsLister, sender Sender, hour, minute int, logger *slog.Logger) *Worker {
 	if hour < 0 || hour > 23 {
 		hour = 8
 	}
@@ -73,6 +80,10 @@ func (w *Worker) nextTick(from time.Time) time.Time {
 	}
 	return candidate
 }
+
+// RunOnce sends last month's summary to every household as of "at", as the
+// scheduler does each month (exposed for App.Jobs).
+func (w *Worker) RunOnce(ctx context.Context, at time.Time) { w.runOnce(ctx, at) }
 
 func (w *Worker) runOnce(ctx context.Context, at time.Time) {
 	if !w.sender.Configured() {
