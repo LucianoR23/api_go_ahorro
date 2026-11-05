@@ -4,6 +4,10 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.21i: coverage baseline and ratchet gate
+- `scripts/coverage.sh`: cross-package statement coverage of `internal/` (generated sqlc code and test helpers excluded), per-package and per-`service.go` summary, and the gate: fails below `.coverage-floor` or when the floor is lowered compared with `origin/next`. Run by `scripts/check.sh` and CI (with `-race`; CI checks out full history for the comparison).
+- Baseline 79.0% (3.5% before 0.21); floor 78.0%. Every `service.go` at 80% or more except push (79.5%). Details and known gaps in `docs/testing/coverage-baseline.md`.
+
 ### 0.21: remaining audit contract bugs pinned (API side)
 - Contract mismatches from the audit (section 10) that had no test yet, pinned as `KnownBug` for 0.1: the expense JSON lacks `recurringExpenseId` (1); CORS does not expose `Retry-After` (5); `PATCH /expenses/{id}` is a full replace, and `PATCH .../credit-card` wipes `lastFour` and `debitPaymentMethodId` when the edit does not resend them (6, previously characterized as normal); `billingDate: null` on `PATCH installments/{n}` is ignored (7); `GET /insights` and `GET /settlements` have no `totalCount` (9).
 - `internal/app/cors_test.go`: allowed origin with credentials and `X-Request-ID` exposed, preflight with `X-Household-ID`, other origins get nothing.

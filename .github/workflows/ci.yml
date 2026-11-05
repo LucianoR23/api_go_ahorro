@@ -34,6 +34,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Full history: the coverage gate compares .coverage-floor with origin/next.
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -61,14 +63,15 @@ jobs:
       - name: sqlc diff (generated code is up to date)
         run: sqlc diff
 
-      - name: Test
-        run: go test -race -count=1 -coverprofile=coverage.out ./...
+      - name: Test + coverage gate (floor in .coverage-floor, only goes up)
+        run: ./scripts/coverage.sh -race
 
-      - name: Coverage summary (reported only; the ratchet gate starts in 0.21)
+      - name: Coverage summary
+        if: always()
         run: |
-          total=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}')
-          echo "Total coverage: $total"
-          echo "### Coverage: $total" >> "$GITHUB_STEP_SUMMARY"
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {print $NF}')
+          echo "Total coverage: $total (floor $(cat .coverage-floor)%)"
+          echo "### Coverage: $total (floor $(cat .coverage-floor)%)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }} ./...
