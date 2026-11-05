@@ -270,7 +270,7 @@ func TestGoalProgress(t *testing.T) {
 		g := h.goal(t, map[string]any{"goalType": "total_limit", "targetAmount": 100, "currency": "USD"})
 		h.spend(t, h.owner, 50000, "2026-03-10", nil) // ARS
 		p := h.progress(t, g, "2026-03-15")
-		testutil.KnownBug(t, "unassigned", "goal progress ignores the goal currency: ARS spending is measured against a USD target", func(t testing.TB) {
+		testutil.KnownBug(t, "0.1", "goal progress ignores the goal currency: ARS spending is measured against a USD target", func(t testing.TB) {
 			if p.Status == "exceeded" {
 				t.Errorf("50000 ARS counted as %v against a target of 100 USD (%s)", p.CurrentAmount, fmt.Sprintf("%.0f%%", p.Percent))
 			}
