@@ -27,6 +27,9 @@ type Worker struct {
 	hour       int
 	minute     int
 	logger     *slog.Logger
+
+	// now is the clock seam (plan 0.11): time.Now in prod, fixed in tests.
+	now func() time.Time
 }
 
 func NewWorker(svc *Service, households allHouseholdsLister, sender *ResendSender, hour, minute int, logger *slog.Logger) *Worker {
@@ -36,7 +39,7 @@ func NewWorker(svc *Service, households allHouseholdsLister, sender *ResendSende
 	if minute < 0 || minute > 59 {
 		minute = 0
 	}
-	return &Worker{svc: svc, households: households, sender: sender, hour: hour, minute: minute, logger: logger}
+	return &Worker{svc: svc, households: households, sender: sender, hour: hour, minute: minute, logger: logger, now: time.Now}
 }
 
 func (w *Worker) Start(ctx context.Context) func() {
@@ -44,7 +47,7 @@ func (w *Worker) Start(ctx context.Context) func() {
 
 	go func() {
 		for {
-			now := time.Now()
+			now := w.now()
 			next := w.nextTick(now)
 			timer := time.NewTimer(next.Sub(now))
 			select {
@@ -53,7 +56,7 @@ func (w *Worker) Start(ctx context.Context) func() {
 				w.logger.Info("reports worker: detenido")
 				return
 			case <-timer.C:
-				w.runOnce(ctx, time.Now())
+				w.runOnce(ctx, w.now())
 			}
 		}
 	}()

@@ -13,6 +13,9 @@ type Worker struct {
 	hour   int
 	minute int
 	logger *slog.Logger
+
+	// now is the clock seam (plan 0.11): time.Now in prod, fixed in tests.
+	now func() time.Time
 }
 
 func NewWorker(svc *Service, hour, minute int, logger *slog.Logger) *Worker {
@@ -22,17 +25,17 @@ func NewWorker(svc *Service, hour, minute int, logger *slog.Logger) *Worker {
 	if minute < 0 || minute > 59 {
 		minute = 30
 	}
-	return &Worker{svc: svc, hour: hour, minute: minute, logger: logger}
+	return &Worker{svc: svc, hour: hour, minute: minute, logger: logger, now: time.Now}
 }
 
 func (w *Worker) Start(ctx context.Context) func() {
 	ctx, cancel := context.WithCancel(ctx)
 
 	go func() {
-		w.runOnce(ctx, time.Now())
+		w.runOnce(ctx, w.now())
 
 		for {
-			now := time.Now()
+			now := w.now()
 			next := w.nextTick(now)
 			timer := time.NewTimer(next.Sub(now))
 			select {
@@ -41,7 +44,7 @@ func (w *Worker) Start(ctx context.Context) func() {
 				w.logger.Info("recurring expenses worker: detenido")
 				return
 			case <-timer.C:
-				w.runOnce(ctx, time.Now())
+				w.runOnce(ctx, w.now())
 			}
 		}
 	}()
