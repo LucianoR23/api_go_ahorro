@@ -52,3 +52,26 @@ func (s *Server) Refresh(t testing.TB, token string) *Res {
 	t.Helper()
 	return s.Do(t, Req{Method: http.MethodPost, Path: "/auth/refresh", Header: WithRefreshCookie(token)})
 }
+
+// APIError is the body of every error response.
+type APIError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Field   string `json:"field"`
+}
+
+// WantError fails unless the response is an error with this status, code and
+// (when field is not empty) field. It returns the decoded error.
+func (r *Res) WantError(t testing.TB, status int, code, field string) APIError {
+	t.Helper()
+	r.Status(t, status)
+	var e APIError
+	r.JSON(t, &e)
+	if e.Code != code {
+		t.Errorf("error code = %q, want %q (body %s)", e.Code, code, r.Body)
+	}
+	if field != "" && e.Field != field {
+		t.Errorf("error field = %q, want %q (body %s)", e.Field, field, r.Body)
+	}
+	return e
+}
