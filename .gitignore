@@ -29,3 +29,6 @@ Thumbs.db
 
 # Claude Code local settings (per machine)
 .claude/settings.local.json
+
+# Coverage output (scripts/check.sh, CI)
+coverage.out

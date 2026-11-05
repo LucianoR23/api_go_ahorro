@@ -153,12 +153,16 @@ docker run --rm -p 8080:8080 --env-file .env ahorra-api
 ## Testing
 
 ```bash
-go test ./...          # todos los packages
-go test -race ./...    # con detector de races (workers)
-go vet ./...
+./scripts/check.sh     # lo mismo que corre CI (Git Bash): build, vet, lint, sqlc diff, tests, govulncheck, gitleaks
+go test ./...          # solo tests
+go test -race ./...    # con detector de races (no soportado en Windows ARM64; CI lo corre)
 ```
 
-Todavía no hay tests: la batería (unit + integración con testcontainers) llega con los ítems 0.11 y 0.21 del plan v2.
+- CI: `.github/workflows/ci.yml` en cada push a `next` y en cada PR hacia `next`. Un ítem no está terminado con CI en rojo.
+- Lint: golangci-lint v2 con `.golangci.yml` (gofmt, staticcheck, gosec, errcheck...). Las exclusiones existentes apuntan al ítem del plan que las elimina; no se agregan exclusiones para código nuevo.
+- Bugs conocidos de la auditoría: `testutil.KnownBug(t, "<ítem>", ...)` pasa mientras el bug se reproduce y falla cuando se arregla, para que el ítem que lo arregla lo convierta en test normal.
+- Tiempo determinístico: los workers tienen un clock inyectable (`now`); los tests usan `testutil.Location` (`America/Argentina/Buenos_Aires`) y `testutil.FixedClock`.
+- Test de integración de migraciones: `DBMIGRATE_TEST_DATABASE_URL` apuntando a una DB **vacía** (se saltea si no está). Los tests de repositorios con testcontainers llegan en 0.21.
 
 ## Contribuir
 
