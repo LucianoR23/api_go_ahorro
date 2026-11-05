@@ -73,7 +73,23 @@ type Options struct {
 type App struct {
 	router   *chi.Mux
 	starters []func(context.Context) func()
+	jobs     Jobs
 }
+
+// Jobs are the units of work behind the background workers, callable
+// directly for a given date without starting the schedulers (the test
+// harness uses them to run a day's generation deterministically).
+type Jobs struct {
+	// RecurringExpenses creates the expenses (or drafts) due on date.
+	RecurringExpenses func(ctx context.Context, date time.Time) (created, failed int, err error)
+	// RecurringIncomes creates the incomes due on date.
+	RecurringIncomes func(ctx context.Context, date time.Time) (created int, err error)
+	// Insights generates the daily insights of every household at "at".
+	Insights func(ctx context.Context, at time.Time) (generated, failed int, err error)
+}
+
+// Jobs returns the background jobs' units of work.
+func (a *App) Jobs() Jobs { return a.jobs }
 
 // Router returns the HTTP handler with every route and middleware mounted.
 func (a *App) Router() chi.Router { return a.router }
@@ -345,6 +361,12 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// reports: agregaciones read-only (monthly + trends + ai-export).
 	// No tiene worker por ahora — el email mensual se agrega cuando
 	// configuremos RESEND_API_KEY.
+	a.jobs = Jobs{
+		RecurringExpenses: recurringExpensesSvc.GenerateDue,
+		RecurringIncomes:  incomesSvc.GenerateDue,
+		Insights:          insightsSvc.GenerateAll,
+	}
+
 	reportsRepo := reports.NewRepository(pool)
 	reportsSvc := reports.NewService(reportsRepo, householdsRepo, logger)
 	reportsHandler := reports.NewHandler(reportsSvc, authMW, householdsMW, logger)

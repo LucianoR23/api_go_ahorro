@@ -39,6 +39,8 @@ type Server struct {
 	Mail   *FakeMailer
 	Google *FakeGoogle
 	Config *config.Config
+	// Jobs runs the background jobs' work for a given date (no schedulers).
+	Jobs app.Jobs
 }
 
 // Option tweaks the Config or the app.Options before the API is built.
@@ -103,7 +105,7 @@ func New(t testing.TB, opts ...Option) *Server {
 	srv := httptest.NewServer(a.Router())
 	t.Cleanup(srv.Close)
 
-	return &Server{URL: srv.URL, Pool: pool, Mail: mail, Google: g, Config: cfg}
+	return &Server{URL: srv.URL, Pool: pool, Mail: mail, Google: g, Config: cfg, Jobs: a.Jobs()}
 }
 
 // Req is one HTTP request against the server.
