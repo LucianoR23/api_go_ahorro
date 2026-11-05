@@ -101,3 +101,161 @@ curl https://api-next.valuo.ar/health/ready   # {"status":"ok"}: valuo_app reach
 ```
 
 Then register a user from the front.
+
+---
+
+## 6. Server hardening (plan 0.20)
+
+One Coolify server (Oracle Cloud, Ubuntu 24.04 aarch64) runs everything: the
+staging app and API, the landing and the old production app. Each step says
+what it touches. Order matters: inventory first, then the steps that cannot
+lock you out, SSH last with a second session open.
+
+Status legend: ☐ to do · ☑ done (date).
+
+### 6.0 Inventory (read only, run first and keep the output)
+
+```bash
+lsb_release -ds; uname -m
+sudo sshd -T | grep -Ei '^(permitrootlogin|passwordauthentication|kbdinteractiveauthentication|pubkeyauthentication|maxauthtries|x11forwarding) '
+ls /etc/ssh/sshd_config.d/
+sudo awk '{print $1, $NF}' /root/.ssh/authorized_keys      # key types and comments only
+sudo ss -tlnp | awk 'NR==1 || /LISTEN/'
+docker ps --format 'table {{.Names}}\t{{.Ports}}'
+sudo iptables -S INPUT | head -40; sudo ufw status
+cat /etc/apt/apt.conf.d/20auto-upgrades; systemctl is-active unattended-upgrades
+systemctl is-active fail2ban
+cat /etc/docker/daemon.json 2>/dev/null; docker info --format '{{.LoggingDriver}}'
+journalctl --disk-usage; grep -rE '^(MaxRetentionSec|SystemMaxUse)' /etc/systemd/journald.conf /etc/systemd/journald.conf.d/ 2>/dev/null
+sudo du -sh /var/lib/docker/containers
+pgrep -a 'apt|unattended'
+```
+
+Plus, from the Oracle Cloud console: the VCN **Security List / NSG ingress rules**
+of the instance, and how you open Coolify (domain or `:8000`).
+
+### 6.1 Cloud firewall (Oracle Security List) ☐
+
+Docker publishes ports through its own iptables chains, which bypass `ufw` and
+the host's INPUT rules, so the **cloud firewall is the one that counts**.
+Ingress allowed: TCP 22 (SSH), 80 and 443. Nothing else: no 5432 (Postgres),
+no 8000/6001/6002 (Coolify) once the panel has its own domain. Do not enable
+`ufw` on this image: Oracle ships its own iptables rules and Docker manages the
+rest; mixing them breaks container networking.
+
+Verify from another machine: `nc -zv <ip> 5432` and `nc -zv <ip> 8000` must fail.
+
+### 6.2 Databases not public ☐
+
+In Coolify, every database resource: **Make it publicly available = off**.
+`docker ps` must show no `0.0.0.0:5432` (or any DB port) mapping.
+
+### 6.3 Coolify panel ☐
+
+- Profile → **Two-factor authentication** on (keep the recovery codes offline).
+- Panel served on its own domain over HTTPS; then close 8000/6001/6002 (6.1).
+- Optional: restrict the panel domain to your IPs (Cloudflare Access or a Traefik IP allowlist).
+
+### 6.4 Automatic security updates ☐
+
+Ubuntu cloud images ship `unattended-upgrades` enabled; the inventory confirms it
+(`APT::Periodic::Unattended-Upgrade "1";`). A Coolify "could not get lock
+/var/lib/apt/lists" alert while it runs is expected (both use apt at the same
+time). Reboots stay manual: `cat /var/run/reboot-required` tells when one is
+pending; reboot at a quiet hour (it restarts every container on the server).
+
+### 6.5 fail2ban for SSH ☐
+
+```bash
+sudo apt-get install -y fail2ban
+printf '[sshd]\nenabled  = true\nbackend  = systemd\nmaxretry = 5\nfindtime = 10m\nbantime  = 1h\n' \
+  | sudo tee /etc/fail2ban/jail.d/sshd.local >/dev/null
+sudo systemctl enable --now fail2ban
+sudo fail2ban-client status sshd
+```
+
+### 6.6 Logs kept 7 days ☐
+
+The published privacy policy promises technical logs with IPs are kept **7 days**
+(`valuo_web/src/config/legal.ts`). Size caps (`json-file` with `max-size`) do not
+guarantee age: a quiet container never rotates and its live file keeps weeks of
+lines. Send container logs to journald and let journald expire them by age
+(`docker logs` and Coolify's log view keep working):
+
+```bash
+sudo mkdir -p /etc/systemd/journald.conf.d
+printf '[Journal]\nMaxRetentionSec=7day\nSystemMaxUse=2G\n' \
+  | sudo tee /etc/systemd/journald.conf.d/retention.conf >/dev/null
+sudo systemctl restart systemd-journald
+
+# Docker: journald driver; live-restore keeps containers running while dockerd restarts.
+# MERGE with any existing /etc/docker/daemon.json instead of overwriting it.
+echo '{ "log-driver": "journald", "live-restore": true }' | sudo tee /etc/docker/daemon.json >/dev/null
+sudo systemctl restart docker
+```
+
+- The new driver applies to containers when they are **recreated**: redeploy each
+  app in Coolify (staging app, staging API, landing) and restart the proxy (6.7).
+  The old production app keeps its current logs until it is recreated; its old
+  `*-json.log` files are the only thing left to purge, with the owner's OK.
+- System logs: `/var/log/auth.log` and friends rotate weekly and keep 4 by default;
+  set `daily` + `rotate 7` in `/etc/logrotate.d/rsyslog`.
+- Traefik access logs stay **off** (the proxy configuration has no `--accesslog`).
+- The API must not keep IPs longer either (0.17's audit log decides its retention).
+
+Verify: `docker info --format '{{.LoggingDriver}}'` gives `journald`; after a week,
+`journalctl --until '7 days ago' | head` is empty.
+
+### 6.7 Traefik (Coolify proxy) on the current minor ☐
+
+Coolify reports v3.6.13; v3.7 is current and its patches fix several CVEs. The
+v3.7 migration notes are mostly Kubernetes (Gateway API, CRDs, Ingress NGINX),
+which Coolify does not use (Docker provider). The ones that could matter here:
+BasicAuth needs a non-empty user list (3.7.3), StripPrefix answers 400 when the
+result has `.`/`..` segments (3.7.3), a `Host` rule of `*` matches every request
+(3.7.7), CONNECT and h2c upgrades are rejected (3.7.9 to 3.7.15), more than 500
+header values give 431 (3.7.17). None applies to our apps.
+
+Upgrade in Coolify: Servers → localhost → Proxy → set the v3.7 tag offered,
+restart the proxy (a few seconds of downtime for every site on the server, old
+production included). Then check `https://next.valuo.ar`,
+`https://api-next.valuo.ar/health/ready`, `https://preview.valuo.ar` and the
+certificates.
+
+### 6.8 SSH: keys only, no password, root only by key ☐ (last; keep a second session open)
+
+Coolify manages the server over SSH **as root with its own key**, so root login
+cannot be fully disabled; it stays key-only. On Ubuntu 24.04 the first value
+wins across `sshd_config.d/*.conf` (read in name order), so the file must sort
+before the cloud image's `60-cloudimg-settings.conf`:
+
+```bash
+printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin prohibit-password\nMaxAuthTries 3\nX11Forwarding no\n' \
+  | sudo tee /etc/ssh/sshd_config.d/01-hardening.conf >/dev/null
+sudo sshd -t && sudo systemctl reload ssh
+```
+
+Before closing the current session: open a **new** terminal and log in again;
+check Coolify still reaches the server (Servers → localhost → Validate).
+Rollback: `sudo rm /etc/ssh/sshd_config.d/01-hardening.conf && sudo systemctl reload ssh`.
+
+### 6.9 Least-privilege database users ☐
+
+Staging: done (`valuo_migrate` owns the schema, `valuo_app` has DML only; section 1).
+Production gets the same split when the API v2 is first deployed there.
+
+### 6.10 Secrets and rotation ☐
+
+Secrets live only in Coolify's environment variables (never in the repo;
+gitleaks in CI). Rotation, one at a time:
+
+| Secret | How to rotate | Effect |
+|---|---|---|
+| `JWT_SECRET` / `JWT_REFRESH_SECRET` | new 32+ char random values, redeploy | everyone logs in again |
+| DB passwords (`valuo_app`, `valuo_migrate`) | `ALTER ROLE ... PASSWORD`, update both URLs, redeploy | none if done together |
+| `RESEND_API_KEY` | new key in Resend, update, redeploy, revoke the old one | none |
+| `SOPORTE_API_KEY` | new key from the support service, update, redeploy | none |
+| VAPID keys | avoid: new keys invalidate every push subscription | users enable push again |
+| `API_DEPLOY_KEY` (ahorra_app CI) | new read-only deploy key on api_go_ahorro, update the secret, delete the old key | none |
+
+Staging never receives copies of production data.
