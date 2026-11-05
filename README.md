@@ -162,7 +162,8 @@ go test -race ./...    # con detector de races (no soportado en Windows ARM64; C
 - Lint: golangci-lint v2 con `.golangci.yml` (gofmt, staticcheck, gosec, errcheck...). Las exclusiones existentes apuntan al ítem del plan que las elimina; no se agregan exclusiones para código nuevo.
 - Bugs conocidos de la auditoría: `testutil.KnownBug(t, "<ítem>", ...)` pasa mientras el bug se reproduce y falla cuando se arregla, para que el ítem que lo arregla lo convierta en test normal.
 - Tiempo determinístico: los workers tienen un clock inyectable (`now`); los tests usan `testutil.Location` (`America/Argentina/Buenos_Aires`) y `testutil.FixedClock`.
-- Test de integración de migraciones: `DBMIGRATE_TEST_DATABASE_URL` apuntando a una DB **vacía** (se saltea si no está). Los tests de repositorios con testcontainers llegan en 0.21.
+- Tests de integración: `internal/testutil/testdb` levanta Postgres 18 con testcontainers (necesita Docker) y le da a cada test su propia DB migrada, clonada de un template. Con `TEST_DATABASE_URL` (URL de superusuario) usa ese server en vez del contenedor. Sin Docker ni esa variable, se saltean en local; en CI fallan.
+- Tests HTTP: `internal/testutil/apitest` corre el router real (`internal/app`) con fakes de email, Google y rate limit; las llamadas HTTP salientes están bloqueadas. Se usa desde paquetes de test externos (`package foo_test`).
 
 ## Contribuir
 
