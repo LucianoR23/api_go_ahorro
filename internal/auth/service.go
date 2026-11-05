@@ -99,7 +99,7 @@ func (s *Service) SetEmailVerifier(v emailVerifier) {
 // SetGoogleVerifier + SetIdentityRepository cablean el flow OAuth Google.
 // Si alguno de los dos está nil, LoginWithGoogle falla con un error de
 // configuración (500) — son obligatorios para que el endpoint funcione.
-func (s *Service) SetGoogleVerifier(v googleVerifier)        { s.googleVerifier = v }
+func (s *Service) SetGoogleVerifier(v googleVerifier)         { s.googleVerifier = v }
 func (s *Service) SetIdentityRepository(r identityRepository) { s.identities = r }
 
 // TokenPair agrupa los dos tokens + sus expiraciones para que el handler

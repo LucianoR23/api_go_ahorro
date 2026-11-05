@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/google/uuid"
 	webpush "github.com/SherClockHolmes/webpush-go"
+	"github.com/google/uuid"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 )
@@ -148,7 +148,7 @@ func (s *Service) NotifyUsers(ctx context.Context, userIDs []uuid.UUID, payload 
 	// Usamos un ctx nuevo con logger info si lo hubiera.
 	bg := context.Background()
 
-	go s.deliver(bg, uniq, payload)
+	go s.deliver(bg, uniq, payload) //nolint:gosec // G118: detached on purpose, delivery must outlive the request
 }
 
 func (s *Service) deliver(ctx context.Context, userIDs []uuid.UUID, payload Payload) {
@@ -221,4 +221,3 @@ func truncate(s string, n int) string {
 	}
 	return s[:n] + "…"
 }
-

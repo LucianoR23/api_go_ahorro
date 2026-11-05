@@ -233,20 +233,20 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.ExpenseDet
 	}
 
 	expense := domain.Expense{
-		HouseholdID:     in.HouseholdID,
-		CreatedBy:       in.CreatedBy,
-		CategoryID:      in.CategoryID,
-		PaymentMethodID: in.PaymentMethodID,
-		Amount:          in.Amount,
-		Currency:        in.Currency,
-		AmountBase:      amountBase,
-		BaseCurrency:    hh.BaseCurrency,
-		RateUsed:        rateUsed,
-		RateAt:          rateAt,
-		Description:     in.Description,
-		SpentAt:         in.SpentAt,
-		Installments:    in.Installments,
-		IsShared:        in.IsShared,
+		HouseholdID:        in.HouseholdID,
+		CreatedBy:          in.CreatedBy,
+		CategoryID:         in.CategoryID,
+		PaymentMethodID:    in.PaymentMethodID,
+		Amount:             in.Amount,
+		Currency:           in.Currency,
+		AmountBase:         amountBase,
+		BaseCurrency:       hh.BaseCurrency,
+		RateUsed:           rateUsed,
+		RateAt:             rateAt,
+		Description:        in.Description,
+		SpentAt:            in.SpentAt,
+		Installments:       in.Installments,
+		IsShared:           in.IsShared,
 		RecurringExpenseID: in.RecurringExpenseID,
 		Status:             normalizeStatus(in.Status),
 	}
@@ -816,10 +816,10 @@ func (s *Service) notifyExpenseMutation(ctx context.Context, d domain.ExpenseDet
 // UpdateInstallmentInput: campos editables en PATCH /expenses/{id}/installments/{n}.
 // Todos opcionales. Si no viene ninguno, devolvemos validation error.
 type UpdateInstallmentInput struct {
-	BillingDate *time.Time
-	DueDate     *time.Time // pointer-to-pointer no necesario: si el cliente manda null explícito lo tratamos como "quitar"
-	ClearDueDate bool      // si true, forzamos due_date=NULL aunque DueDate venga nil por no enviarse
-	IsPaid      *bool
+	BillingDate  *time.Time
+	DueDate      *time.Time // pointer-to-pointer no necesario: si el cliente manda null explícito lo tratamos como "quitar"
+	ClearDueDate bool       // si true, forzamos due_date=NULL aunque DueDate venga nil por no enviarse
+	IsPaid       *bool
 }
 
 // UpdateInstallment: aplica los cambios pedidos. Si IsPaid cambia, actualiza

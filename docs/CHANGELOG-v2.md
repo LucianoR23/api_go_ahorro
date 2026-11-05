@@ -4,6 +4,22 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.11 + 0.19 — CI, first unit tests, security scanning
+- CI (`.github/workflows/ci.yml`, push to `next` + PRs into it): `go mod verify`, build, vet, golangci-lint v2.15.0, `sqlc diff` (sqlc 1.30.0, the version that generated the code), `go test -race` with a Postgres 18.6 service for the migrations integration test, coverage summary (reported, gate starts in 0.21), govulncheck v1.9.0, gitleaks on full history. Actions pinned by commit SHA.
+- Dependabot weekly for gomod, Dockerfile, docker-compose and Actions, targeting `next`.
+- `scripts/check.sh`: local mirror of CI. Tools run pinned through `go run pkg@version` (no `tool` directives: golangci-lint advises against them, and this keeps `go.mod` free of tool deps).
+- `gofmt` applied to the whole module (separate formatting-only commit).
+- `.golangci.yml`: standard linters + gosec + gofmt. Triage of the 85 findings on existing code, each exclusion scoped to existing files and tied to its plan item:
+  - REAL BUG (low): `offset` query params in expenses, incomes, settlements and insights handlers only check `n >= 0`; values above 2^31-1 wrap to a negative int32 and the query fails (500). To pin as KnownBug in 0.21.
+  - `middleware.RealIP` deprecated/spoofable → 0.6. S1016/QF1008 style and 4 unused funcs → 0.15b. int→int32 conversions bounded by validation/DB checks → reviewed in 0.21.
+  - False positives silenced inline with a reason: `.env` file read (G304), refresh cookie Secure only with `ENV=prod` (G124), detached push delivery goroutine (G118). Fake credentials in test URLs (G101) excluded for `_test.go`. Unchecked `Close`/print errors via the `std-error-handling` preset.
+- `internal/testutil`: `KnownBug` (passes while a known bug reproduces, fails once fixed), `Location` (Buenos Aires TZ), `FixedClock`.
+- Clock seam: `now func() time.Time` in the incomes, insights, recurring expenses and reports workers (default `time.Now`). No other behavior change.
+- Characterization tests: `clampDay`, `resolveForClosingMonth`, `buildShares`, `buildInstallments` (expenses); `Convert` (fxrates, warm cache); `recurrenceMatches` + `clampDay` (incomes and recurringexpenses, same table for both copies); `alertText` (insights); worker schedules (`nextTick`, defaults).
+- Known bugs pinned (`KnownBug`, fixed by 0.7): `buildShares(0.04, 6 equal members)` gives the last member -0.01; `buildInstallments(0.50, 60 installments)` makes the last installment -0.09.
+- Noted, not changed: insight copy formats money as `$1234.50` (not es-AR) and shows the raw goal type (`category_limit`) to users.
+- Baseline: total coverage 3.5% (before 0.21). gitleaks: no leaks in any repo's history.
+
 ### 0.10 — Migrations on deploy
 - New dependency: `github.com/golang-migrate/migrate/v4` v4.20.1 (pgx/v5 driver + `iofs` source). govulncheck: 0 reachable.
 - Migrations are embedded in the binary (`migrations/embed.go`); the Dockerfile no longer copies the folder.

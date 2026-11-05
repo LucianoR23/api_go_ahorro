@@ -18,6 +18,9 @@ type Worker struct {
 	hour   int
 	minute int
 	logger *slog.Logger
+
+	// now is the clock seam (plan 0.11): time.Now in prod, fixed in tests.
+	now func() time.Time
 }
 
 // NewWorker: hour/minute en hora local del server. Defaults 00:30 si se pasa inválido.
@@ -28,7 +31,7 @@ func NewWorker(svc *Service, hour, minute int, logger *slog.Logger) *Worker {
 	if minute < 0 || minute > 59 {
 		minute = 30
 	}
-	return &Worker{svc: svc, hour: hour, minute: minute, logger: logger}
+	return &Worker{svc: svc, hour: hour, minute: minute, logger: logger, now: time.Now}
 }
 
 // Start arranca el loop y devuelve un cancel para shutdown.
@@ -37,10 +40,10 @@ func (w *Worker) Start(ctx context.Context) func() {
 	ctx, cancel := context.WithCancel(ctx)
 
 	go func() {
-		w.runOnce(ctx, time.Now())
+		w.runOnce(ctx, w.now())
 
 		for {
-			now := time.Now()
+			now := w.now()
 			next := w.nextTick(now)
 			d := next.Sub(now)
 
@@ -51,7 +54,7 @@ func (w *Worker) Start(ctx context.Context) func() {
 				w.logger.Info("incomes worker: detenido")
 				return
 			case <-timer.C:
-				w.runOnce(ctx, time.Now())
+				w.runOnce(ctx, w.now())
 			}
 		}
 	}()

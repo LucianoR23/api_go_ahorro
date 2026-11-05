@@ -64,15 +64,15 @@ type createInviteRequest struct {
 }
 
 type inviteDTO struct {
-	ID            string     `json:"id"`
-	HouseholdID   string     `json:"householdId"`
-	Email         string     `json:"email"`
-	InvitedBy     string     `json:"invitedBy"`
-	ExpiresAt     time.Time  `json:"expiresAt"`
-	AcceptedAt    *time.Time `json:"acceptedAt,omitempty"`
-	RevokedAt     *time.Time `json:"revokedAt,omitempty"`
-	CreatedAt     time.Time  `json:"createdAt"`
-	Status        string     `json:"status"`
+	ID          string     `json:"id"`
+	HouseholdID string     `json:"householdId"`
+	Email       string     `json:"email"`
+	InvitedBy   string     `json:"invitedBy"`
+	ExpiresAt   time.Time  `json:"expiresAt"`
+	AcceptedAt  *time.Time `json:"acceptedAt,omitempty"`
+	RevokedAt   *time.Time `json:"revokedAt,omitempty"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	Status      string     `json:"status"`
 }
 
 type createInviteResponse struct {

@@ -15,8 +15,9 @@ import (
 )
 
 // Event: payload que viaja del LISTEN al SSE handler.
-//   * UserID nil  → insight household-scoped (visible para cualquier miembro).
-//   * UserID set  → solo para ese user.
+//   - UserID nil  → insight household-scoped (visible para cualquier miembro).
+//   - UserID set  → solo para ese user.
+//
 // Los suscriptores filtran localmente.
 type Event struct {
 	InsightID   uuid.UUID  `json:"insightId"`

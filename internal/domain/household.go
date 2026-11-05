@@ -32,12 +32,12 @@ func (r Role) IsValid() bool {
 // BaseCurrency es la moneda en la que se consolidan montos (ARS/USD/EUR)
 // cuando el gasto se registra en otra moneda.
 type Household struct {
-	ID           uuid.UUID  `json:"id"`
-	Name         string     `json:"name"`
-	BaseCurrency string     `json:"baseCurrency"` // ARS, USD, EUR
-	CreatedBy    uuid.UUID  `json:"createdBy"`
-	CreatedAt    time.Time  `json:"createdAt"`
-	UpdatedAt    time.Time  `json:"updatedAt"`
+	ID           uuid.UUID `json:"id"`
+	Name         string    `json:"name"`
+	BaseCurrency string    `json:"baseCurrency"` // ARS, USD, EUR
+	CreatedBy    uuid.UUID `json:"createdBy"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 	// DeletedAt != nil indica soft-delete. Los endpoints públicos nunca
 	// devuelven hogares con este campo seteado (los filtra la query). Solo
 	// aparece poblado en los endpoints /admin/*.

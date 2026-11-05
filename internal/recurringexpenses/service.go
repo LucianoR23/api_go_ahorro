@@ -33,11 +33,11 @@ type expensesReader interface {
 }
 
 type Service struct {
-	repo          *Repository
-	households    householdLookup
-	expenses      expensesCreator
-	expensesRead  expensesReader // opcional; cableado vía SetExpensesReader
-	logger        *slog.Logger
+	repo         *Repository
+	households   householdLookup
+	expenses     expensesCreator
+	expensesRead expensesReader // opcional; cableado vía SetExpensesReader
+	logger       *slog.Logger
 }
 
 func NewService(repo *Repository, households householdLookup, expenses expensesCreator, logger *slog.Logger) *Service {
@@ -486,4 +486,3 @@ func sameDay(a, b time.Time) bool {
 	by, bm, bd := b.Date()
 	return ay == by && am == bm && ad == bd
 }
-

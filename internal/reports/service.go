@@ -214,15 +214,15 @@ func (s *Service) TrendsByMonth(ctx context.Context, householdID uuid.UUID, mont
 // No incluye IDs redundantes — solo los números que importan para que el
 // modelo haga análisis y recomendaciones.
 type AIExport struct {
-	HouseholdName string  `json:"householdName"`
-	BaseCurrency  string  `json:"baseCurrency"`
-	Month         string  `json:"month"`
-	Spent         float64 `json:"spent"`
-	Billed        float64 `json:"billed"`
-	Due           float64 `json:"due"`
-	FixedTotal    float64 `json:"fixedTotal"`
-	VariableTotal float64 `json:"variableTotal"`
-	FixedPct      float64 `json:"fixedPct"`
+	HouseholdName string           `json:"householdName"`
+	BaseCurrency  string           `json:"baseCurrency"`
+	Month         string           `json:"month"`
+	Spent         float64          `json:"spent"`
+	Billed        float64          `json:"billed"`
+	Due           float64          `json:"due"`
+	FixedTotal    float64          `json:"fixedTotal"`
+	VariableTotal float64          `json:"variableTotal"`
+	FixedPct      float64          `json:"fixedPct"`
 	TopCategories []AICategoryLine `json:"topCategories"`
 	TrendsLast6   []TrendsPoint    `json:"trendsLast6"`
 	Prompt        string           `json:"prompt"` // pre-armado listo para pegar en Claude

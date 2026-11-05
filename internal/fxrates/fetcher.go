@@ -13,13 +13,14 @@ import (
 
 // bluelyticsURL: endpoint público sin auth.
 // Respuesta shape (resumido):
-//   {
-//     "oficial":         {"value_avg": 1050.0, "value_sell": 1060, "value_buy": 1040},
-//     "blue":            {"value_avg": 1200.0, "value_sell": 1210, "value_buy": 1190},
-//     "oficial_euro":    {...},
-//     "blue_euro":       {...},
-//     "last_update":     "2026-04-19T14:02:13.123Z"
-//   }
+//
+//	{
+//	  "oficial":         {"value_avg": 1050.0, "value_sell": 1060, "value_buy": 1040},
+//	  "blue":            {"value_avg": 1200.0, "value_sell": 1210, "value_buy": 1190},
+//	  "oficial_euro":    {...},
+//	  "blue_euro":       {...},
+//	  "last_update":     "2026-04-19T14:02:13.123Z"
+//	}
 const bluelyticsURL = "https://api.bluelytics.com.ar/v2/latest"
 
 // Fetcher es un adapter http. Se inyecta un *http.Client para poder

@@ -29,8 +29,8 @@ type Handler struct {
 	resetSvc   *PasswordResetService
 	accountSvc *AccountService
 	verifySvc  *EmailVerificationService
-	logger   *slog.Logger
-	mw       *Middleware
+	logger     *slog.Logger
+	mw         *Middleware
 	// secureCookies controla flags de la cookie. En prod: true (Secure + Host prefix).
 	secureCookies bool
 	// rateLimit es opcional: si está seteado, se aplica a /auth/login y
@@ -69,8 +69,9 @@ func (h *Handler) SetRateLimiter(rl RateLimiter) {
 // que conocer los paths concretos.
 //
 // Agrupamos en 2 secciones:
-//   /auth/*  → públicas (register, login, refresh, logout)
-//   /me      → protegida con RequireAuth
+//
+//	/auth/*  → públicas (register, login, refresh, logout)
+//	/me      → protegida con RequireAuth
 func (h *Handler) Mount(r chi.Router) {
 	r.Route("/auth", func(r chi.Router) {
 		// Registro: rate-limit moderado para frenar creación masiva.
@@ -440,6 +441,7 @@ func (h *Handler) cookieName() string {
 }
 
 func (h *Handler) setRefreshCookie(w http.ResponseWriter, value string, expires time.Time) {
+	//nolint:gosec // G124: HttpOnly+SameSite always set; Secure is on with ENV=prod (dev runs on plain http)
 	http.SetCookie(w, &http.Cookie{
 		Name:     h.cookieName(),
 		Value:    value,
@@ -457,6 +459,7 @@ func (h *Handler) setRefreshCookie(w http.ResponseWriter, value string, expires 
 }
 
 func (h *Handler) clearRefreshCookie(w http.ResponseWriter) {
+	//nolint:gosec // G124: HttpOnly+SameSite always set; Secure is on with ENV=prod (dev runs on plain http)
 	http.SetCookie(w, &http.Cookie{
 		Name:     h.cookieName(),
 		Value:    "",

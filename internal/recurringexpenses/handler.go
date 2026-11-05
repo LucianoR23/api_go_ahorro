@@ -115,11 +115,11 @@ type recurringDTO struct {
 }
 
 type seriesPointDTO struct {
-	ExpenseID    string    `json:"expenseId"`
-	Amount       float64   `json:"amount"`
-	Currency     string    `json:"currency"`
-	SpentAt      string    `json:"spentAt"`
-	VariationPct *float64  `json:"variationPct,omitempty"`
+	ExpenseID    string   `json:"expenseId"`
+	Amount       float64  `json:"amount"`
+	Currency     string   `json:"currency"`
+	SpentAt      string   `json:"spentAt"`
+	VariationPct *float64 `json:"variationPct,omitempty"`
 }
 
 type seriesStatsDTO struct {

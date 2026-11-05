@@ -115,11 +115,11 @@ type pushNotifier interface {
 }
 
 type Service struct {
-	repo        *Repository
-	households  householdsLister
-	goals       goalsProgress
-	logger      *slog.Logger
-	notify      notifier
+	repo            *Repository
+	households      householdsLister
+	goals           goalsProgress
+	logger          *slog.Logger
+	notify          notifier
 	creditCards     creditCardsByHouseholdLister // opcional; cableado via SetCreditPeriodDeps
 	periods         periodLatestReader           // opcional; cableado via SetCreditPeriodDeps
 	push            pushNotifier                 // opcional; cableado via SetPushNotifier

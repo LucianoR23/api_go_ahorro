@@ -8,14 +8,14 @@ import (
 type RateSource string
 
 const (
-	RateSourceBlue     RateSource = "blue"
-	RateSourceOficial  RateSource = "oficial"
+	RateSourceBlue    RateSource = "blue"
+	RateSourceOficial RateSource = "oficial"
 )
 
 // ExchangeRate: una cotización ARS por unidad de moneda extranjera.
 // Ejemplo: currency=USD, source=blue, rate_avg=1200 → 1 USD = 1200 ARS.
 type ExchangeRate struct {
-	Currency   string    // USD o EUR
+	Currency   string // USD o EUR
 	Source     RateSource
 	LastUpdate time.Time // reportado por el upstream (bluelytics)
 	RateAvg    float64
