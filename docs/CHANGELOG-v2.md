@@ -4,9 +4,19 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.21f (part 1): incomes, recurring incomes and recurring expenses tests
+- `internal/app`: `App.Jobs()` exposes the units of work behind the workers (recurring expenses, recurring incomes, insights) so tests run a given day's generation without the schedulers; `apitest.Server.Jobs`. Wiring only, no behavior change.
+- `internal/incomes`: create (on behalf of another member, foreign currency), read, edit (amount is not editable), delete, validation, list filters, `GET /totals/income` (explicit and default range), household scoping; recurring incomes CRUD, activation, every recurrence rule, the latest occurrence booked on creation (no backfill), and the daily job (matching days only, day 31 clamps to February, once per day, inactive templates skipped).
+- `internal/recurringexpenses`: CRUD, validation (recurrence, variable amounts, threshold), first occurrence on creation, the daily job (clamping, once per day, shared split, inactive), variable amounts as drafts (template amount first, then the last confirmed amount), confirmation (by any member, only once), `lastAmount`, the spike insight for the creator above the threshold, and series stats (history, average, variation).
+- `scripts/check.sh` starts one throwaway Postgres with `docker run` and shares it through `TEST_DATABASE_URL`. Letting every package start its own container is flaky on Docker Desktop for Windows, and testcontainers caches the failed probe per process, so the retry added in the previous PR could not help and was removed.
+- Known bugs pinned (`KnownBug`):
+  - 0.4: the expense list includes drafts by default and never exposes `status`; balances count draft shares; **new, not in the audit:** confirming a draft updates the expense amount but not its installment and shares, so a shared draft keeps splitting the draft amount.
+  - 0.6: any member edits or deletes another member's income; an income's or a recurring expense's payment method is not checked against the user (a recurring expense on someone else's method is accepted and then never generates).
+  - 0.1: incomes `offset` above 2^31-1 answers 500; a malformed UUID in the body reaches the client as the raw Go error on field `body`.
+- Coverage: incomes 78.4%, recurringexpenses 71.2%; module total 39.9% → 49.5%.
+
 ### 0.21: test infrastructure hardening
 - `./scripts/check.sh` sets `TESTDB_REQUIRED=1`: without a database the integration tests now fail there (as in CI) instead of skipping. Before, a local check could pass with every database test skipped, which is how a Docker hiccup went unnoticed.
-- `testdb` retries starting the container (5 attempts with backoff): on Windows, Docker Desktop's pipe sometimes refuses the testcontainers provider probe when all packages start their containers at once.
 - `auth.SetBcryptCostForTests`, called by `apitest` with bcrypt's minimum cost. Production keeps cost 12. CI's auth tests took 160 to 224 s and one `change-password` request crossed the 30 s request timeout under `-race` (an intermittent 500); local auth tests went from about 25 s to under 30 s total with far fewer slow requests.
 
 ### Fix: discarded FX rates no longer reach the cache (found in 0.21d)

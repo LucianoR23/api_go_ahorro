@@ -129,7 +129,12 @@ func setup() error {
 	if u := os.Getenv("TEST_DATABASE_URL"); u != "" {
 		adminURL = u
 	} else {
-		ctr, err := runContainer(ctx)
+		ctr, err := tcpostgres.Run(ctx, Image,
+			tcpostgres.WithDatabase("postgres"),
+			tcpostgres.WithUsername("postgres"),
+			tcpostgres.WithPassword("testdb_only_pw"),
+			tcpostgres.BasicWaitStrategies(),
+		)
 		if err != nil {
 			return fmt.Errorf("start postgres container: %w", err)
 		}
@@ -152,34 +157,6 @@ func setup() error {
 		return fmt.Errorf("migrate template: %w", err)
 	}
 	return nil
-}
-
-// runContainer starts the Postgres container, retrying a few times: on
-// Windows, Docker Desktop's named pipe sometimes refuses the provider probe
-// when every test package starts its container at once ("get provider").
-func runContainer(ctx context.Context) (*tcpostgres.PostgresContainer, error) {
-	var lastErr error
-	for attempt := 1; attempt <= 5; attempt++ {
-		ctr, err := tcpostgres.Run(ctx, Image,
-			tcpostgres.WithDatabase("postgres"),
-			tcpostgres.WithUsername("postgres"),
-			tcpostgres.WithPassword("testdb_only_pw"),
-			tcpostgres.BasicWaitStrategies(),
-		)
-		if err == nil {
-			return ctr, nil
-		}
-		lastErr = err
-		if ctr != nil {
-			_ = testcontainers.TerminateContainer(ctr)
-		}
-		select {
-		case <-ctx.Done():
-			return nil, lastErr
-		case <-time.After(time.Duration(attempt) * time.Second):
-		}
-	}
-	return nil, lastErr
 }
 
 func adminExec(ctx context.Context, sql string) error {
