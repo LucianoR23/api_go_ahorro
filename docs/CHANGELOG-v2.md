@@ -4,6 +4,16 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.21e: expenses, balances, settlements and split rules tests
+- `internal/expenses`: cash expenses (one paid installment, `installments` forced to 1), shared expenses (equal split, split-rule weights, weight 0 left out, explicit amounts with every override rule), the in-app notice for the other members, credit card installments following the loaded period and then the card defaults (last installment absorbs the remainder, spent after closing goes to the next period), foreign currency with the stored blue rate (and the 404 when there is none), every create validation, list order and filters (category, payment method, dates, text, paging, `totalCount`), edit, installment edits (paid, dates, clearing the due date), delete, confirm refused for non-drafts, and isolation between households.
+- `internal/settlements` (also covers balances and split rules): debts netted per pair across shared expenses, future installments not counted, `/balances/me`, partial and full payments with note trimming and default date, the one-cent tolerance, every settlement validation, list filters, delete restoring the debt, household scoping; split rules start at 1, owner-only partial updates, validation.
+- `apitest`: `CreateExpense`, `Expense`, `ExpenseDetail`, `Installment`.
+- Known bugs pinned (`KnownBug`):
+  - 0.6: any member edits or deletes another member's expense; `category_id` from another household accepted on create and edit; any member deletes a settlement between two others.
+  - 0.1: an `offset` above 2^31-1 wraps around: settlements answer 500, expenses clamp it to 0 and echo a negative offset.
+- Balances and split rules are exercised from the settlements tests, so their own packages still report 0% until 0.21i measures coverage across packages.
+- Coverage: expenses 75.4%, settlements 86.2%; module total 30.9% → 39.9%.
+
 ### 0.21d: banks, payment methods, cards, periods, categories and FX tests
 - `internal/paymethods`: banks (create, rename, deactivate/activate, revive by name, duplicate name, per-user privacy), payment methods (Efectivo bootstrap, `allowsInstallments` forced by kind except wallets, credit cards with current and next period and a debit account, every card validation rule, revive by name including cards, kind clash on revive, last active method cannot be deactivated, `includeInactive`), update rules (PATCH replaces `bankId` and `lastFour`), card update, and IDOR checks (another user's methods, bank or debit account).
 - `internal/creditperiods`: upsert/overwrite/list/delete, status (passed, upcoming, no periods), validation (period format, dates, closing date outside the period), only the caller's credit cards.
