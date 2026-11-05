@@ -4,6 +4,10 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### Fix: discarded FX rates no longer reach the cache (found in 0.21d)
+- When Bluelytics returned a rate of 0, refresh skipped it in the database but still put it in the in-memory cache, so `GET /exchange-rates/current` could show a currency at 0 until the next good refresh. Only valid rates reach the cache now; a discarded one keeps the last good value. Conversions were not affected (they already ignored a 0 and read the database).
+- The 0.21d `KnownBug` is now a regular regression test (good snapshot, then one with a 0: the cache keeps the last good rate).
+
 ### 0.21e: expenses, balances, settlements and split rules tests
 - `internal/expenses`: cash expenses (one paid installment, `installments` forced to 1), shared expenses (equal split, split-rule weights, weight 0 left out, explicit amounts with every override rule), the in-app notice for the other members, credit card installments following the loaded period and then the card defaults (last installment absorbs the remainder, spent after closing goes to the next period), foreign currency with the stored blue rate (and the 404 when there is none), every create validation, list order and filters (category, payment method, dates, text, paging, `totalCount`), edit, installment edits (paid, dates, clearing the due date), delete, confirm refused for non-drafts, and isolation between households.
 - `internal/settlements` (also covers balances and split rules): debts netted per pair across shared expenses, future installments not counted, `/balances/me`, partial and full payments with note trimming and default date, the one-cent tolerance, every settlement validation, list filters, delete restoring the debt, household scoping; split rules start at 1, owner-only partial updates, validation.
@@ -22,7 +26,7 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 - `apitest`: `CreatePaymentMethod`, `CreateCreditCard`, `Cash`.
 - Known bugs pinned (`KnownBug`):
   - 0.2: card status takes "today" in UTC, so from 21:00 in Buenos Aires on the due date the period already shows as overdue.
-  - **New, not in the audit (unassigned):** a rate that refresh discards as invalid (0) is still put in the cache and served by `GET /exchange-rates/current`.
+  - **New, not in the audit:** a rate that refresh discards as invalid (0) is still put in the cache and served by `GET /exchange-rates/current` (fixed right after, see above).
 - Coverage: paymethods 77.8%, creditperiods 80.1%, categories 83.0%, fxrates 74.7%; module total 21.6% → 30.9%.
 
 ### 0.21c: households, invites, roles, admin, push and support tests
