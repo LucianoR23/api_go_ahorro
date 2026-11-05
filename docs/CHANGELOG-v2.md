@@ -4,6 +4,11 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.21: remaining audit contract bugs pinned (API side)
+- Contract mismatches from the audit (section 10) that had no test yet, pinned as `KnownBug` for 0.1: the expense JSON lacks `recurringExpenseId` (1); CORS does not expose `Retry-After` (5); `PATCH /expenses/{id}` is a full replace, and `PATCH .../credit-card` wipes `lastFour` and `debitPaymentMethodId` when the edit does not resend them (6, previously characterized as normal); `billingDate: null` on `PATCH installments/{n}` is ignored (7); `GET /insights` and `GET /settlements` have no `totalCount` (9).
+- `internal/app/cors_test.go`: allowed origin with credentials and `X-Request-ID` exposed, preflight with `X-Household-ID`, other origins get nothing.
+- The front-end side (2, 3, 8) is pinned with `it.fails` in `ahorra_app`.
+
 ### 0.21f (part 2): goals, insights and reports tests
 - `internal/goals`: CRUD with defaults, list filters, validation, household scoping; progress for household and personal goals (own expenses plus the share of shared ones), category limits, savings (income minus spending), monthly and Monday-to-Sunday weekly ranges, credit installments counted in the month they are due, ok/warning/exceeded thresholds, `?at=` (an invalid one falls back to today).
 - `internal/insights`: the generators run through `App.Jobs` for fixed dates (goal alerts at 80% and 100%, savings alert from day 20, Sunday weekly review against the previous week, credit period reminder on the closing day to the card owner, installment due in 3 days); endpoints (get, unread count, mark read, mark all read, delete, list filters with malformed values ignored, manual generation, household scoping); the SSE stream (auth and membership errors, the `ready` event, and a new personal insight delivered live through LISTEN/NOTIFY).
