@@ -441,6 +441,7 @@ func (h *Handler) cookieName() string {
 }
 
 func (h *Handler) setRefreshCookie(w http.ResponseWriter, value string, expires time.Time) {
+	//nolint:gosec // G124: HttpOnly+SameSite always set; Secure is on with ENV=prod (dev runs on plain http)
 	http.SetCookie(w, &http.Cookie{
 		Name:     h.cookieName(),
 		Value:    value,
@@ -458,6 +459,7 @@ func (h *Handler) setRefreshCookie(w http.ResponseWriter, value string, expires 
 }
 
 func (h *Handler) clearRefreshCookie(w http.ResponseWriter) {
+	//nolint:gosec // G124: HttpOnly+SameSite always set; Secure is on with ENV=prod (dev runs on plain http)
 	http.SetCookie(w, &http.Cookie{
 		Name:     h.cookieName(),
 		Value:    "",

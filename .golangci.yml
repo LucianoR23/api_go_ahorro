@@ -1,0 +1,58 @@
+# golangci-lint v2 (version pinned in CI and scripts/check.sh).
+# Every exclusion below is scoped to existing code and points at the plan item
+# that removes it. New code gets the full rule set; never widen an exclusion to
+# silence a new finding. Triage notes: docs/CHANGELOG-v2.md, entry 0.11.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - gosec
+  exclusions:
+    presets:
+      # Unchecked Close/Flush/print errors (resp.Body.Close, fmt.Fprintln...).
+      - std-error-handling
+    rules:
+      # Test fixtures use fake credentials in URLs on purpose.
+      - path: _test\.go
+        linters: [gosec]
+        text: G101
+
+      # chi RealIP is deprecated and spoofable: replaced in 0.6 (TRUSTED_PROXIES).
+      - path: cmd/api/main\.go
+        linters: [staticcheck]
+        text: "SA1019: github.com/go-chi/chi/v5/middleware.RealIP"
+
+      # Style-only suggestions in existing code: cleaned up in 0.15b, once 0.21
+      # tests cover these modules.
+      - linters: [staticcheck]
+        text: "^(S1016|QF1008):"
+
+      # Dead code, deleted in 0.15b.
+      - path: internal/expenses/periods\.go
+        linters: [unused]
+        text: resolveCreditPeriod
+      - path: internal/insights/repository\.go
+        linters: [unused]
+        text: "func (textPtr|boolPtr|datePtr) is unused"
+
+      # int -> int32 for sqlc params in existing code: values are bounded by
+      # service validation and DB CHECKs (days 1..31, installments). Reviewed in
+      # 0.21 with characterization tests.
+      - path: internal/(db/numeric|expenses/numeric|expenses/repository|incomes/repository|paymethods/repository|recurringexpenses/repository)\.go
+        linters: [gosec]
+        text: G115
+
+      # REAL BUG (low): `offset` query params only check n >= 0, so values above
+      # 2^31-1 wrap to a negative int32 and Postgres rejects them (500). Limits
+      # are bounded (<= 200). Pinned as KnownBug in 0.21, fixed by its item.
+      - path: internal/(expenses|incomes|settlements|insights)/handler\.go
+        linters: [gosec]
+        text: "G109|G115"
+
+formatters:
+  enable:
+    - gofmt

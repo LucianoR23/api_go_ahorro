@@ -142,7 +142,7 @@ func (c *Config) validate() error {
 // Si la variable ya está en el ambiente del SO, NO la sobrescribe. Así en
 // dev podés overridear un valor del .env exportando la variable antes.
 func loadDotEnv(path string) error {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // G304: path is the constant ".env" from Load, never user input
 	if err != nil {
 		return err
 	}
