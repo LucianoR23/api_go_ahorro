@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
 )
 
@@ -181,24 +180,34 @@ func TestRefreshDiscardsZeroRates(t *testing.T) {
 	t.Parallel()
 	pool := testdb.New(t)
 	ctx := context.Background()
-	body := `{"blue":{"value_avg":1200,"value_buy":1190,"value_sell":1210},"blue_euro":{"value_avg":0},
-	          "oficial":{"value_avg":1000},"oficial_euro":{"value_avg":1100},"last_update":"2026-11-05T12:00:00Z"}`
-	svc := NewService(NewRepository(pool), fakeBluelytics(t, http.StatusOK, body), quietLogger())
-	if err := svc.Refresh(ctx); err != nil {
+	repo := NewRepository(pool)
+
+	// A good snapshot first, then one where EUR blue comes back as 0.
+	good := NewService(repo, fakeBluelytics(t, http.StatusOK, bluelyticsJSON), quietLogger())
+	if err := good.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"blue":{"value_avg":1250,"value_buy":1240,"value_sell":1260},"blue_euro":{"value_avg":0},
+	          "oficial":{"value_avg":1000},"oficial_euro":{"value_avg":1100},"last_update":"2026-11-06T12:00:00Z"}`
+	good.fetcher = fakeBluelytics(t, http.StatusOK, body)
+	if err := good.Refresh(ctx); err != nil {
 		t.Fatal(err)
 	}
 
-	var n int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM exchange_rates WHERE currency = 'EUR' AND source = 'blue'`).Scan(&n); err != nil {
+	var zeros int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM exchange_rates WHERE rate_avg <= 0`).Scan(&zeros); err != nil {
 		t.Fatal(err)
 	}
-	if n != 0 {
+	if zeros != 0 {
 		t.Errorf("zero rate stored in the database")
 	}
 
-	testutil.KnownBug(t, "unassigned", "a rate discarded as invalid (0) still reaches the cache and GET /exchange-rates/current", func(t testing.TB) {
-		if r, ok := find(svc.Current(), "EUR", domain.RateSourceBlue); ok {
-			t.Errorf("cache serves EUR blue = %v", r.RateAvg)
-		}
-	})
+	// Regression (found in 0.21d): the discarded 0 used to replace the cached
+	// rate and reach GET /exchange-rates/current.
+	if r, ok := find(good.Current(), "EUR", domain.RateSourceBlue); !ok || r.RateAvg != 1300 {
+		t.Errorf("EUR blue = %+v, want the last good rate 1300", r)
+	}
+	if r, _ := find(good.Current(), "USD", domain.RateSourceBlue); r.RateAvg != 1250 {
+		t.Errorf("USD blue = %v, want the new 1250", r.RateAvg)
+	}
 }

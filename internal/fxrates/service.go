@@ -49,6 +49,7 @@ func (s *Service) Refresh(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	valid := make([]domain.ExchangeRate, 0, len(rates))
 	for _, r := range rates {
 		// Validación mínima: bluelytics rara vez devuelve 0, pero si pasa
 		// no queremos persistir un valor que haga Convert() dividir por 0.
@@ -56,12 +57,15 @@ func (s *Service) Refresh(ctx context.Context) error {
 			s.logger.WarnContext(ctx, "fxrates: rate inválido descartado", "currency", r.Currency, "source", r.Source)
 			continue
 		}
+		valid = append(valid, r)
 		if err := s.repo.Upsert(ctx, r); err != nil {
 			s.logger.ErrorContext(ctx, "fxrates: upsert", "error", err, "currency", r.Currency)
 			continue
 		}
 	}
-	s.cache.setMany(rates)
+	// Only valid rates reach the cache: a discarded rate must not replace the
+	// last good one served by GET /exchange-rates/current.
+	s.cache.setMany(valid)
 	return nil
 }
 
