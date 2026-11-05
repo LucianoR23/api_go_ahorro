@@ -14,7 +14,7 @@ import (
 //
 // En prod igual es barato (se imprime una vez), pero se puede condicionar
 // con cfg.Env si molesta en logs estructurados.
-func PrintStartupBanner(w io.Writer, env, addr string, router chi.Router) {
+func PrintStartupBanner(w io.Writer, brand, env, addr string, router chi.Router) {
 	routeCount := 0
 	_ = chi.Walk(router, func(method, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
 		routeCount++
@@ -23,7 +23,7 @@ func PrintStartupBanner(w io.Writer, env, addr string, router chi.Router) {
 
 	lines := []string{
 		"┌────────────────────────────────────────────┐",
-		fmt.Sprintf("│  %-42s│", "  Ahorra API"),
+		fmt.Sprintf("│  %-42s│", "  "+brand+" API"),
 		"├────────────────────────────────────────────┤",
 		fmt.Sprintf("│  env         %-30s│", env),
 		fmt.Sprintf("│  listening   %-30s│", "http://localhost"+addr),

@@ -18,9 +18,3 @@ INSERT INTO user_identities (provider, subject, user_id, email)
 VALUES ($1, $2, $3, $4);
 
 
--- name: ListUserIdentitiesByUser :many
--- Para mostrar al user qué providers tiene vinculados en su perfil.
-SELECT provider, subject, email, linked_at
-FROM user_identities
-WHERE user_id = $1
-ORDER BY linked_at ASC;

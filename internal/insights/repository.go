@@ -296,24 +296,3 @@ func toDomain(row sqlcgen.DailyInsight) domain.DailyInsight {
 		RefID:       row.RefID,
 	}
 }
-
-func textPtr(p *string) pgtype.Text {
-	if p == nil {
-		return pgtype.Text{}
-	}
-	return pgtype.Text{String: *p, Valid: true}
-}
-
-func boolPtr(p *bool) pgtype.Bool {
-	if p == nil {
-		return pgtype.Bool{}
-	}
-	return pgtype.Bool{Bool: *p, Valid: true}
-}
-
-func datePtr(p *time.Time) pgtype.Date {
-	if p == nil {
-		return pgtype.Date{}
-	}
-	return pgtype.Date{Time: *p, Valid: true}
-}

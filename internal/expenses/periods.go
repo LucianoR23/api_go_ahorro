@@ -23,31 +23,7 @@ type resolvedPeriod struct {
 	DueDate     time.Time // due_date del período
 }
 
-// resolveCreditPeriod calcula billing/due del período en el que cae `spentAt`.
-// Si hay override en credit_card_periods lo usa; si no, deriva de los
-// defaults de la credit_card.
-//
-// Importante: la decisión "cierra este mes o el siguiente" se toma comparando
-// spentAt contra el closing REAL del mes candidato (override si existe,
-// default si no), no contra DefaultClosingDay. Esto evita que un override
-// con closing_day distinto al template asigne mal el gasto.
-func resolveCreditPeriod(
-	ctx context.Context,
-	reader periodsReader,
-	cc domain.CreditCard,
-	spentAt time.Time,
-) (resolvedPeriod, error) {
-	candidate, err := resolveForClosingMonth(ctx, reader, cc, spentAt)
-	if err != nil {
-		return resolvedPeriod{}, err
-	}
-	if spentAt.After(candidate.BillingDate) {
-		return resolveForClosingMonth(ctx, reader, cc, spentAt.AddDate(0, 1, 0))
-	}
-	return candidate, nil
-}
-
-// resolveForClosingMonth: igual que resolveCreditPeriod pero partiendo de un
+// resolveForClosingMonth: resuelve el período partiendo de un
 // month base explícito (para installments 2..N).
 func resolveForClosingMonth(
 	ctx context.Context,

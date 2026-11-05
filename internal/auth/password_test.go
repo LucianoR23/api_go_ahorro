@@ -40,6 +40,9 @@ func TestForgotAndResetPassword(t *testing.T) {
 		s.Do(t, post("/auth/forgot-password", map[string]string{"email": "  " + strings.ToUpper(u.Email)})).
 			Status(t, http.StatusNoContent)
 		mail := s.Mail.LastTo(t, u.Email)
+		if mail.Subject != "Restablecer tu contraseña de TestBrand" || !strings.Contains(mail.HTML, "tu cuenta de TestBrand") {
+			t.Errorf("reset mail brand: subject %q", mail.Subject)
+		}
 		if mail.From != s.Config.PasswordResetFromEmail || !strings.Contains(mail.HTML, s.Config.AppBaseURL+"/reset-password?token=") {
 			t.Errorf("reset mail = from %q, html %q", mail.From, mail.HTML)
 		}

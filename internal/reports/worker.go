@@ -24,6 +24,7 @@ type Worker struct {
 	svc        *Service
 	households allHouseholdsLister
 	sender     Sender
+	brand      string
 	hour       int
 	minute     int
 	logger     *slog.Logger
@@ -33,20 +34,20 @@ type Worker struct {
 }
 
 // Sender delivers the monthly email. Production passes the shared Resend
-// sender (same implementation as ResendSender in this package).
+// sender (internal/email).
 type Sender interface {
 	Configured() bool
 	Send(ctx context.Context, to []string, subject, html string) error
 }
 
-func NewWorker(svc *Service, households allHouseholdsLister, sender Sender, hour, minute int, logger *slog.Logger) *Worker {
+func NewWorker(svc *Service, households allHouseholdsLister, sender Sender, brand string, hour, minute int, logger *slog.Logger) *Worker {
 	if hour < 0 || hour > 23 {
 		hour = 8
 	}
 	if minute < 0 || minute > 59 {
 		minute = 0
 	}
-	return &Worker{svc: svc, households: households, sender: sender, hour: hour, minute: minute, logger: logger, now: time.Now}
+	return &Worker{svc: svc, households: households, sender: sender, brand: brand, hour: hour, minute: minute, logger: logger, now: time.Now}
 }
 
 func (w *Worker) Start(ctx context.Context) func() {
@@ -140,10 +141,10 @@ func (w *Worker) sendForHousehold(ctx context.Context, householdID uuid.UUID, mo
 		return nil // nada que enviar
 	}
 
-	html, err := RenderMonthlyHTML(hh.Name, rep)
+	html, err := RenderMonthlyHTML(w.brand, hh.Name, rep)
 	if err != nil {
 		return err
 	}
-	subject := "Ahorra — Resumen " + rep.Month + " · " + hh.Name
+	subject := w.brand + " — Resumen " + rep.Month + " · " + hh.Name
 	return w.sender.Send(ctx, recipients, subject, html)
 }

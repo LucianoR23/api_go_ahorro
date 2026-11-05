@@ -186,40 +186,6 @@ func (q *Queries) SoftDeleteUser(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
-const updateUserName = `-- name: UpdateUserName :one
-UPDATE users
-SET first_name = $2,
-    last_name  = $3,
-    updated_at = now()
-WHERE id = $1
-RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin
-`
-
-type UpdateUserNameParams struct {
-	ID        uuid.UUID `json:"id"`
-	FirstName string    `json:"first_name"`
-	LastName  string    `json:"last_name"`
-}
-
-// Actualiza nombre y apellido juntos (si se edita uno se reenvían ambos).
-func (q *Queries) UpdateUserName(ctx context.Context, arg UpdateUserNameParams) (User, error) {
-	row := q.db.QueryRow(ctx, updateUserName, arg.ID, arg.FirstName, arg.LastName)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.Email,
-		&i.PasswordHash,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.FirstName,
-		&i.LastName,
-		&i.DeletedAt,
-		&i.EmailVerifiedAt,
-		&i.IsSuperadmin,
-	)
-	return i, err
-}
-
 const updateUserPassword = `-- name: UpdateUserPassword :exec
 UPDATE users
 SET password_hash = $2,

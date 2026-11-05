@@ -10,7 +10,7 @@ import (
 )
 
 func TestNewWorkerDefaults(t *testing.T) {
-	w := NewWorker(nil, nil, nil, -1, 99, nil)
+	w := NewWorker(nil, nil, nil, "Test", -1, 99, nil)
 	if w.hour != 8 || w.minute != 0 {
 		t.Errorf("invalid hour/minute fall back to 08:00, got %02d:%02d", w.hour, w.minute)
 	}
@@ -22,7 +22,7 @@ func TestNewWorkerDefaults(t *testing.T) {
 func TestNextTick(t *testing.T) {
 	loc := testutil.Location(t)
 	at := func(y int, m time.Month, d, h, min int) time.Time { return time.Date(y, m, d, h, min, 0, 0, loc) }
-	w := NewWorker(nil, nil, nil, 8, 0, nil)
+	w := NewWorker(nil, nil, nil, "Test", 8, 0, nil)
 
 	tests := []struct {
 		name string

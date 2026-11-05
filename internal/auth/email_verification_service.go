@@ -45,6 +45,7 @@ type emailVerificationSender interface {
 //   - Issue invalida los activos previos (último mail == único válido).
 //   - Idempotente al marcar users.email_verified_at (no pisa si ya estaba).
 type EmailVerificationService struct {
+	brand      string // product name in subject and body
 	repo       emailVerificationRepo
 	users      emailVerificationUserRepo
 	sender     emailVerificationSender
@@ -59,8 +60,10 @@ func NewEmailVerificationService(
 	sender emailVerificationSender,
 	logger *slog.Logger,
 	appBaseURL string,
+	brand string,
 ) *EmailVerificationService {
 	return &EmailVerificationService{
+		brand:      brand,
 		repo:       repo,
 		users:      users,
 		sender:     sender,
@@ -102,8 +105,8 @@ func (s *EmailVerificationService) Issue(ctx context.Context, userID uuid.UUID) 
 
 	verifyURL := s.appBaseURL + "/verify-email?token=" + token
 	if s.sender != nil && s.sender.Configured() {
-		html := renderEmailVerificationHTML(u.FirstName, verifyURL, expiresAt)
-		subject := "Verificá tu email en Ahorra"
+		html := renderEmailVerificationHTML(s.brand, u.FirstName, verifyURL, expiresAt)
+		subject := "Verificá tu email en " + s.brand
 		if err := s.sender.Send(ctx, []string{u.Email}, subject, html); err != nil {
 			s.logger.WarnContext(ctx, "email verification mail falló",
 				"user_id", userID, "error", err)

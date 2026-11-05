@@ -92,10 +92,12 @@ func New(t testing.TB, opts ...Option) *Server {
 		InviteFromEmail:        "Test <invites@example.test>",
 		PasswordResetFromEmail: "Test <reset@example.test>",
 		VerificationFromEmail:  "Test <verify@example.test>",
-		AppBaseURL:             "http://localhost:3005",
-		GoogleOAuthClientID:    "test-client-id",
-		VAPIDSubject:           "mailto:test@example.test",
-		SupportAPIURL:          "http://127.0.0.1:1", // unreachable unless a test overrides it
+		// A brand that differs from the default proves mails read it from config.
+		BrandName:           "TestBrand",
+		AppBaseURL:          "http://localhost:3005",
+		GoogleOAuthClientID: "test-client-id",
+		VAPIDSubject:        "mailto:test@example.test",
+		SupportAPIURL:       "http://127.0.0.1:1", // unreachable unless a test overrides it
 	}
 	mail := &FakeMailer{}
 	g := &FakeGoogle{}

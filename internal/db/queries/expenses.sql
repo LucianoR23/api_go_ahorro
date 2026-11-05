@@ -42,28 +42,6 @@ LIMIT $2;
 -- name: GetExpenseByID :one
 SELECT * FROM expenses WHERE id = $1;
 
--- name: ListExpensesByHousehold :many
--- Filtros opcionales: categoryId, paymentMethodId, desde/hasta (fechas).
--- Paginación por offset/limit simple. Cuando el volumen crezca, migrar a keyset.
-SELECT *
-FROM expenses
-WHERE household_id = $1
-  AND (sqlc.narg(category_id)::uuid IS NULL OR category_id = sqlc.narg(category_id)::uuid)
-  AND (sqlc.narg(payment_method_id)::uuid IS NULL OR payment_method_id = sqlc.narg(payment_method_id)::uuid)
-  AND (sqlc.narg(from_date)::date IS NULL OR spent_at >= sqlc.narg(from_date)::date)
-  AND (sqlc.narg(to_date)::date IS NULL OR spent_at <= sqlc.narg(to_date)::date)
-ORDER BY spent_at DESC, created_at DESC
-LIMIT $2 OFFSET $3;
-
--- name: CountExpensesByHousehold :one
-SELECT COUNT(*)::bigint
-FROM expenses
-WHERE household_id = $1
-  AND (sqlc.narg(category_id)::uuid IS NULL OR category_id = sqlc.narg(category_id)::uuid)
-  AND (sqlc.narg(payment_method_id)::uuid IS NULL OR payment_method_id = sqlc.narg(payment_method_id)::uuid)
-  AND (sqlc.narg(from_date)::date IS NULL OR spent_at >= sqlc.narg(from_date)::date)
-  AND (sqlc.narg(to_date)::date IS NULL OR spent_at <= sqlc.narg(to_date)::date);
-
 -- name: UpdateExpense :one
 -- Solo campos editables: description, spent_at, category_id.
 -- amount/currency/installments NO se editan (borrar y recrear).
@@ -119,10 +97,6 @@ RETURNING *;
 -- name: CreateInstallmentShare :exec
 INSERT INTO expense_installment_shares (installment_id, user_id, amount_base_owed)
 VALUES ($1, $2, $3);
-
--- name: ListSharesByInstallment :many
-SELECT * FROM expense_installment_shares
-WHERE installment_id = $1;
 
 -- name: ListSharesByExpense :many
 SELECT s.installment_id, s.user_id, s.amount_base_owed

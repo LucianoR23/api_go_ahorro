@@ -212,68 +212,6 @@ func (q *Queries) GetSettlementByID(ctx context.Context, id uuid.UUID) (Settleme
 	return i, err
 }
 
-const listSettlementsByHousehold = `-- name: ListSettlementsByHousehold :many
-SELECT id, household_id, from_user, to_user, amount_base, base_currency, note, paid_at, created_at
-FROM settlement_payments
-WHERE household_id = $1
-  AND ($4::uuid IS NULL OR from_user = $4::uuid)
-  AND ($5::uuid IS NULL OR to_user = $5::uuid)
-  AND ($6::date IS NULL OR paid_at >= $6::date)
-  AND ($7::date IS NULL OR paid_at <= $7::date)
-ORDER BY paid_at DESC, created_at DESC
-LIMIT $2 OFFSET $3
-`
-
-type ListSettlementsByHouseholdParams struct {
-	HouseholdID uuid.UUID   `json:"household_id"`
-	Limit       int32       `json:"limit"`
-	Offset      int32       `json:"offset"`
-	FromUser    *uuid.UUID  `json:"from_user"`
-	ToUser      *uuid.UUID  `json:"to_user"`
-	FromDate    pgtype.Date `json:"from_date"`
-	ToDate      pgtype.Date `json:"to_date"`
-}
-
-// Filtros opcionales: from_user, to_user (para ver pagos entre dos miembros
-// específicos), desde/hasta. Paginación por offset/limit.
-func (q *Queries) ListSettlementsByHousehold(ctx context.Context, arg ListSettlementsByHouseholdParams) ([]SettlementPayment, error) {
-	rows, err := q.db.Query(ctx, listSettlementsByHousehold,
-		arg.HouseholdID,
-		arg.Limit,
-		arg.Offset,
-		arg.FromUser,
-		arg.ToUser,
-		arg.FromDate,
-		arg.ToDate,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []SettlementPayment{}
-	for rows.Next() {
-		var i SettlementPayment
-		if err := rows.Scan(
-			&i.ID,
-			&i.HouseholdID,
-			&i.FromUser,
-			&i.ToUser,
-			&i.AmountBase,
-			&i.BaseCurrency,
-			&i.Note,
-			&i.PaidAt,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const settlementsByHouseholdAggregated = `-- name: SettlementsByHouseholdAggregated :many
 SELECT
     household_id,

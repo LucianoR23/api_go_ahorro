@@ -9,7 +9,6 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createUserIdentity = `-- name: CreateUserIdentity :exec
@@ -65,44 +64,4 @@ func (q *Queries) GetUserIdentity(ctx context.Context, arg GetUserIdentityParams
 		&i.LinkedAt,
 	)
 	return i, err
-}
-
-const listUserIdentitiesByUser = `-- name: ListUserIdentitiesByUser :many
-SELECT provider, subject, email, linked_at
-FROM user_identities
-WHERE user_id = $1
-ORDER BY linked_at ASC
-`
-
-type ListUserIdentitiesByUserRow struct {
-	Provider string             `json:"provider"`
-	Subject  string             `json:"subject"`
-	Email    string             `json:"email"`
-	LinkedAt pgtype.Timestamptz `json:"linked_at"`
-}
-
-// Para mostrar al user qué providers tiene vinculados en su perfil.
-func (q *Queries) ListUserIdentitiesByUser(ctx context.Context, userID uuid.UUID) ([]ListUserIdentitiesByUserRow, error) {
-	rows, err := q.db.Query(ctx, listUserIdentitiesByUser, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListUserIdentitiesByUserRow{}
-	for rows.Next() {
-		var i ListUserIdentitiesByUserRow
-		if err := rows.Scan(
-			&i.Provider,
-			&i.Subject,
-			&i.Email,
-			&i.LinkedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }

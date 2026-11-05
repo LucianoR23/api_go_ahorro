@@ -69,37 +69,6 @@ func (q *Queries) ConfirmExpenseDraft(ctx context.Context, arg ConfirmExpenseDra
 	return i, err
 }
 
-const countExpensesByHousehold = `-- name: CountExpensesByHousehold :one
-SELECT COUNT(*)::bigint
-FROM expenses
-WHERE household_id = $1
-  AND ($2::uuid IS NULL OR category_id = $2::uuid)
-  AND ($3::uuid IS NULL OR payment_method_id = $3::uuid)
-  AND ($4::date IS NULL OR spent_at >= $4::date)
-  AND ($5::date IS NULL OR spent_at <= $5::date)
-`
-
-type CountExpensesByHouseholdParams struct {
-	HouseholdID     uuid.UUID   `json:"household_id"`
-	CategoryID      *uuid.UUID  `json:"category_id"`
-	PaymentMethodID *uuid.UUID  `json:"payment_method_id"`
-	FromDate        pgtype.Date `json:"from_date"`
-	ToDate          pgtype.Date `json:"to_date"`
-}
-
-func (q *Queries) CountExpensesByHousehold(ctx context.Context, arg CountExpensesByHouseholdParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countExpensesByHousehold,
-		arg.HouseholdID,
-		arg.CategoryID,
-		arg.PaymentMethodID,
-		arg.FromDate,
-		arg.ToDate,
-	)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const createExpense = `-- name: CreateExpense :one
 INSERT INTO expenses (
     household_id, created_by, category_id, payment_method_id,
@@ -361,78 +330,6 @@ func (q *Queries) ListDraftExpensesByHousehold(ctx context.Context, householdID 
 	return items, nil
 }
 
-const listExpensesByHousehold = `-- name: ListExpensesByHousehold :many
-SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status
-FROM expenses
-WHERE household_id = $1
-  AND ($4::uuid IS NULL OR category_id = $4::uuid)
-  AND ($5::uuid IS NULL OR payment_method_id = $5::uuid)
-  AND ($6::date IS NULL OR spent_at >= $6::date)
-  AND ($7::date IS NULL OR spent_at <= $7::date)
-ORDER BY spent_at DESC, created_at DESC
-LIMIT $2 OFFSET $3
-`
-
-type ListExpensesByHouseholdParams struct {
-	HouseholdID     uuid.UUID   `json:"household_id"`
-	Limit           int32       `json:"limit"`
-	Offset          int32       `json:"offset"`
-	CategoryID      *uuid.UUID  `json:"category_id"`
-	PaymentMethodID *uuid.UUID  `json:"payment_method_id"`
-	FromDate        pgtype.Date `json:"from_date"`
-	ToDate          pgtype.Date `json:"to_date"`
-}
-
-// Filtros opcionales: categoryId, paymentMethodId, desde/hasta (fechas).
-// Paginación por offset/limit simple. Cuando el volumen crezca, migrar a keyset.
-func (q *Queries) ListExpensesByHousehold(ctx context.Context, arg ListExpensesByHouseholdParams) ([]Expense, error) {
-	rows, err := q.db.Query(ctx, listExpensesByHousehold,
-		arg.HouseholdID,
-		arg.Limit,
-		arg.Offset,
-		arg.CategoryID,
-		arg.PaymentMethodID,
-		arg.FromDate,
-		arg.ToDate,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Expense{}
-	for rows.Next() {
-		var i Expense
-		if err := rows.Scan(
-			&i.ID,
-			&i.HouseholdID,
-			&i.CreatedBy,
-			&i.CategoryID,
-			&i.PaymentMethodID,
-			&i.Amount,
-			&i.Currency,
-			&i.AmountBase,
-			&i.BaseCurrency,
-			&i.RateUsed,
-			&i.RateAt,
-			&i.Description,
-			&i.SpentAt,
-			&i.Installments,
-			&i.IsShared,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.RecurringExpenseID,
-			&i.Status,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listExpensesBySeries = `-- name: ListExpensesBySeries :many
 SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status FROM expenses
 WHERE recurring_expense_id = $1 AND status = 'confirmed'
@@ -535,31 +432,6 @@ ORDER BY i.installment_number ASC
 
 func (q *Queries) ListSharesByExpense(ctx context.Context, expenseID uuid.UUID) ([]ExpenseInstallmentShare, error) {
 	rows, err := q.db.Query(ctx, listSharesByExpense, expenseID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ExpenseInstallmentShare{}
-	for rows.Next() {
-		var i ExpenseInstallmentShare
-		if err := rows.Scan(&i.InstallmentID, &i.UserID, &i.AmountBaseOwed); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listSharesByInstallment = `-- name: ListSharesByInstallment :many
-SELECT installment_id, user_id, amount_base_owed FROM expense_installment_shares
-WHERE installment_id = $1
-`
-
-func (q *Queries) ListSharesByInstallment(ctx context.Context, installmentID uuid.UUID) ([]ExpenseInstallmentShare, error) {
-	rows, err := q.db.Query(ctx, listSharesByInstallment, installmentID)
 	if err != nil {
 		return nil, err
 	}
