@@ -4,6 +4,14 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.21a — API test harness
+- `internal/app`: the wiring (repos, services, handlers, router, background jobs) moved out of `main()` with no behavior change. `app.New(ctx, cfg, pool, logger, opts)` returns the real router (`Router()`) and `Start(ctx)` for the jobs (same order, stopped in reverse). `Options` swaps only external dependencies: email sender, Google verifier, FX HTTP client, auth rate limiter; zero values are production's. `cmd/api/main.go` keeps config, migrations, pool, server and signals.
+- `internal/testutil/testdb`: Postgres 18 via testcontainers v0.44.0 (or `TEST_DATABASE_URL`), migrations applied once to a template, each test gets its own database cloned from it. Skips locally without Docker, fails in CI.
+- `internal/testutil/apitest`: runs the real router on `httptest` against a fresh database; fake mailer (captures emails, extracts `?token=`), fake Google verifier (same error as the real one), auth rate limits off unless `WithRealRateLimits()`, outbound HTTP blocked. Factories: `Register` (optionally verified), `VerifyEmail`, `CreateHousehold`.
+- The migrations integration test now runs on `testdb` (no env var); CI uses testcontainers instead of a Postgres service.
+- `github.com/moby/go-archive` v0.2.0 → v0.3.0 (GO-2026-6253, reachable from the test harness through testcontainers).
+- **Bug fixed (0.10):** with two instances starting at once, the one waiting for the lock could read the transient dirty flag of the other's in-flight migration before locking and abort startup. The pre-lock read is now only a log hint; the dirty check that counts is the one under the advisory lock. Caught by the concurrent integration test once it ran on testcontainers.
+
 ### 0.11 + 0.19 — CI, first unit tests, security scanning
 - CI (`.github/workflows/ci.yml`, push to `next` + PRs into it): `go mod verify`, build, vet, golangci-lint v2.15.0, `sqlc diff` (sqlc 1.30.0, the version that generated the code), `go test -race` with a Postgres 18.6 service for the migrations integration test, coverage summary (reported, gate starts in 0.21), govulncheck v1.9.0, gitleaks on full history. Actions pinned by commit SHA.
 - Dependabot weekly for gomod, Dockerfile, docker-compose and Actions, targeting `next`.

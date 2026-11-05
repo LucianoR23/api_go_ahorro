@@ -59,14 +59,13 @@ func Up(dbURL string, src fs.FS, logger *slog.Logger) (Result, error) {
 	}()
 	m.LockTimeout = LockTimeout
 
-	// Read before taking the lock, so it is only a hint: another instance may
-	// be migrating right now. ErrNoChange below is the authoritative signal.
-	from, dirty, err := version(m)
+	// Read before taking the lock, so it is only a hint for the log: another
+	// instance may be migrating right now, and then this read can even see the
+	// transient dirty flag of its in-flight migration. The dirty check that
+	// counts is the one m.Up() does under the advisory lock (ErrDirty below).
+	from, _, err := version(m)
 	if err != nil {
 		return Result{}, redact(err, dbURL)
-	}
-	if dirty {
-		return Result{From: from, To: from}, dirtyError(from)
 	}
 
 	upErr := m.Up()
