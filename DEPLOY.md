@@ -68,7 +68,8 @@ without superuser. Check with `\du`, `\l valuo_next` and `\ddp`.
 | `GOOGLE_OAUTH_CLIENT_ID` | same value as the front's `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (empty = `/auth/google` responds 500) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | per environment, from `go run ./cmd/vapidgen`; subject `mailto:...` |
 | `RESEND_API_KEY` | sending-only key for the verified domain; empty = no emails |
-| `*_FROM_EMAIL` (4) | sender on the verified domain |
+| `BRAND_NAME` | product name in emails (default `Ahorro`; 1.1 sets `Valuo`) |
+| `*_FROM_EMAIL` (4) | sender on the verified domain (default `<BRAND_NAME> <onboarding@resend.dev>`) |
 | `SOPORTE_API_URL` / `SOPORTE_API_KEY` | empty = `/support/*` responds 503 |
 
 `<DB_HOST>` is the internal hostname Coolify shows in "Postgres URL (internal)". The

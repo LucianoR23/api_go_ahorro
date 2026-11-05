@@ -30,11 +30,14 @@ type Config struct {
 
 	// Resend: opcional. Si no hay API key, el worker de reports no manda
 	// emails (loguea warning y sigue). Útil para dev sin configurar nada.
-	ResendAPIKey           string
-	ReportFromEmail        string // e.g. "Ahorra <reports@ahorra.app>"
-	InviteFromEmail        string // e.g. "Ahorra <invites@ahorra.app>"
-	PasswordResetFromEmail string // e.g. "Ahorra <noreply@ahorra.app>"
-	VerificationFromEmail  string // e.g. "Ahorra <noreply@ahorra.app>"
+	ResendAPIKey string
+	// BrandName is the product name shown to users (emails, banner). Plan
+	// 0.15b: one source; 1.1 switches the value to Valuo.
+	BrandName              string
+	ReportFromEmail        string // e.g. "<Brand> <reports@example.com>"
+	InviteFromEmail        string
+	PasswordResetFromEmail string
+	VerificationFromEmail  string
 
 	// AppBaseURL: URL pública del frontend (ej: https://app.ahorra.app).
 	// Se usa para armar los links de invitación que van en los mails.
@@ -76,6 +79,8 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	brand := getOrDefault("BRAND_NAME", "Ahorro")
+
 	cfg := &Config{
 		Port:                   getOrDefault("PORT", "8080"),
 		Env:                    getOrDefault("ENV", "dev"),
@@ -87,10 +92,11 @@ func Load() (*Config, error) {
 		JWTRefreshSecret:       os.Getenv("JWT_REFRESH_SECRET"),
 		AllowedOrigins:         splitAndTrim(getOrDefault("ALLOWED_ORIGINS", "http://localhost:3005"), ","),
 		ResendAPIKey:           os.Getenv("RESEND_API_KEY"),
-		ReportFromEmail:        getOrDefault("REPORT_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
-		InviteFromEmail:        getOrDefault("INVITE_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
-		PasswordResetFromEmail: getOrDefault("PASSWORD_RESET_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
-		VerificationFromEmail:  getOrDefault("VERIFICATION_FROM_EMAIL", "Ahorra <onboarding@resend.dev>"),
+		BrandName:              brand,
+		ReportFromEmail:        getOrDefault("REPORT_FROM_EMAIL", brand+" <onboarding@resend.dev>"),
+		InviteFromEmail:        getOrDefault("INVITE_FROM_EMAIL", brand+" <onboarding@resend.dev>"),
+		PasswordResetFromEmail: getOrDefault("PASSWORD_RESET_FROM_EMAIL", brand+" <onboarding@resend.dev>"),
+		VerificationFromEmail:  getOrDefault("VERIFICATION_FROM_EMAIL", brand+" <onboarding@resend.dev>"),
 		AppBaseURL:             getOrDefault("APP_BASE_URL", "http://localhost:3005"),
 		GoogleOAuthClientID:    os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
 		VAPIDPublicKey:         os.Getenv("VAPID_PUBLIC_KEY"),

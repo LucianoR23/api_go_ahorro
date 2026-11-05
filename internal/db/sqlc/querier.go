@@ -40,7 +40,6 @@ type Querier interface {
 	// Usada en validaciones: no dejar al user sin ningún método activo
 	// (Efectivo no se puede desactivar si es el último).
 	CountActivePaymentMethodsByOwner(ctx context.Context, ownerUserID uuid.UUID) (int64, error)
-	CountExpensesByHousehold(ctx context.Context, arg CountExpensesByHouseholdParams) (int64, error)
 	// Cuántas transacciones hubo en el rango. Distinct categorías también.
 	CountExpensesSpentAtRange(ctx context.Context, arg CountExpensesSpentAtRangeParams) (CountExpensesSpentAtRangeRow, error)
 	// Cuenta los owners vigentes de un hogar. Sirve para invariantes (ej:
@@ -211,9 +210,6 @@ type Querier interface {
 	// Filtra por payment_method.is_active = true: una tarjeta sin método
 	// activo no se muestra.
 	ListCreditCardsByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]ListCreditCardsByOwnerRow, error)
-	// Filtros opcionales: user_id (null = insights del hogar; uuid = de ese user),
-	// unread_only, rango de fechas, tipo.
-	ListDailyInsightsByHousehold(ctx context.Context, arg ListDailyInsightsByHouseholdParams) ([]DailyInsight, error)
 	// Para /admin/households/deleted: lista todos los hogares soft-deleted
 	// ordenados por fecha de borrado (más reciente primero). JOIN con users
 	// para devolver info del owner actual (preferimos el owner vigente en
@@ -226,9 +222,6 @@ type Querier interface {
 	// La UI los muestra en un bloque "Pendientes" hasta que el usuario confirme
 	// el monto real de la factura.
 	ListDraftExpensesByHousehold(ctx context.Context, householdID uuid.UUID) ([]Expense, error)
-	// Filtros opcionales: categoryId, paymentMethodId, desde/hasta (fechas).
-	// Paginación por offset/limit simple. Cuando el volumen crezca, migrar a keyset.
-	ListExpensesByHousehold(ctx context.Context, arg ListExpensesByHouseholdParams) ([]Expense, error)
 	// Histórico confirmado de una serie (recurring_expense). Lo usa el endpoint
 	// de stats para calcular variación %, promedio, tendencia.
 	ListExpensesBySeries(ctx context.Context, arg ListExpensesBySeriesParams) ([]Expense, error)
@@ -253,14 +246,8 @@ type Querier interface {
 	ListPendingInvitesForHousehold(ctx context.Context, householdID uuid.UUID) ([]HouseholdInvite, error)
 	ListRecurringExpensesByHousehold(ctx context.Context, householdID uuid.UUID) ([]RecurringExpense, error)
 	ListRecurringIncomesByHousehold(ctx context.Context, householdID uuid.UUID) ([]RecurringIncome, error)
-	// Filtros opcionales: from_user, to_user (para ver pagos entre dos miembros
-	// específicos), desde/hasta. Paginación por offset/limit.
-	ListSettlementsByHousehold(ctx context.Context, arg ListSettlementsByHouseholdParams) ([]SettlementPayment, error)
 	ListSharesByExpense(ctx context.Context, expenseID uuid.UUID) ([]ExpenseInstallmentShare, error)
-	ListSharesByInstallment(ctx context.Context, installmentID uuid.UUID) ([]ExpenseInstallmentShare, error)
 	ListSplitRulesByHousehold(ctx context.Context, householdID uuid.UUID) ([]HouseholdSplitRule, error)
-	// Para mostrar al user qué providers tiene vinculados en su perfil.
-	ListUserIdentitiesByUser(ctx context.Context, userID uuid.UUID) ([]ListUserIdentitiesByUserRow, error)
 	MarkAllInsightsReadByHousehold(ctx context.Context, arg MarkAllInsightsReadByHouseholdParams) error
 	MarkDailyInsightRead(ctx context.Context, id uuid.UUID) error
 	// Single-use condicional: solo matchea si aún no fue usado y no expiró.
@@ -399,8 +386,6 @@ type Querier interface {
 	// que se liste la serie aparezca el monto real más reciente sin recomputar.
 	UpdateRecurringExpenseLastAmount(ctx context.Context, arg UpdateRecurringExpenseLastAmountParams) error
 	UpdateRecurringIncome(ctx context.Context, arg UpdateRecurringIncomeParams) (RecurringIncome, error)
-	// Actualiza nombre y apellido juntos (si se edita uno se reenvían ambos).
-	UpdateUserName(ctx context.Context, arg UpdateUserNameParams) (User, error)
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	// Actualiza nombre/apellido/email en una sola query. El caller es
 	// responsable de validar cada uno antes. La colisión de email la captura

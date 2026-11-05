@@ -14,7 +14,7 @@ var monthlyEmailTpl = template.Must(template.New("monthly").Parse(`<!DOCTYPE htm
 <head><meta charset="utf-8"></head>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color:#1a1a1a; background:#f5f5f7; padding: 24px;">
   <div style="max-width:640px; margin:0 auto; background:#fff; border-radius:12px; padding:32px;">
-    <h1 style="font-size:20px; margin:0 0 8px 0;">Ahorra — Resumen mensual</h1>
+    <h1 style="font-size:20px; margin:0 0 8px 0;">{{.Brand}} — Resumen mensual</h1>
     <p style="color:#666; margin:0 0 24px 0;">{{.HouseholdName}} · {{.Month}} · {{.BaseCurrency}}</p>
 
     <table style="width:100%; border-collapse:collapse; margin-bottom:24px;">
@@ -54,7 +54,7 @@ var monthlyEmailTpl = template.Must(template.New("monthly").Parse(`<!DOCTYPE htm
     </table>
 
     <p style="margin-top:32px; color:#999; font-size:12px;">
-      Montos en {{.BaseCurrency}}. Generado automáticamente por Ahorra.
+      Montos en {{.BaseCurrency}}. Generado automáticamente por {{.Brand}}.
     </p>
   </div>
 </body>
@@ -67,6 +67,7 @@ type emailCategory struct {
 }
 
 type emailData struct {
+	Brand         string
 	HouseholdName string
 	Month         string
 	BaseCurrency  string
@@ -83,7 +84,7 @@ type emailData struct {
 // RenderMonthlyHTML arma el HTML del email a partir del MonthlyReport.
 // Los números se formatean con el símbolo de la currency ya pegado para
 // que el template sea agnóstico.
-func RenderMonthlyHTML(hhName string, rep MonthlyReport) (string, error) {
+func RenderMonthlyHTML(brand, hhName string, rep MonthlyReport) (string, error) {
 	cur := rep.BaseCurrency
 	fmtMoney := func(v float64) string { return fmt.Sprintf("%.2f %s", v, cur) }
 	fmtPct := func(v float64) string { return fmt.Sprintf("%.1f", v) }
@@ -101,6 +102,7 @@ func RenderMonthlyHTML(hhName string, rep MonthlyReport) (string, error) {
 	}
 
 	data := emailData{
+		Brand:         brand,
 		HouseholdName: hhName,
 		Month:         rep.Month,
 		BaseCurrency:  cur,

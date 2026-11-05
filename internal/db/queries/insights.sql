@@ -17,20 +17,6 @@ RETURNING *;
 -- name: GetDailyInsightByID :one
 SELECT * FROM daily_insights WHERE id = $1;
 
--- name: ListDailyInsightsByHousehold :many
--- Filtros opcionales: user_id (null = insights del hogar; uuid = de ese user),
--- unread_only, rango de fechas, tipo.
-SELECT *
-FROM daily_insights
-WHERE household_id = $1
-  AND (sqlc.narg(user_id)::uuid IS NULL OR user_id = sqlc.narg(user_id)::uuid)
-  AND (sqlc.narg(only_unread)::boolean IS NULL OR is_read = NOT sqlc.narg(only_unread)::boolean)
-  AND (sqlc.narg(from_date)::date IS NULL OR insight_date >= sqlc.narg(from_date)::date)
-  AND (sqlc.narg(to_date)::date IS NULL OR insight_date <= sqlc.narg(to_date)::date)
-  AND (sqlc.narg(insight_type)::text IS NULL OR insight_type = sqlc.narg(insight_type)::text)
-ORDER BY insight_date DESC, created_at DESC
-LIMIT $2 OFFSET $3;
-
 -- name: CountUnreadInsightsByHousehold :one
 SELECT COUNT(*)::bigint
 FROM daily_insights

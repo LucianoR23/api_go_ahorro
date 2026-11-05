@@ -45,6 +45,9 @@ func TestRegister(t *testing.T) {
 		}
 
 		mail := s.Mail.LastTo(t, email)
+		if mail.Subject != "Verificá tu email en TestBrand" || !strings.Contains(mail.HTML, "registrarte en TestBrand") {
+			t.Errorf("verification mail brand: subject %q", mail.Subject)
+		}
 		if mail.From != s.Config.VerificationFromEmail || !strings.Contains(mail.HTML, s.Config.AppBaseURL+"/verify-email?token=") {
 			t.Errorf("verification mail = from %q, html %q", mail.From, mail.HTML)
 		}

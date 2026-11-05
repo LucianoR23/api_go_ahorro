@@ -54,16 +54,6 @@ FROM household_members
 WHERE user_id = $1 AND role = 'owner';
 
 
--- name: UpdateUserName :one
--- Actualiza nombre y apellido juntos (si se edita uno se reenvían ambos).
-UPDATE users
-SET first_name = $2,
-    last_name  = $3,
-    updated_at = now()
-WHERE id = $1
-RETURNING *;
-
-
 -- name: UpdateUserProfile :one
 -- Actualiza nombre/apellido/email en una sola query. El caller es
 -- responsable de validar cada uno antes. La colisión de email la captura

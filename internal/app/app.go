@@ -156,7 +156,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// guardamos solo el hash, TTL 1h, Resend opcional (en dev se loguea el URL).
 	passwordResetRepo := auth.NewPasswordResetRepository(pool)
 	passwordResetSender := opts.NewEmailSender(cfg.PasswordResetFromEmail)
-	passwordResetSvc := auth.NewPasswordResetService(passwordResetRepo, userRepo, passwordResetSender, logger, cfg.AppBaseURL)
+	passwordResetSvc := auth.NewPasswordResetService(passwordResetRepo, userRepo, passwordResetSender, logger, cfg.AppBaseURL, cfg.BrandName)
 	authHandler.SetPasswordResetService(passwordResetSvc)
 
 	// Rate limiting: in-memory (httprate). Solo se aplica si NO estamos en
@@ -169,7 +169,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// sender no está configurado, el service loguea el URL (útil en dev).
 	verificationRepo := auth.NewEmailVerificationRepository(pool)
 	verificationSender := opts.NewEmailSender(cfg.VerificationFromEmail)
-	verificationSvc := auth.NewEmailVerificationService(verificationRepo, userRepo, verificationSender, logger, cfg.AppBaseURL)
+	verificationSvc := auth.NewEmailVerificationService(verificationRepo, userRepo, verificationSender, logger, cfg.AppBaseURL, cfg.BrandName)
 	authHandler.SetEmailVerificationService(verificationSvc)
 	authSvc.SetEmailVerifier(verificationSvc)
 
@@ -203,7 +203,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// en el response para que el owner lo comparta a mano (útil en dev).
 	inviteSender := opts.NewEmailSender(cfg.InviteFromEmail)
 	invitesRepo := households.NewInvitesRepository(pool)
-	invitesSvc := households.NewInvitesService(invitesRepo, householdsRepo, userRepo, splitRulesSvc, inviteSender, logger, cfg.AppBaseURL)
+	invitesSvc := households.NewInvitesService(invitesRepo, householdsRepo, userRepo, splitRulesSvc, inviteSender, logger, cfg.AppBaseURL, cfg.BrandName)
 	invitesHandler := households.NewInvitesHandler(invitesSvc, authMW, logger)
 	// Permite que /auth/register consuma el inviteToken del body.
 	authSvc.SetInviteAccepter(invitesSvc)
@@ -383,7 +383,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// Resend sender + worker mensual. Si RESEND_API_KEY no está, el worker
 	// arranca igual pero no envía — útil para dev sin credenciales.
 	reportsSender := opts.NewEmailSender(cfg.ReportFromEmail)
-	reportsWorker := reports.NewWorker(reportsSvc, householdsRepo, reportsSender, 8, 0, logger)
+	reportsWorker := reports.NewWorker(reportsSvc, householdsRepo, reportsSender, cfg.BrandName, 8, 0, logger)
 	a.starters = append(a.starters, reportsWorker.Start)
 	a.jobs.MonthlyReports = reportsWorker.RunOnce
 

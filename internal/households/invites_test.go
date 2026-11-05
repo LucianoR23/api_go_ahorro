@@ -58,6 +58,9 @@ func TestInvites(t *testing.T) {
 			t.Errorf("acceptUrl = %q", inv.AcceptURL)
 		}
 		mail := s.Mail.LastTo(t, email)
+		if mail.Subject != "Te invitaron a unirte al hogar Casa Test en TestBrand" || !strings.Contains(mail.HTML, "Te invitaron a TestBrand") {
+			t.Errorf("invite mail brand: subject %q", mail.Subject)
+		}
 		if mail.From != s.Config.InviteFromEmail || mail.Token(t) != inv.Token || !strings.Contains(mail.Subject, "Casa Test") {
 			t.Errorf("invite mail = %+v", mail)
 		}

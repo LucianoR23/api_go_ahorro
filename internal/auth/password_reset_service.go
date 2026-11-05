@@ -51,6 +51,7 @@ type resetEmailSender interface {
 //   - Al completar un reset, invalidamos cualquier otro token activo del
 //     user (por si había varios mails).
 type PasswordResetService struct {
+	brand      string // product name in subject and body
 	resets     passwordResetRepo
 	users      passwordResetUserRepo
 	sender     resetEmailSender
@@ -65,8 +66,10 @@ func NewPasswordResetService(
 	sender resetEmailSender,
 	logger *slog.Logger,
 	appBaseURL string,
+	brand string,
 ) *PasswordResetService {
 	return &PasswordResetService{
+		brand:      brand,
 		resets:     resets,
 		users:      users,
 		sender:     sender,
@@ -116,8 +119,8 @@ func (s *PasswordResetService) RequestReset(ctx context.Context, email string) e
 
 	resetURL := s.appBaseURL + "/reset-password?token=" + token
 	if s.sender != nil && s.sender.Configured() {
-		html := renderPasswordResetHTML(user.FirstName, resetURL, expiresAt)
-		subject := "Restablecer tu contraseña de Ahorra"
+		html := renderPasswordResetHTML(s.brand, user.FirstName, resetURL, expiresAt)
+		subject := "Restablecer tu contraseña de " + s.brand
 		if err := s.sender.Send(ctx, []string{user.Email}, subject, html); err != nil {
 			// No abortamos el request: el token quedó emitido. El user puede
 			// reintentar. Logueamos para alertar si el sender está roto.

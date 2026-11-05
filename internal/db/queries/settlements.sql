@@ -8,19 +8,6 @@ RETURNING *;
 -- name: GetSettlementByID :one
 SELECT * FROM settlement_payments WHERE id = $1;
 
--- name: ListSettlementsByHousehold :many
--- Filtros opcionales: from_user, to_user (para ver pagos entre dos miembros
--- específicos), desde/hasta. Paginación por offset/limit.
-SELECT *
-FROM settlement_payments
-WHERE household_id = $1
-  AND (sqlc.narg(from_user)::uuid IS NULL OR from_user = sqlc.narg(from_user)::uuid)
-  AND (sqlc.narg(to_user)::uuid IS NULL OR to_user = sqlc.narg(to_user)::uuid)
-  AND (sqlc.narg(from_date)::date IS NULL OR paid_at >= sqlc.narg(from_date)::date)
-  AND (sqlc.narg(to_date)::date IS NULL OR paid_at <= sqlc.narg(to_date)::date)
-ORDER BY paid_at DESC, created_at DESC
-LIMIT $2 OFFSET $3;
-
 -- name: DeleteSettlement :exec
 DELETE FROM settlement_payments WHERE id = $1;
 

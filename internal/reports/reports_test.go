@@ -280,7 +280,7 @@ func TestMonthlyEmail(t *testing.T) {
 	for _, u := range []apitest.User{h.owner, h.member} {
 		var mail *apitest.Mail
 		for _, m := range s.Mail.Sent() {
-			if m.Subject == "Ahorra — Resumen 2026-02 · Casa Reportes" {
+			if m.Subject == "TestBrand — Resumen 2026-02 · Casa Reportes" {
 				for _, to := range m.To {
 					if to == u.Email {
 						mm := m
@@ -291,6 +291,9 @@ func TestMonthlyEmail(t *testing.T) {
 		}
 		if mail == nil {
 			t.Fatalf("no February summary for %s", u.Email)
+		}
+		if !strings.Contains(mail.HTML, "TestBrand — Resumen mensual") || !strings.Contains(mail.HTML, "Generado automáticamente por TestBrand") {
+			t.Errorf("summary mail does not use the configured brand")
 		}
 		if mail.From != s.Config.ReportFromEmail || !strings.Contains(mail.HTML, "1234") {
 			t.Errorf("summary mail from %q, html contains the total: %v", mail.From, strings.Contains(mail.HTML, "1234"))

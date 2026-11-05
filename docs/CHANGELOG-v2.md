@@ -4,6 +4,13 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.15b: brand config and dead code (API)
+- `BRAND_NAME` (default `Ahorro`, the name users see today) is the single source for the product name: verification, password reset, invite and monthly summary emails (subject and body), the `*_FROM_EMAIL` defaults (`<BRAND_NAME> <onboarding@resend.dev>`) and the startup banner. The emails used to say "Ahorra" while the app says "Ahorro"; they now follow the config. 1.1 sets `Valuo`. Tests run with `BrandName: "TestBrand"` and check every email uses it.
+- Unchanged on purpose: the refresh cookie name (renamed in 0.5), the JWT issuer, the logger name and the deleted-account email domain (internal), the Go module path (renamed with the repos).
+- Dead code removed: `resolveCreditPeriod`, three unused helpers in `insights/repository.go`, the duplicated `reports.ResendSender`, and 7 unused sqlc queries (`CountExpensesByHousehold`, `ListExpensesByHousehold`, `ListSharesByInstallment`, `ListDailyInsightsByHousehold`, `ListSettlementsByHousehold`, `ListUserIdentitiesByUser`, `UpdateUserName`); sqlc regenerated.
+- Lint: the 0.15b exclusions are gone. S1016 and QF1008 are now disabled permanently with the reason in `.golangci.yml` (explicit field mapping between layers is intentional; explicit embedded selectors read better).
+- Coverage 79.0% → 79.4% (less dead code); floor raised to 78.4.
+
 ### 0.21i: coverage baseline and ratchet gate
 - `scripts/coverage.sh`: cross-package statement coverage of `internal/` (generated sqlc code and test helpers excluded), per-package and per-`service.go` summary, and the gate: fails below `.coverage-floor` or when the floor is lowered compared with `origin/next`. Run by `scripts/check.sh` and CI (with `-race`; CI checks out full history for the comparison).
 - Baseline 79.0% (3.5% before 0.21); floor 78.0%. Every `service.go` at 80% or more except push (79.5%). Details and known gaps in `docs/testing/coverage-baseline.md`.

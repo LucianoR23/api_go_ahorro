@@ -21,23 +21,19 @@ linters:
         linters: [gosec]
         text: G101
 
+      # Style suggestions we do not follow (decided in 0.15b, permanent):
+      # S1016 would convert request DTOs straight into domain/repo types, which
+      # couples the layers (a new field on either side breaks the other); the
+      # explicit field mapping is intentional. QF1008 would drop the embedded
+      # type from selectors such as c.PaymentMethod.IsActive, which reads worse
+      # on types that embed one struct and carry another.
+      - linters: [staticcheck]
+        text: "^(S1016|QF1008):"
+
       # chi RealIP is deprecated and spoofable: replaced in 0.6 (TRUSTED_PROXIES).
       - path: internal/app/app\.go
         linters: [staticcheck]
         text: "SA1019: github.com/go-chi/chi/v5/middleware.RealIP"
-
-      # Style-only suggestions in existing code: cleaned up in 0.15b, once 0.21
-      # tests cover these modules.
-      - linters: [staticcheck]
-        text: "^(S1016|QF1008):"
-
-      # Dead code, deleted in 0.15b.
-      - path: internal/expenses/periods\.go
-        linters: [unused]
-        text: resolveCreditPeriod
-      - path: internal/insights/repository\.go
-        linters: [unused]
-        text: "func (textPtr|boolPtr|datePtr) is unused"
 
       # int -> int32 for sqlc params in existing code: values are bounded by
       # service validation and DB CHECKs (days 1..31, installments). Reviewed in

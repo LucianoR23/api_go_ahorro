@@ -44,6 +44,7 @@ type invitesInsightCreator interface {
 }
 
 type InvitesService struct {
+	brand      string // product name in subject and body
 	repo       *InvitesRepository
 	households *Repository
 	users      userLookup
@@ -65,8 +66,10 @@ func NewInvitesService(
 	sender inviteEmailSender,
 	logger *slog.Logger,
 	appBaseURL string,
+	brand string,
 ) *InvitesService {
 	return &InvitesService{
+		brand:      brand,
 		repo:       repo,
 		households: households,
 		users:      users,
@@ -151,8 +154,8 @@ func (s *InvitesService) Create(ctx context.Context, inviterID, householdID uuid
 
 	emailSent := false
 	if s.sender != nil && s.sender.Configured() {
-		html := renderInviteHTML(hh.Name, acceptURL, expiresAt)
-		subject := "Te invitaron a unirte al hogar " + hh.Name + " en Ahorra"
+		html := renderInviteHTML(s.brand, hh.Name, acceptURL, expiresAt)
+		subject := "Te invitaron a unirte al hogar " + hh.Name + " en " + s.brand
 		if err := s.sender.Send(ctx, []string{email}, subject, html); err != nil {
 			// No revertimos la invitación si falla el mail: el owner puede
 			// copiar el acceptURL manualmente del response.
@@ -214,8 +217,8 @@ func (s *InvitesService) Resend(ctx context.Context, callerID, inviteID uuid.UUI
 
 	emailSent := false
 	if s.sender != nil && s.sender.Configured() {
-		html := renderInviteHTML(hh.Name, acceptURL, expiresAt)
-		subject := "Recordatorio: te invitaron al hogar " + hh.Name + " en Ahorra"
+		html := renderInviteHTML(s.brand, hh.Name, acceptURL, expiresAt)
+		subject := "Recordatorio: te invitaron al hogar " + hh.Name + " en " + s.brand
 		if err := s.sender.Send(ctx, []string{inv.Email}, subject, html); err != nil {
 			s.logger.WarnContext(ctx, "invite resend email falló",
 				"inviteId", inviteID.String(), "error", err)

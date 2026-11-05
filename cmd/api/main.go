@@ -67,7 +67,7 @@ func main() {
 
 	// Banner de startup (tipo Fiber) — solo en dev para no ensuciar logs prod.
 	if cfg.Env != "prod" {
-		httpx.PrintStartupBanner(os.Stdout, cfg.Env, ":"+cfg.Port, r)
+		httpx.PrintStartupBanner(os.Stdout, cfg.BrandName, cfg.Env, ":"+cfg.Port, r)
 	}
 
 	// ---------- server con graceful shutdown ----------
