@@ -350,12 +350,23 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (TokenPair, 
 	return s.accessFor(sess)
 }
 
-// Logout ends the session of the refresh token (always succeeds).
-func (s *Service) Logout(ctx context.Context, refreshToken string) error {
+// Logout ends the session of the refresh token and returns its user
+// (uuid.Nil if the token was unknown; signing out always succeeds).
+func (s *Service) Logout(ctx context.Context, refreshToken string) (uuid.UUID, error) {
 	if refreshToken == "" {
-		return nil
+		return uuid.Nil, nil
 	}
 	return s.sessions.RevokeByToken(ctx, refreshToken)
+}
+
+// UserIDByEmail: the account behind an e-mail, for recording a failed
+// sign-in on it (plan 0.17). ok=false when no account has it.
+func (s *Service) UserIDByEmail(ctx context.Context, email string) (uuid.UUID, bool) {
+	creds, err := s.repo.GetCredentialsByEmail(ctx, normalizeEmail(email))
+	if err != nil {
+		return uuid.Nil, false
+	}
+	return creds.User.ID, true
 }
 
 // LogoutAll ends every session of the user, the current one included.

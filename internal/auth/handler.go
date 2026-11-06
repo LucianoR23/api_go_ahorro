@@ -9,8 +9,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/LucianoR23/api_go_ahorra/internal/audit"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
+	"github.com/google/uuid"
 )
 
 // Refresh cookie names, brand-neutral since plan 0.5 (they were
@@ -30,6 +32,7 @@ type Handler struct {
 	verifySvc  *EmailVerificationService
 	logger     *slog.Logger
 	mw         *Middleware
+	audit      *audit.Recorder
 	// secureCookies controla flags de la cookie. En prod: true (Secure + Host prefix).
 	secureCookies bool
 	// rateLimit es opcional: si está seteado, se aplica a /auth/login y
@@ -71,6 +74,10 @@ func (h *Handler) SetRateLimiter(rl RateLimiter) {
 //
 //	/auth/*  → públicas (register, login, refresh, logout)
 //	/me      → protegida con RequireAuth
+//
+// SetAudit wires the security audit log (plan 0.17). Nil keeps it off.
+func (h *Handler) SetAudit(rec *audit.Recorder) { h.audit = rec }
+
 func (h *Handler) Mount(r chi.Router) {
 	r.Route("/auth", func(r chi.Router) {
 		// Registro: rate-limit moderado para frenar creación masiva.
@@ -153,6 +160,7 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(h.mw.RequireAuth)
 		r.Post("/auth/logout-all", h.LogoutAll)
+		r.Get("/me/activity", h.Activity)
 		r.Get("/me", h.Me)
 		r.Patch("/me", h.UpdateMe)
 		r.Delete("/me", h.DeleteMe)
@@ -201,6 +209,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
+	h.audit.RecordLogin(r.Context(), r, result.User.ID, "register")
 
 	h.setRefreshCookie(w, result.Tokens.RefreshToken, result.Tokens.RefreshExpiresAt)
 	httpx.WriteJSON(w, http.StatusCreated, authResponse{
@@ -226,9 +235,17 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.svc.Login(contextWithUserAgent(r.Context(), r.UserAgent()), req.Email, req.Password)
 	if err != nil {
+		// A failed attempt on an existing account goes to that account's
+		// activity, so its owner can see it (the response stays generic).
+		if errors.Is(err, domain.ErrUnauthorized) {
+			if uid, ok := h.svc.UserIDByEmail(r.Context(), req.Email); ok {
+				h.audit.Record(r.Context(), r, audit.Event{UserID: &uid, Action: audit.LoginFailed})
+			}
+		}
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
+	h.audit.RecordLogin(r.Context(), r, result.User.ID, "password")
 
 	h.setRefreshCookie(w, result.Tokens.RefreshToken, result.Tokens.RefreshExpiresAt)
 	httpx.WriteJSON(w, http.StatusOK, authResponse{
@@ -269,6 +286,7 @@ func (h *Handler) LoginWithGoogle(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
+	h.audit.RecordLogin(r.Context(), r, result.User.ID, "google")
 
 	h.setRefreshCookie(w, result.Tokens.RefreshToken, result.Tokens.RefreshExpiresAt)
 	httpx.WriteJSON(w, http.StatusOK, googleAuthResponse{
@@ -331,6 +349,9 @@ func (h *Handler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
+	if req.Email != nil && user.PendingEmail != nil {
+		h.audit.Record(r.Context(), r, audit.Event{UserID: &userID, ActorID: &userID, Action: audit.EmailChangeRequest})
+	}
 	httpx.WriteJSON(w, http.StatusOK, toUserDTO(user))
 }
 
@@ -350,6 +371,12 @@ func (h *Handler) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
+	// The account's activity goes with it (retention decision, 0.17); one
+	// event without a user keeps the fact that an account was deleted.
+	if err := h.audit.DeleteForUser(r.Context(), userID); err != nil {
+		h.logger.WarnContext(r.Context(), "audit: delete events of deleted account failed", "error", err)
+	}
+	h.audit.Record(r.Context(), r, audit.Event{Action: audit.AccountDeleted, Target: "user:" + userID.String()})
 	// Cerramos la sesión del cliente limpiando la cookie de refresh.
 	h.clearRefreshCookie(w)
 	w.WriteHeader(http.StatusNoContent)
@@ -373,9 +400,13 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	if err := h.verifySvc.Confirm(r.Context(), req.Token); err != nil {
+	uid, changed, err := h.verifySvc.Confirm(r.Context(), req.Token)
+	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
+	}
+	if changed {
+		h.audit.Record(r.Context(), r, audit.Event{UserID: &uid, ActorID: &uid, Action: audit.EmailChanged})
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -430,12 +461,35 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 // stops working) and clears the cookie. Always 204.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(h.cookieName()); err == nil {
-		if err := h.svc.Logout(r.Context(), cookie.Value); err != nil {
+		uid, err := h.svc.Logout(r.Context(), cookie.Value)
+		if err != nil {
 			h.logger.WarnContext(r.Context(), "logout: revoke failed", "error", err)
+		} else if uid != uuid.Nil {
+			h.audit.Record(r.Context(), r, audit.Event{UserID: &uid, ActorID: &uid, Action: audit.Logout})
 		}
 	}
 	h.clearRefreshCookie(w)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Activity: the user's latest security events, newest first ("Actividad
+// reciente" in /seguridad, plan 0.17).
+func (h *Handler) Activity(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, r, h.logger, domain.ErrUnauthorized)
+		return
+	}
+	if h.audit == nil {
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": []audit.Entry{}})
+		return
+	}
+	items, err := h.audit.ForUser(r.Context(), userID, 50)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 // LogoutAll ends every session of the user, on every device, this one
@@ -450,6 +504,7 @@ func (h *Handler) LogoutAll(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
+	h.audit.Record(r.Context(), r, audit.Event{UserID: &userID, ActorID: &userID, Action: audit.LogoutAll})
 	h.clearRefreshCookie(w)
 	w.WriteHeader(http.StatusNoContent)
 }

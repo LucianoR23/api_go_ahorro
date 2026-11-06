@@ -122,44 +122,45 @@ func (s *EmailVerificationService) Issue(ctx context.Context, userID uuid.UUID) 
 // Confirm valida el token y marca el user como verificado.
 // Mensaje genérico para no distinguir "no existe" de "ya usado" (mismo
 // patrón que password reset).
-func (s *EmailVerificationService) Confirm(ctx context.Context, token string) error {
+// Confirm returns the user and whether the token applied an email change.
+func (s *EmailVerificationService) Confirm(ctx context.Context, token string) (uuid.UUID, bool, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return domain.NewValidationError("token", "no puede estar vacío")
+		return uuid.Nil, false, domain.NewValidationError("token", "no puede estar vacío")
 	}
 
 	ev, err := s.repo.GetByTokenHash(ctx, hashVerificationToken(token))
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			return domain.NewAuthError("token inválido o expirado")
+			return uuid.Nil, false, domain.NewAuthError("token inválido o expirado")
 		}
-		return err
+		return uuid.Nil, false, err
 	}
 	if ev.UsedAt != nil || time.Now().After(ev.ExpiresAt) {
-		return domain.NewAuthError("token inválido o expirado")
+		return uuid.Nil, false, domain.NewAuthError("token inválido o expirado")
 	}
 
 	if err := s.repo.MarkUsed(ctx, ev.ID); err != nil {
 		if errors.Is(err, domain.ErrConflict) {
-			return domain.NewAuthError("token inválido o expirado")
+			return uuid.Nil, false, domain.NewAuthError("token inválido o expirado")
 		}
-		return err
+		return uuid.Nil, false, err
 	}
 
 	if ev.NewEmail != nil {
 		// An email change: the new address is proven, so it becomes the
 		// account's email (409 if another account took it meanwhile).
 		if _, err := s.users.ApplyEmailChange(ctx, ev.UserID, *ev.NewEmail); err != nil {
-			return err
+			return uuid.Nil, false, err
 		}
 		s.logger.InfoContext(ctx, "email cambiado", "user_id", ev.UserID)
-		return nil
+		return ev.UserID, true, nil
 	}
 	if err := s.users.MarkEmailVerified(ctx, ev.UserID); err != nil {
-		return err
+		return uuid.Nil, false, err
 	}
 	s.logger.InfoContext(ctx, "email verificado", "user_id", ev.UserID)
-	return nil
+	return ev.UserID, false, nil
 }
 
 // IssueEmailChange sends the confirmation link for an email change to the

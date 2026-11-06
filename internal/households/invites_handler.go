@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/LucianoR23/api_go_ahorra/internal/audit"
 	"github.com/LucianoR23/api_go_ahorra/internal/auth"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
@@ -31,7 +32,11 @@ type InvitesHandler struct {
 	svc    *InvitesService
 	authMW *auth.Middleware
 	logger *slog.Logger
+	audit  *audit.Recorder
 }
+
+// SetAudit wires the security audit log (plan 0.17).
+func (h *InvitesHandler) SetAudit(rec *audit.Recorder) { h.audit = rec }
 
 func NewInvitesHandler(svc *InvitesService, authMW *auth.Middleware, logger *slog.Logger) *InvitesHandler {
 	return &InvitesHandler{svc: svc, authMW: authMW, logger: logger}
@@ -222,6 +227,8 @@ func (h *InvitesHandler) Accept(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
+	h.audit.Record(r.Context(), r, audit.Event{UserID: &userID, ActorID: &userID,
+		Action: audit.HouseholdJoined, Target: "household:" + m.HouseholdID.String()})
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"householdId": m.HouseholdID.String(),
 		"userId":      m.UserID.String(),

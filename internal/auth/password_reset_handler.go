@@ -3,6 +3,7 @@ package auth
 import (
 	"net/http"
 
+	"github.com/LucianoR23/api_go_ahorra/internal/audit"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
 )
@@ -66,10 +67,12 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	if err := h.resetSvc.ConfirmReset(r.Context(), req.Token, req.NewPassword); err != nil {
+	uid, err := h.resetSvc.ConfirmReset(r.Context(), req.Token, req.NewPassword)
+	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
+	h.audit.Record(r.Context(), r, audit.Event{UserID: &uid, ActorID: &uid, Action: audit.PasswordReset})
 	// Limpiamos cookie de refresh por las dudas: si el browser tenía sesión
 	// vieja abierta, que vuelva a loguearse con la nueva clave.
 	h.clearRefreshCookie(w)
@@ -97,5 +100,6 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
+	h.audit.Record(r.Context(), r, audit.Event{UserID: &userID, ActorID: &userID, Action: audit.PasswordChanged})
 	w.WriteHeader(http.StatusNoContent)
 }

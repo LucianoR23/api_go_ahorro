@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/LucianoR23/api_go_ahorra/internal/audit"
 	"github.com/LucianoR23/api_go_ahorra/internal/auth"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
@@ -18,7 +19,11 @@ type Handler struct {
 	svc    *Service
 	logger *slog.Logger
 	authMW *auth.Middleware
+	audit  *audit.Recorder
 }
+
+// SetAudit wires the security audit log (plan 0.17).
+func (h *Handler) SetAudit(rec *audit.Recorder) { h.audit = rec }
 
 func NewHandler(svc *Service, authMW *auth.Middleware, logger *slog.Logger) *Handler {
 	return &Handler{svc: svc, logger: logger, authMW: authMW}
@@ -225,6 +230,8 @@ func (h *Handler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
+	h.audit.Record(r.Context(), r, audit.Event{UserID: &targetID, ActorID: &requesterID,
+		Action: audit.HouseholdMemberGone, Target: "household:" + householdID.String()})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -260,6 +267,10 @@ func (h *Handler) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 	if err := h.svc.TransferOwnership(r.Context(), callerID, householdID, targetID); err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
+	}
+	for _, u := range []uuid.UUID{targetID, callerID} {
+		h.audit.Record(r.Context(), r, audit.Event{UserID: &u, ActorID: &callerID, Action: audit.HouseholdRole,
+			Target: "household:" + householdID.String(), Metadata: map[string]any{"newOwner": targetID.String()}})
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -149,13 +149,13 @@ func (s *PasswordResetService) RequestReset(ctx context.Context, email string) e
 
 // ConfirmReset valida el token y actualiza el password. El email no viene
 // en el request: sale del token (el hash resuelve a un único user).
-func (s *PasswordResetService) ConfirmReset(ctx context.Context, token, newPassword string) error {
+func (s *PasswordResetService) ConfirmReset(ctx context.Context, token, newPassword string) (uuid.UUID, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return domain.NewValidationError("token", "no puede estar vacío")
+		return uuid.Nil, domain.NewValidationError("token", "no puede estar vacío")
 	}
 	if err := validatePassword(newPassword); err != nil {
-		return err
+		return uuid.Nil, err
 	}
 
 	reset, err := s.resets.GetByTokenHash(ctx, hashResetToken(token))
@@ -163,33 +163,33 @@ func (s *PasswordResetService) ConfirmReset(ctx context.Context, token, newPassw
 		if errors.Is(err, domain.ErrNotFound) {
 			// Mensaje genérico — no distinguimos "no existe" de "ya usado"
 			// para no dar pistas a un atacante que prueba tokens.
-			return domain.NewAuthError("token inválido o expirado")
+			return uuid.Nil, domain.NewAuthError("token inválido o expirado")
 		}
-		return err
+		return uuid.Nil, err
 	}
 	if reset.UsedAt != nil {
-		return domain.NewAuthError("token inválido o expirado")
+		return uuid.Nil, domain.NewAuthError("token inválido o expirado")
 	}
 	if time.Now().After(reset.ExpiresAt) {
-		return domain.NewAuthError("token inválido o expirado")
+		return uuid.Nil, domain.NewAuthError("token inválido o expirado")
 	}
 
 	newHash, err := HashPassword(newPassword)
 	if err != nil {
-		return fmt.Errorf("auth.ConfirmReset: %w", err)
+		return uuid.Nil, fmt.Errorf("auth.ConfirmReset: %w", err)
 	}
 
 	// Marcamos usado ANTES de actualizar el password: si dos requests
 	// llegan con el mismo token, solo uno gana el UPDATE condicional.
 	if err := s.resets.MarkUsed(ctx, reset.ID); err != nil {
 		if errors.Is(err, domain.ErrConflict) {
-			return domain.NewAuthError("token inválido o expirado")
+			return uuid.Nil, domain.NewAuthError("token inválido o expirado")
 		}
-		return err
+		return uuid.Nil, err
 	}
 
 	if err := s.users.UpdatePasswordHash(ctx, reset.UserID, newHash); err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	// The reset link reached this mailbox, which proves the user owns the
 	// email: mark it verified (it also lets Google link to this account).
@@ -200,7 +200,7 @@ func (s *PasswordResetService) ConfirmReset(ctx context.Context, token, newPassw
 	// Whoever had a session (maybe the reason for the reset) is signed out.
 	if s.sessions != nil {
 		if err := s.sessions.RevokeAll(ctx, reset.UserID); err != nil {
-			return err
+			return uuid.Nil, err
 		}
 	}
 
@@ -211,7 +211,7 @@ func (s *PasswordResetService) ConfirmReset(ctx context.Context, token, newPassw
 			"user_id", reset.UserID, "error", err)
 	}
 	s.logger.InfoContext(ctx, "password reseteado", "user_id", reset.UserID)
-	return nil
+	return reset.UserID, nil
 }
 
 // ChangePassword: user logueado cambia su password. Requiere la contraseña

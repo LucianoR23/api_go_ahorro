@@ -243,7 +243,7 @@ sudo dockerd --validate --config-file /etc/docker/daemon.json && sudo systemctl 
 - System logs: `/var/log/auth.log` and friends rotate weekly and keep 4 by default;
   set `daily` + `rotate 7` in `/etc/logrotate.d/rsyslog`.
 - Traefik access logs stay **off** (the proxy configuration has no `--accesslog`).
-- The API must not keep IPs longer either (0.17's audit log decides its retention).
+- The API keeps IPs 7 days too: `audit_events.ip` is cleared by a daily job (03:30) and events are deleted after 12 months (plan 0.17).
 
 Verify: `docker info --format '{{.LoggingDriver}}'` gives `journald`; after a week,
 `journalctl --until '7 days ago' | head` is empty.

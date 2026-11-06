@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/LucianoR23/api_go_ahorra/internal/audit"
 	"github.com/LucianoR23/api_go_ahorra/internal/auth"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
@@ -18,6 +19,16 @@ type AdminHandler struct {
 	svc    *Service
 	logger *slog.Logger
 	authMW *auth.Middleware
+	audit  *audit.Recorder
+}
+
+// SetAudit wires the security audit log: every superadmin action is recorded
+// (plan 0.17).
+func (h *AdminHandler) SetAudit(rec *audit.Recorder) { h.audit = rec }
+
+func (h *AdminHandler) recordAdmin(r *http.Request, action string, householdID uuid.UUID) {
+	actor, _ := auth.UserIDFrom(r.Context())
+	h.audit.Record(r.Context(), r, audit.Event{ActorID: &actor, Action: action, Target: "household:" + householdID.String()})
 }
 
 func NewAdminHandler(svc *Service, authMW *auth.Middleware, logger *slog.Logger) *AdminHandler {
@@ -115,6 +126,7 @@ func (h *AdminHandler) Restore(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
+	h.recordAdmin(r, audit.AdminRestore, id)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -128,5 +140,6 @@ func (h *AdminHandler) Purge(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
+	h.recordAdmin(r, audit.AdminPurge, id)
 	w.WriteHeader(http.StatusNoContent)
 }
