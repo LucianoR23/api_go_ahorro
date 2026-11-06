@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 )
 
@@ -68,26 +67,41 @@ func TestUpdateMe(t *testing.T) {
 		}
 	})
 
-	t.Run("email change is normalized and logs in with the new address", func(t *testing.T) {
-		u := s.Register(t)
+	t.Run("an email change waits for the link sent to the new address", func(t *testing.T) {
+		u := s.Register(t, apitest.RegisterOpts{Verify: true})
 		next := apitest.UniqueEmail()
 		var got userJSON
 		patchMe(t, s, u.Token, map[string]string{"email": " " + strings.ToUpper(next)}).Status(t, http.StatusOK).JSON(t, &got)
-		if got.Email != next {
-			t.Errorf("email = %q, want %q", got.Email, next)
+		// Fixed in 0.5: the email used to change at once, still marked verified.
+		if got.Email != u.Email || got.PendingEmail == nil || *got.PendingEmail != next || got.EmailVerifiedAt == nil {
+			t.Fatalf("after PATCH = %+v, want the old email kept and %s pending", got, next)
+		}
+		wantError(t, s.Login(t, next, u.Password), http.StatusUnauthorized, "unauthorized", "")
+
+		mail := s.Mail.LastTo(t, next)
+		if !strings.Contains(mail.Subject, "Confirmá tu nuevo email") {
+			t.Errorf("mail to the new address: %q", mail.Subject)
+		}
+		verifyEmail(t, s, mail.Token(t)).Status(t, http.StatusNoContent)
+
+		me := getMe(t, s, u.Token)
+		if me.Email != next || me.PendingEmail != nil || me.EmailVerifiedAt == nil {
+			t.Errorf("after confirming = %+v", me)
 		}
 		s.Login(t, next, u.Password).Status(t, http.StatusOK)
+		wantError(t, s.Login(t, u.Email, u.Password), http.StatusUnauthorized, "unauthorized", "")
 	})
 
-	t.Run("email change keeps the verified flag", func(t *testing.T) {
-		u := s.Register(t, apitest.RegisterOpts{Verify: true})
-		var got userJSON
-		patchMe(t, s, u.Token, map[string]string{"email": apitest.UniqueEmail()}).Status(t, http.StatusOK).JSON(t, &got)
-		testutil.KnownBug(t, "0.5", "changing the email skips re-verification", func(t testing.TB) {
-			if got.Email != u.Email && got.EmailVerifiedAt != nil {
-				t.Errorf("new address %s is marked verified without a token", got.Email)
-			}
-		})
+	t.Run("an address taken while the change was pending is a conflict at confirmation", func(t *testing.T) {
+		u := s.Register(t)
+		next := apitest.UniqueEmail()
+		patchMe(t, s, u.Token, map[string]string{"email": next}).Status(t, http.StatusOK)
+		token := s.Mail.LastTo(t, next).Token(t)
+		s.Register(t, apitest.RegisterOpts{Email: next}) // someone else takes it
+		wantError(t, verifyEmail(t, s, token), http.StatusConflict, "conflict", "")
+		if me := getMe(t, s, u.Token); me.Email != u.Email {
+			t.Errorf("email changed to a taken address: %s", me.Email)
+		}
 	})
 
 	t.Run("email taken by another user is a conflict", func(t *testing.T) {

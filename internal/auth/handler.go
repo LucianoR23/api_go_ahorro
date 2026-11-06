@@ -181,6 +181,9 @@ type userDTO struct {
 	FirstName       string     `json:"firstName"`
 	LastName        string     `json:"lastName"`
 	EmailVerifiedAt *time.Time `json:"emailVerifiedAt,omitempty"`
+	// PendingEmail: an email change waiting for the link sent to the new
+	// address (plan 0.5); the app can say "confirmá tu nuevo email".
+	PendingEmail *string `json:"pendingEmail,omitempty"`
 	// IsSuperadmin: el front lo usa para mostrar la sección /admin de
 	// households borrados. Se devuelve en login/register/me/refresh.
 	IsSuperadmin bool `json:"isSuperadmin"`
@@ -498,6 +501,7 @@ func toUserDTO(u domain.User) userDTO {
 		FirstName:       u.FirstName,
 		LastName:        u.LastName,
 		EmailVerifiedAt: u.EmailVerifiedAt,
+		PendingEmail:    u.PendingEmail,
 		IsSuperadmin:    u.IsSuperadmin,
 	}
 }

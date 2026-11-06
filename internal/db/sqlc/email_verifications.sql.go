@@ -15,20 +15,27 @@ import (
 const createEmailVerification = `-- name: CreateEmailVerification :one
 
 
-INSERT INTO email_verifications (user_id, token_hash, expires_at)
-VALUES ($1, $2, $3)
-RETURNING id, user_id, token_hash, expires_at, used_at, created_at
+INSERT INTO email_verifications (user_id, token_hash, expires_at, new_email)
+VALUES ($1, $2, $3, $4)
+RETURNING id, user_id, token_hash, expires_at, used_at, created_at, new_email
 `
 
 type CreateEmailVerificationParams struct {
 	UserID    uuid.UUID          `json:"user_id"`
 	TokenHash string             `json:"token_hash"`
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	NewEmail  pgtype.Text        `json:"new_email"`
 }
 
 // Queries de email_verifications + flag de verificación en users.
+// new_email NULL verifies the current email; set, it confirms an email change.
 func (q *Queries) CreateEmailVerification(ctx context.Context, arg CreateEmailVerificationParams) (EmailVerification, error) {
-	row := q.db.QueryRow(ctx, createEmailVerification, arg.UserID, arg.TokenHash, arg.ExpiresAt)
+	row := q.db.QueryRow(ctx, createEmailVerification,
+		arg.UserID,
+		arg.TokenHash,
+		arg.ExpiresAt,
+		arg.NewEmail,
+	)
 	var i EmailVerification
 	err := row.Scan(
 		&i.ID,
@@ -37,12 +44,13 @@ func (q *Queries) CreateEmailVerification(ctx context.Context, arg CreateEmailVe
 		&i.ExpiresAt,
 		&i.UsedAt,
 		&i.CreatedAt,
+		&i.NewEmail,
 	)
 	return i, err
 }
 
 const getEmailVerificationByTokenHash = `-- name: GetEmailVerificationByTokenHash :one
-SELECT id, user_id, token_hash, expires_at, used_at, created_at FROM email_verifications WHERE token_hash = $1
+SELECT id, user_id, token_hash, expires_at, used_at, created_at, new_email FROM email_verifications WHERE token_hash = $1
 `
 
 func (q *Queries) GetEmailVerificationByTokenHash(ctx context.Context, tokenHash string) (EmailVerification, error) {
@@ -55,6 +63,7 @@ func (q *Queries) GetEmailVerificationByTokenHash(ctx context.Context, tokenHash
 		&i.ExpiresAt,
 		&i.UsedAt,
 		&i.CreatedAt,
+		&i.NewEmail,
 	)
 	return i, err
 }
@@ -78,7 +87,7 @@ SET used_at = now()
 WHERE id = $1
   AND used_at IS NULL
   AND expires_at > now()
-RETURNING id, user_id, token_hash, expires_at, used_at, created_at
+RETURNING id, user_id, token_hash, expires_at, used_at, created_at, new_email
 `
 
 // Single-use condicional: solo matchea si aún no fue usado y no expiró.
@@ -92,6 +101,7 @@ func (q *Queries) MarkEmailVerificationUsed(ctx context.Context, id uuid.UUID) (
 		&i.ExpiresAt,
 		&i.UsedAt,
 		&i.CreatedAt,
+		&i.NewEmail,
 	)
 	return i, err
 }

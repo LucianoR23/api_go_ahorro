@@ -12,6 +12,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const applyUserEmailChange = `-- name: ApplyUserEmailChange :one
+UPDATE users
+SET email             = $2,
+    pending_email     = NULL,
+    email_verified_at = now(),
+    updated_at        = now()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email
+`
+
+type ApplyUserEmailChangeParams struct {
+	ID       uuid.UUID `json:"id"`
+	NewEmail string    `json:"new_email"`
+}
+
+// The new address was verified: it becomes the email, verified, and the
+// pending one is cleared. A collision with another account hits the UNIQUE
+// constraint (the repo maps it to ErrConflict).
+func (q *Queries) ApplyUserEmailChange(ctx context.Context, arg ApplyUserEmailChangeParams) (User, error) {
+	row := q.db.QueryRow(ctx, applyUserEmailChange, arg.ID, arg.NewEmail)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.FirstName,
+		&i.LastName,
+		&i.DeletedAt,
+		&i.EmailVerifiedAt,
+		&i.IsSuperadmin,
+		&i.PendingEmail,
+	)
+	return i, err
+}
+
 const countHouseholdsOwnedByUser = `-- name: CountHouseholdsOwnedByUser :one
 SELECT COUNT(*) AS count
 FROM household_members
@@ -32,7 +69,7 @@ const createUser = `-- name: CreateUser :one
 
 INSERT INTO users (email, password_hash, first_name, last_name)
 VALUES ($1, $2, $3, $4)
-RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email
 `
 
 type CreateUserParams struct {
@@ -71,6 +108,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.DeletedAt,
 		&i.EmailVerifiedAt,
 		&i.IsSuperadmin,
+		&i.PendingEmail,
 	)
 	return i, err
 }
@@ -78,7 +116,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 const createUserWithoutPassword = `-- name: CreateUserWithoutPassword :one
 INSERT INTO users (email, password_hash, first_name, last_name, email_verified_at)
 VALUES ($1, NULL, $2, $3, now())
-RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email
 `
 
 type CreateUserWithoutPasswordParams struct {
@@ -103,12 +141,13 @@ func (q *Queries) CreateUserWithoutPassword(ctx context.Context, arg CreateUserW
 		&i.DeletedAt,
 		&i.EmailVerifiedAt,
 		&i.IsSuperadmin,
+		&i.PendingEmail,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin FROM users WHERE email = $1 AND deleted_at IS NULL
+SELECT id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email FROM users WHERE email = $1 AND deleted_at IS NULL
 `
 
 // Usado en login. Devuelve pgx.ErrNoRows si no existe → mapeamos a error de dominio.
@@ -128,12 +167,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.DeletedAt,
 		&i.EmailVerifiedAt,
 		&i.IsSuperadmin,
+		&i.PendingEmail,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin FROM users WHERE id = $1 AND deleted_at IS NULL
+SELECT id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email FROM users WHERE id = $1 AND deleted_at IS NULL
 `
 
 // Filtra soft-deleted. Un token viejo de una cuenta borrada → pgx.ErrNoRows
@@ -152,6 +192,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.DeletedAt,
 		&i.EmailVerifiedAt,
 		&i.IsSuperadmin,
+		&i.PendingEmail,
 	)
 	return i, err
 }
@@ -168,6 +209,21 @@ func (q *Queries) IsUserSuperadmin(ctx context.Context, id uuid.UUID) (bool, err
 	var is_superadmin bool
 	err := row.Scan(&is_superadmin)
 	return is_superadmin, err
+}
+
+const setUserPendingEmail = `-- name: SetUserPendingEmail :exec
+UPDATE users SET pending_email = $2, updated_at = now() WHERE id = $1
+`
+
+type SetUserPendingEmailParams struct {
+	ID           uuid.UUID   `json:"id"`
+	PendingEmail pgtype.Text `json:"pending_email"`
+}
+
+// An email change waiting for the link sent to the new address (plan 0.5).
+func (q *Queries) SetUserPendingEmail(ctx context.Context, arg SetUserPendingEmailParams) error {
+	_, err := q.db.Exec(ctx, setUserPendingEmail, arg.ID, arg.PendingEmail)
+	return err
 }
 
 const softDeleteUser = `-- name: SoftDeleteUser :exec
@@ -210,7 +266,7 @@ SET first_name = $2,
     email      = $4,
     updated_at = now()
 WHERE id = $1
-RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email
 `
 
 type UpdateUserProfileParams struct {
@@ -242,6 +298,7 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 		&i.DeletedAt,
 		&i.EmailVerifiedAt,
 		&i.IsSuperadmin,
+		&i.PendingEmail,
 	)
 	return i, err
 }

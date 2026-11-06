@@ -169,6 +169,35 @@ func (r *Repository) CountHouseholdsOwned(ctx context.Context, userID uuid.UUID)
 	return n, nil
 }
 
+// SetPendingEmail stores (or clears, with nil) an email change waiting for
+// verification.
+func (r *Repository) SetPendingEmail(ctx context.Context, id uuid.UUID, email *string) error {
+	var pe pgtype.Text
+	if email != nil {
+		pe = pgtype.Text{String: *email, Valid: true}
+	}
+	if err := r.q.SetUserPendingEmail(ctx, sqlcgen.SetUserPendingEmailParams{ID: id, PendingEmail: pe}); err != nil {
+		return fmt.Errorf("users.SetPendingEmail: %w", err)
+	}
+	return nil
+}
+
+// ApplyEmailChange makes the verified new address the user's email.
+// Another account took it meanwhile → ErrConflict.
+func (r *Repository) ApplyEmailChange(ctx context.Context, id uuid.UUID, newEmail string) (domain.User, error) {
+	row, err := r.q.ApplyUserEmailChange(ctx, sqlcgen.ApplyUserEmailChangeParams{ID: id, NewEmail: newEmail})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.User{}, domain.ErrNotFound
+	}
+	if err != nil {
+		if isUniqueViolation(err) {
+			return domain.User{}, domain.NewConflictError("ese email ya está registrado en otra cuenta")
+		}
+		return domain.User{}, fmt.Errorf("users.ApplyEmailChange: %w", err)
+	}
+	return toDomain(row), nil
+}
+
 // MarkEmailVerified setea users.email_verified_at = now() si aún no lo estaba.
 // Idempotente (la query tiene `AND email_verified_at IS NULL`).
 func (r *Repository) MarkEmailVerified(ctx context.Context, id uuid.UUID) error {
@@ -243,6 +272,10 @@ func toDomain(u sqlcgen.User) domain.User {
 	if u.EmailVerifiedAt.Valid {
 		t := u.EmailVerifiedAt.Time
 		d.EmailVerifiedAt = &t
+	}
+	if u.PendingEmail.Valid {
+		e := u.PendingEmail.String
+		d.PendingEmail = &e
 	}
 	return d
 }

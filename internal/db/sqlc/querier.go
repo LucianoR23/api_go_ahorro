@@ -16,6 +16,10 @@ type Querier interface {
 	// household_members
 	// ============================================================
 	AddHouseholdMember(ctx context.Context, arg AddHouseholdMemberParams) (HouseholdMember, error)
+	// The new address was verified: it becomes the email, verified, and the
+	// pending one is cleared. A collision with another account hits the UNIQUE
+	// constraint (the repo maps it to ErrConflict).
+	ApplyUserEmailChange(ctx context.Context, arg ApplyUserEmailChangeParams) (User, error)
 	// Para la vista de matriz completa del hogar. Devuelve una fila por cada
 	// par (debtor, creditor) con shares billed y settlements ya agregados.
 	// El service combina las direcciones y netea.
@@ -69,6 +73,7 @@ type Querier interface {
 	// UNIQUE (los dos índices parciales del migration 000020).
 	CreateDailyInsight(ctx context.Context, arg CreateDailyInsightParams) (DailyInsight, error)
 	// Queries de email_verifications + flag de verificación en users.
+	// new_email NULL verifies the current email; set, it confirms an email change.
 	CreateEmailVerification(ctx context.Context, arg CreateEmailVerificationParams) (EmailVerification, error)
 	CreateExpense(ctx context.Context, arg CreateExpenseParams) (Expense, error)
 	// Queries de households y household_members.
@@ -310,6 +315,8 @@ type Querier interface {
 	SetPaymentMethodActive(ctx context.Context, arg SetPaymentMethodActiveParams) (PaymentMethod, error)
 	SetRecurringExpenseActive(ctx context.Context, arg SetRecurringExpenseActiveParams) error
 	SetRecurringIncomeActive(ctx context.Context, arg SetRecurringIncomeActiveParams) error
+	// An email change waiting for the link sent to the new address (plan 0.5).
+	SetUserPendingEmail(ctx context.Context, arg SetUserPendingEmailParams) error
 	// Agrega settlements por par (from, to) para la matriz.
 	SettlementsByHouseholdAggregated(ctx context.Context, householdID uuid.UUID) ([]SettlementsByHouseholdAggregatedRow, error)
 	// Marca el hogar como borrado. Los miembros pierden acceso pero toda la
