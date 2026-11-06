@@ -1,7 +1,6 @@
 package categories
 
 import (
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -165,18 +164,5 @@ func toDTO(c domain.Category) categoryDTO {
 }
 
 func decodeJSON(r *http.Request, dst any) error {
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
-		var syntax *json.SyntaxError
-		if errors.As(err, &syntax) {
-			return domain.NewValidationError("body", "JSON inválido")
-		}
-		var unmarshal *json.UnmarshalTypeError
-		if errors.As(err, &unmarshal) {
-			return domain.NewValidationError(unmarshal.Field, "tipo incorrecto")
-		}
-		return domain.NewValidationError("body", err.Error())
-	}
-	return nil
+	return httpx.DecodeJSON(r, dst)
 }

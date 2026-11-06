@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -486,24 +485,5 @@ func toUserDTO(u domain.User) userDTO {
 // payload con typo ("passwrod" en vez de "password") falla temprano en
 // lugar de hashear un string vacío.
 func decodeJSON(r *http.Request, dst any) error {
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
-		return wrapJSONError(err)
-	}
-	return nil
-}
-
-// wrapJSONError convierte errores de json.Decoder en ValidationError
-// para que el handler de errores les dé 422 en vez de 500.
-func wrapJSONError(err error) error {
-	var syntax *json.SyntaxError
-	if errors.As(err, &syntax) {
-		return domain.NewValidationError("body", "JSON inválido")
-	}
-	var unmarshal *json.UnmarshalTypeError
-	if errors.As(err, &unmarshal) {
-		return domain.NewValidationError(unmarshal.Field, "tipo incorrecto")
-	}
-	return domain.NewValidationError("body", err.Error())
+	return httpx.DecodeJSON(r, dst)
 }
