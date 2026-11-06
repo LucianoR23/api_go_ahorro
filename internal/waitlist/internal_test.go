@@ -85,3 +85,11 @@ func TestCleanup(t *testing.T) {
 		t.Errorf("left = %d, %v", left, err)
 	}
 }
+
+func TestCSVSafe(t *testing.T) {
+	for in, want := range map[string]string{"=SUM(A1)": "'=SUM(A1)", "+1": "'+1", "-1": "'-1", "@x": "'@x", "ana@x.test": "ana@x.test", "": ""} {
+		if got := csvSafe(in); got != want {
+			t.Errorf("csvSafe(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

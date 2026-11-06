@@ -4,6 +4,9 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### B.5 (part 2): waitlist operations
+- `GET /admin/waitlist.csv` (superadmin): confirmed entries as CSV, with spreadsheet formulas neutralized. `DELETE /admin/waitlist?email=` (superadmin): deletes an address on request (Ley 25.326, within 5 business days); 204 even when it was not on the list. Both are recorded in the audit log, without the deleted address.
+
 ### B.5 (part 1): landing waitlist
 - Migration `000028`: `waitlist_entries` (email, monotributo flag, form, first-touch source/medium/campaign, referrer path, notice version, timestamps, hashed confirmation token). No name, IP or user agent at rest.
 - `POST /waitlist` per the contract (`valuo_web/docs/waitlist-contract.md`): 202 `{"status":"pending_confirmation"}` for new and known addresses alike; the confirmation mail goes in the background (similar latency), at most every 10 minutes, never to a confirmed address. 422 with the field for invalid data, attribution sanitized and never rejected, 4 KB body cap. Turnstile is verified with Cloudflare (single use, the landing's hostname); with `ENV=prod` and no `TURNSTILE_SECRET_KEY` every sign-up gets 403.

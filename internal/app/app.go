@@ -574,6 +574,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 
 	// Waitlist (plan B.5): public, its own CORS and limits.
 	waitlistHandler.Mount(r)
+	waitlist.NewAdminHandler(waitlistSvc, authMW, auditRec, logger).Mount(r)
 
 	// SSE stream of new insights: outside the 30 s timeout group (it lives as
 	// long as the page is open; the handler pushes the write deadline forward
