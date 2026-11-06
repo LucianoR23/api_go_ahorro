@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/auth/google"
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 )
 
@@ -83,21 +82,28 @@ func TestGoogleLogin(t *testing.T) {
 		s.Login(t, u.Email, u.Password).Status(t, http.StatusOK)
 	})
 
-	t.Run("existing unverified account is linked too (pre-hijacking)", func(t *testing.T) {
+	t.Run("an unverified account is not linked (pre-hijacking); a password reset unlocks it", func(t *testing.T) {
 		victim := apitest.UniqueEmail()
 		attacker := s.Register(t, apitest.RegisterOpts{Email: victim}) // never verified
+		stolen := s.Login(t, victim, attacker.Password).RefreshCookieValue(t)
 		s.Google.Add("tok-victim", googleClaims("sub-victim", victim))
 
 		res := googleLogin(t, s, "tok-victim")
-		testutil.KnownBug(t, "0.5", "Google auto-links to an account whose email was never verified", func(t testing.TB) {
-			var g googleJSON
-			if res.Code == http.StatusOK {
-				res.JSON(t, &g)
-			}
-			if g.User.ID == attacker.ID {
-				t.Errorf("Google sign-in landed in the unverified account %s", attacker.ID)
-			}
-		})
+		wantError(t, res, http.StatusConflict, "conflict", "")
+		if msg := decodeError(t, res).Message; !strings.Contains(msg, "Olvidé mi contraseña") {
+			t.Errorf("message = %q", msg)
+		}
+
+		// The real owner resets the password from the mailbox: the email is
+		// verified, the attacker's session ends, and Google links.
+		token := requestReset(t, s, victim)
+		resetPassword(t, s, token, newPassword).Status(t, http.StatusNoContent)
+		s.Refresh(t, stolen).Status(t, http.StatusUnauthorized)
+		var g googleJSON
+		googleLogin(t, s, "tok-victim").Status(t, http.StatusOK).JSON(t, &g)
+		if g.IsNewUser || g.User.ID != attacker.ID || g.User.EmailVerifiedAt == nil {
+			t.Errorf("after the reset Google sign-in = %+v", g)
+		}
 	})
 
 	t.Run("soft-deleted account behind a linked identity", func(t *testing.T) {

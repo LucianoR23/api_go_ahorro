@@ -97,3 +97,16 @@ func (e *AuthError) Unwrap() error { return ErrUnauthorized }
 func NewAuthError(message string) *AuthError {
 	return &AuthError{Message: message}
 }
+
+// ConflictError: a 409 whose message is written for the user (Spanish), like
+// AuthError for 401. A plain ErrConflict wrap shows its whole error text.
+type ConflictError struct {
+	Message string
+}
+
+func (e *ConflictError) Error() string { return e.Message }
+func (e *ConflictError) Unwrap() error { return ErrConflict }
+
+func NewConflictError(message string) *ConflictError {
+	return &ConflictError{Message: message}
+}

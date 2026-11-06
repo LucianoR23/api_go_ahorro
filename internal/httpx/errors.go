@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 )
@@ -42,9 +43,19 @@ func WriteError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err
 		})
 
 	case errors.Is(err, domain.ErrConflict):
+		// Services wrap the sentinel ("ya sos miembro del hogar: %w"); the
+		// client gets their message without the internal suffix.
+		msg := strings.TrimSuffix(err.Error(), ": "+domain.ErrConflict.Error())
+		if msg == domain.ErrConflict.Error() {
+			msg = "conflicto con el estado actual"
+		}
+		var c *domain.ConflictError
+		if errors.As(err, &c) {
+			msg = c.Message
+		}
 		writeJSON(w, http.StatusConflict, ErrorResponse{
 			Code:    "conflict",
-			Message: err.Error(),
+			Message: msg,
 		})
 
 	case errors.Is(err, domain.ErrUnauthorized):

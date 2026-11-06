@@ -33,6 +33,7 @@ type passwordResetUserRepo interface {
 	GetByEmail(ctx context.Context, email string) (domain.User, error)
 	GetCredentialsByID(ctx context.Context, id uuid.UUID) (users.Credentials, error)
 	UpdatePasswordHash(ctx context.Context, id uuid.UUID, newHash string) error
+	MarkEmailVerified(ctx context.Context, id uuid.UUID) error
 }
 
 // resetEmailSender: mismo shape que inviteEmailSender.
@@ -189,6 +190,12 @@ func (s *PasswordResetService) ConfirmReset(ctx context.Context, token, newPassw
 
 	if err := s.users.UpdatePasswordHash(ctx, reset.UserID, newHash); err != nil {
 		return err
+	}
+	// The reset link reached this mailbox, which proves the user owns the
+	// email: mark it verified (it also lets Google link to this account).
+	if err := s.users.MarkEmailVerified(ctx, reset.UserID); err != nil {
+		s.logger.WarnContext(ctx, "no se pudo marcar el email verificado tras el reset",
+			"user_id", reset.UserID, "error", err)
 	}
 	// Whoever had a session (maybe the reason for the reset) is signed out.
 	if s.sessions != nil {
