@@ -19,7 +19,7 @@ import (
 
 // Interfaces del consumidor — el service no acopla concretos.
 type emailVerificationRepo interface {
-	Create(ctx context.Context, userID uuid.UUID, tokenHash string, expiresAt time.Time) (EmailVerification, error)
+	Create(ctx context.Context, userID uuid.UUID, tokenHash string, expiresAt time.Time, newEmail *string) (EmailVerification, error)
 	GetByTokenHash(ctx context.Context, tokenHash string) (EmailVerification, error)
 	MarkUsed(ctx context.Context, id uuid.UUID) error
 	InvalidateActiveForUser(ctx context.Context, userID uuid.UUID) error
@@ -28,6 +28,7 @@ type emailVerificationRepo interface {
 type emailVerificationUserRepo interface {
 	GetByID(ctx context.Context, id uuid.UUID) (domain.User, error)
 	MarkEmailVerified(ctx context.Context, id uuid.UUID) error
+	ApplyEmailChange(ctx context.Context, id uuid.UUID, newEmail string) (domain.User, error)
 }
 
 type emailVerificationSender interface {
@@ -99,7 +100,7 @@ func (s *EmailVerificationService) Issue(ctx context.Context, userID uuid.UUID) 
 		return err
 	}
 	expiresAt := time.Now().Add(s.ttl)
-	if _, err := s.repo.Create(ctx, userID, hash, expiresAt); err != nil {
+	if _, err := s.repo.Create(ctx, userID, hash, expiresAt, nil); err != nil {
 		return err
 	}
 
@@ -145,10 +146,50 @@ func (s *EmailVerificationService) Confirm(ctx context.Context, token string) er
 		return err
 	}
 
+	if ev.NewEmail != nil {
+		// An email change: the new address is proven, so it becomes the
+		// account's email (409 if another account took it meanwhile).
+		if _, err := s.users.ApplyEmailChange(ctx, ev.UserID, *ev.NewEmail); err != nil {
+			return err
+		}
+		s.logger.InfoContext(ctx, "email cambiado", "user_id", ev.UserID)
+		return nil
+	}
 	if err := s.users.MarkEmailVerified(ctx, ev.UserID); err != nil {
 		return err
 	}
 	s.logger.InfoContext(ctx, "email verificado", "user_id", ev.UserID)
+	return nil
+}
+
+// IssueEmailChange sends the confirmation link for an email change to the
+// NEW address (plan 0.5). Earlier pending links of the user stop working.
+func (s *EmailVerificationService) IssueEmailChange(ctx context.Context, userID uuid.UUID, newEmail string) error {
+	u, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.InvalidateActiveForUser(ctx, userID); err != nil {
+		s.logger.WarnContext(ctx, "no se pudo invalidar verificaciones previas",
+			"user_id", userID, "error", err)
+	}
+	token, hash, err := generateVerificationToken()
+	if err != nil {
+		return err
+	}
+	expiresAt := time.Now().Add(s.ttl)
+	if _, err := s.repo.Create(ctx, userID, hash, expiresAt, &newEmail); err != nil {
+		return err
+	}
+	confirmURL := s.appBaseURL + "/verify-email?token=" + token
+	if s.sender != nil && s.sender.Configured() {
+		html := renderEmailChangeHTML(s.brand, u.FirstName, newEmail, confirmURL, expiresAt)
+		if err := s.sender.Send(ctx, []string{newEmail}, "Confirmá tu nuevo email en "+s.brand, html); err != nil {
+			s.logger.WarnContext(ctx, "email change mail falló", "user_id", userID, "error", err)
+		}
+	} else {
+		s.logger.InfoContext(ctx, "email change creado sin sender", "user_id", userID)
+	}
 	return nil
 }
 

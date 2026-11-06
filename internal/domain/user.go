@@ -19,6 +19,9 @@ type User struct {
 	FirstName       string     `json:"firstName"`
 	LastName        string     `json:"lastName"`
 	EmailVerifiedAt *time.Time `json:"emailVerifiedAt,omitempty"`
+	// PendingEmail: a requested email change waiting for the link sent to
+	// the new address (plan 0.5).
+	PendingEmail *string `json:"pendingEmail,omitempty"`
 	// IsSuperadmin habilita endpoints /admin/*. Se setea manualmente por DB.
 	// Independiente del rol por-hogar: un superadmin es "user normal" en sus
 	// hogares y solo obtiene poderes extra en las rutas /admin/*.

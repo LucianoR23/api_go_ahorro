@@ -26,6 +26,7 @@ type userRepository interface {
 	GetCredentialsByEmail(ctx context.Context, email string) (users.Credentials, error)
 	UpdateProfile(ctx context.Context, id uuid.UUID, firstName, lastName, email string) (domain.User, error)
 	MarkEmailVerified(ctx context.Context, id uuid.UUID) error
+	SetPendingEmail(ctx context.Context, id uuid.UUID, email *string) error
 }
 
 // googleVerifier valida ID tokens de Google. Interface en el consumidor
@@ -67,6 +68,7 @@ type inviteAccepter interface {
 // verificación).
 type emailVerifier interface {
 	Issue(ctx context.Context, userID uuid.UUID) error
+	IssueEmailChange(ctx context.Context, userID uuid.UUID, newEmail string) error
 }
 
 // Service orquesta register/login. No toca HTTP.
@@ -263,8 +265,10 @@ type UpdateMeInput struct {
 // UpdateMe aplica cambios parciales al perfil. Valida cada campo que
 // viene seteado; los que son nil quedan como estaban.
 //
-// Nota: el cambio de email NO dispara verification todavía (Fase 3).
-// Lo que sí hacemos es bloquear por unique constraint — colisión devuelve 409.
+// A new email is not applied here (plan 0.5): it waits as pending_email and a
+// confirmation link goes to the new address; EmailVerificationService.Confirm
+// applies it. An address already used by another account is a 409 now, and
+// again at confirmation if someone took it meanwhile.
 func (s *Service) UpdateMe(ctx context.Context, userID uuid.UUID, in UpdateMeInput) (domain.User, error) {
 	current, err := s.repo.GetByID(ctx, userID)
 	if err != nil {
@@ -300,11 +304,31 @@ func (s *Service) UpdateMe(ctx context.Context, userID uuid.UUID, in UpdateMeInp
 		email = v
 	}
 
-	// Short-circuit: si ningún campo cambió, no pegamos UPDATE.
-	if firstName == current.FirstName && lastName == current.LastName && email == current.Email {
-		return current, nil
+	updated := current
+	if firstName != current.FirstName || lastName != current.LastName {
+		updated, err = s.repo.UpdateProfile(ctx, userID, firstName, lastName, current.Email)
+		if err != nil {
+			return domain.User{}, err
+		}
 	}
-	return s.repo.UpdateProfile(ctx, userID, firstName, lastName, email)
+	if email != current.Email {
+		if _, err := s.repo.GetCredentialsByEmail(ctx, email); err == nil {
+			return domain.User{}, domain.NewConflictError("ese email ya está registrado en otra cuenta")
+		} else if !errors.Is(err, domain.ErrNotFound) {
+			return domain.User{}, err
+		}
+		if s.verifier == nil {
+			return domain.User{}, fmt.Errorf("auth.UpdateMe: email verifier no configurado")
+		}
+		if err := s.repo.SetPendingEmail(ctx, userID, &email); err != nil {
+			return domain.User{}, err
+		}
+		if err := s.verifier.IssueEmailChange(ctx, userID, email); err != nil {
+			return domain.User{}, err
+		}
+		updated.PendingEmail = &email
+	}
+	return updated, nil
 }
 
 // Refresh rotates the session's refresh token and issues a new access token.

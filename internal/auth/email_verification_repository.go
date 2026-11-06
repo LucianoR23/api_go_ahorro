@@ -23,6 +23,8 @@ type EmailVerification struct {
 	TokenHash string
 	ExpiresAt time.Time
 	UsedAt    *time.Time
+	// NewEmail: set when the token confirms an email change (plan 0.5).
+	NewEmail *string
 }
 
 type EmailVerificationRepository struct {
@@ -33,11 +35,16 @@ func NewEmailVerificationRepository(pool *pgxpool.Pool) *EmailVerificationReposi
 	return &EmailVerificationRepository{q: sqlcgen.New(pool)}
 }
 
-func (r *EmailVerificationRepository) Create(ctx context.Context, userID uuid.UUID, tokenHash string, expiresAt time.Time) (EmailVerification, error) {
+func (r *EmailVerificationRepository) Create(ctx context.Context, userID uuid.UUID, tokenHash string, expiresAt time.Time, newEmail *string) (EmailVerification, error) {
+	var ne pgtype.Text
+	if newEmail != nil {
+		ne = pgtype.Text{String: *newEmail, Valid: true}
+	}
 	row, err := r.q.CreateEmailVerification(ctx, sqlcgen.CreateEmailVerificationParams{
 		UserID:    userID,
 		TokenHash: tokenHash,
 		ExpiresAt: pgtype.Timestamptz{Time: expiresAt, Valid: true},
+		NewEmail:  ne,
 	})
 	if err != nil {
 		return EmailVerification{}, fmt.Errorf("email_verification.Create: %w", err)
@@ -85,6 +92,10 @@ func toEmailVerificationDomain(r sqlcgen.EmailVerification) EmailVerification {
 	if r.UsedAt.Valid {
 		t := r.UsedAt.Time
 		ev.UsedAt = &t
+	}
+	if r.NewEmail.Valid {
+		e := r.NewEmail.String
+		ev.NewEmail = &e
 	}
 	return ev
 }

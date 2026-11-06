@@ -2,8 +2,9 @@
 
 
 -- name: CreateEmailVerification :one
-INSERT INTO email_verifications (user_id, token_hash, expires_at)
-VALUES ($1, $2, $3)
+-- new_email NULL verifies the current email; set, it confirms an email change.
+INSERT INTO email_verifications (user_id, token_hash, expires_at, new_email)
+VALUES ($1, $2, $3, $4)
 RETURNING *;
 
 

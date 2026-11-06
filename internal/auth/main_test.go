@@ -24,6 +24,7 @@ type userJSON struct {
 	FirstName       string     `json:"firstName"`
 	LastName        string     `json:"lastName"`
 	EmailVerifiedAt *time.Time `json:"emailVerifiedAt"`
+	PendingEmail    *string    `json:"pendingEmail"`
 	IsSuperadmin    bool       `json:"isSuperadmin"`
 }
 

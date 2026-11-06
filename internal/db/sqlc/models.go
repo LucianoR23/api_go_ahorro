@@ -83,6 +83,7 @@ type EmailVerification struct {
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 	UsedAt    pgtype.Timestamptz `json:"used_at"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	NewEmail  pgtype.Text        `json:"new_email"`
 }
 
 type ExchangeRate struct {
@@ -292,6 +293,7 @@ type User struct {
 	DeletedAt       pgtype.Timestamptz `json:"deleted_at"`
 	EmailVerifiedAt pgtype.Timestamptz `json:"email_verified_at"`
 	IsSuperadmin    bool               `json:"is_superadmin"`
+	PendingEmail    pgtype.Text        `json:"pending_email"`
 }
 
 type UserIdentity struct {

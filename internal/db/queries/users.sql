@@ -67,6 +67,24 @@ WHERE id = $1
 RETURNING *;
 
 
+-- name: SetUserPendingEmail :exec
+-- An email change waiting for the link sent to the new address (plan 0.5).
+UPDATE users SET pending_email = $2, updated_at = now() WHERE id = $1;
+
+
+-- name: ApplyUserEmailChange :one
+-- The new address was verified: it becomes the email, verified, and the
+-- pending one is cleared. A collision with another account hits the UNIQUE
+-- constraint (the repo maps it to ErrConflict).
+UPDATE users
+SET email             = sqlc.arg(new_email),
+    pending_email     = NULL,
+    email_verified_at = now(),
+    updated_at        = now()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING *;
+
+
 -- name: UpdateUserPassword :exec
 UPDATE users
 SET password_hash = $2,

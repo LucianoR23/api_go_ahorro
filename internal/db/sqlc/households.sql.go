@@ -274,7 +274,7 @@ func (q *Queries) ListDeletedHouseholds(ctx context.Context) ([]ListDeletedHouse
 }
 
 const listHouseholdMembers = `-- name: ListHouseholdMembers :many
-SELECT u.id, u.email, u.password_hash, u.created_at, u.updated_at, u.first_name, u.last_name, u.deleted_at, u.email_verified_at, u.is_superadmin, hm.role, hm.joined_at
+SELECT u.id, u.email, u.password_hash, u.created_at, u.updated_at, u.first_name, u.last_name, u.deleted_at, u.email_verified_at, u.is_superadmin, u.pending_email, hm.role, hm.joined_at
 FROM household_members hm
 INNER JOIN users u ON u.id = hm.user_id
 WHERE hm.household_id = $1
@@ -310,6 +310,7 @@ func (q *Queries) ListHouseholdMembers(ctx context.Context, householdID uuid.UUI
 			&i.User.DeletedAt,
 			&i.User.EmailVerifiedAt,
 			&i.User.IsSuperadmin,
+			&i.User.PendingEmail,
 			&i.Role,
 			&i.JoinedAt,
 		); err != nil {
