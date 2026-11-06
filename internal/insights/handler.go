@@ -22,6 +22,8 @@ import (
 type Handler struct {
 	svc     *Service
 	tickets *TicketStore
+	// allowAt: POST /insights/generate honors ?at= (dev only, plan 0.6).
+	allowAt bool
 	logger  *slog.Logger
 	authMW  *auth.Middleware
 	hhMW    *households.Middleware
@@ -40,7 +42,8 @@ func (h *Handler) Mount(r chi.Router) {
 			r.Get("/", h.List)
 			r.Get("/unread-count", h.UnreadCount)
 			r.Post("/mark-all-read", h.MarkAllRead)
-			r.Post("/generate", h.Generate) // manual trigger para testing
+			// Manual trigger: superadmins only (plan 0.6); ?at= only in dev.
+			r.With(h.authMW.RequireSuperadmin).Post("/generate", h.Generate)
 			r.Post("/stream-ticket", h.StreamTicket)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", h.Get)
@@ -106,6 +109,9 @@ type listResponseDTO struct {
 	Limit      int32        `json:"limit"`
 	Offset     int32        `json:"offset"`
 }
+
+// AllowArbitraryDate lets POST /insights/generate take ?at= (dev only).
+func (h *Handler) AllowArbitraryDate(v bool) { h.allowAt = v }
 
 // StreamTicket: a single-use ticket to open GET /insights/stream for the
 // current household, valid for 60 seconds (plan 0.9).
@@ -227,7 +233,7 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	at := dates.Today()
-	if s := r.URL.Query().Get("at"); s != "" {
+	if s := r.URL.Query().Get("at"); s != "" && h.allowAt {
 		if t, err := time.Parse("2006-01-02", s); err == nil {
 			at = t
 		}

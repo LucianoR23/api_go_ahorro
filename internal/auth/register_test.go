@@ -117,6 +117,15 @@ func TestRegister(t *testing.T) {
 			http.StatusUnprocessableEntity, "validation", "email")
 	})
 
+	t.Run("a body over 1 MB is rejected", func(t *testing.T) {
+		huge := `{"email":"` + strings.Repeat("a", 1<<20) + `@example.test"}`
+		res := s.Do(t, post("/auth/register", huge))
+		wantError(t, res, http.StatusUnprocessableEntity, "validation", "body")
+		if msg := decodeError(t, res).Message; msg != "el pedido es demasiado grande" {
+			t.Errorf("message = %q", msg)
+		}
+	})
+
 	t.Run("unknown field is rejected", func(t *testing.T) {
 		body := valid()
 		body["passwrod"] = "typo"

@@ -10,7 +10,6 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 )
 
@@ -224,19 +223,17 @@ func TestAuthRateLimits(t *testing.T) {
 		s.Do(t, post("/auth/forgot-password", body)).Status(t, http.StatusTooManyRequests)
 	})
 
-	t.Run("a spoofed X-Forwarded-For gets around the limit", func(t *testing.T) {
+	t.Run("a spoofed X-Forwarded-For does not get around the limit", func(t *testing.T) {
 		t.Parallel()
 		s := apitest.New(t, apitest.WithRealRateLimits())
-		testutil.KnownBug(t, "0.6", "RealIP trusts X-Forwarded-For from any client", func(t testing.TB) {
-			var last int
-			for i := range 6 {
-				last = s.Do(t, apitest.Req{Method: http.MethodPost, Path: "/auth/login",
-					Body:   map[string]string{"email": "nobody@example.test", "password": "x"},
-					Header: http.Header{"X-Forwarded-For": {fmt.Sprintf("203.0.113.%d", i+1)}}}).Code
-			}
-			if last != http.StatusTooManyRequests {
-				t.Errorf("6th login from one client = %d, want 429", last)
-			}
-		})
+		var last int
+		for i := range 6 {
+			last = s.Do(t, apitest.Req{Method: http.MethodPost, Path: "/auth/login",
+				Body:   map[string]string{"email": "nobody@example.test", "password": "x"},
+				Header: http.Header{"X-Forwarded-For": {fmt.Sprintf("203.0.113.%d", i+1)}}}).Code
+		}
+		if last != http.StatusTooManyRequests {
+			t.Errorf("6th login from one client = %d, want 429", last)
+		}
 	})
 }

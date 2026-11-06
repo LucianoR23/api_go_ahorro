@@ -373,6 +373,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	a.realtime = insightsListener.Start
 	streamTickets := insights.NewTicketStore()
 	insightsHandler := insights.NewHandler(insightsSvc, streamTickets, authMW, householdsMW, logger)
+	insightsHandler.AllowArbitraryDate(cfg.Env == "dev")
 	insightsSSE := insights.NewSSEHandler(insightsHub, insightsRepo, streamTickets,
 		func(ctx context.Context, hh, u uuid.UUID) (bool, error) {
 			return householdsRepo.IsMember(ctx, hh, u)
@@ -424,7 +425,12 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// después logger. El timeout de handlers (30s) NO va acá: se aplica por
 	// grupo más abajo para poder excluir el upload de soporte (ver router).
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// Client IP without trusting forgeable headers (plan 0.6): X-Forwarded-For
+	// only from TRUSTED_PROXIES (Traefik), CF-Connecting-IP only from
+	// Cloudflare edges. Validated in config.Load.
+	trustedProxies, _ := httpx.ParsePrefixes(cfg.TrustedProxies)
+	cloudflareEdges, _ := httpx.ParsePrefixes(cfg.CloudflareRanges)
+	r.Use(httpx.RealIP(trustedProxies, cloudflareEdges))
 	r.Use(middleware.Recoverer)
 
 	// CORS: permite al frontend llamar al API desde otro origen. Los orígenes
@@ -471,6 +477,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// deadlines extendidos. El resto de las rutas conserva el corte de 30s.
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Timeout(30 * time.Second))
+		r.Use(httpx.LimitBody(httpx.MaxJSONBody))
 
 		// Auth endpoints.
 		authHandler.Mount(r)

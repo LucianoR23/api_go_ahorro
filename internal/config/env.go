@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/dates"
+	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
 )
 
 // Config concentra todas las variables de entorno tipadas que la app necesita.
@@ -42,6 +43,14 @@ type Config struct {
 	InviteFromEmail        string
 	PasswordResetFromEmail string
 	VerificationFromEmail  string
+
+	// TrustedProxies (TRUSTED_PROXIES, CIDRs, comma separated): the reverse
+	// proxy's network (Traefik); only connections from it may set
+	// X-Forwarded-For. Empty: trust nobody (plan 0.6).
+	TrustedProxies []string
+	// CloudflareRanges (CLOUDFLARE_RANGES): edges whose CF-Connecting-IP is
+	// believed; defaults to Cloudflare's published list.
+	CloudflareRanges []string
 
 	// AppTimezone (APP_TIMEZONE): the IANA zone that decides "today", the
 	// current month and the hour the daily jobs run (plan 0.2). Location is
@@ -108,6 +117,8 @@ func Load() (*Config, error) {
 		VerificationFromEmail:  getOrDefault("VERIFICATION_FROM_EMAIL", brand+" <onboarding@resend.dev>"),
 		AppBaseURL:             getOrDefault("APP_BASE_URL", "http://localhost:3005"),
 		AppTimezone:            getOrDefault("APP_TIMEZONE", dates.DefaultTimezone),
+		TrustedProxies:         splitAndTrim(os.Getenv("TRUSTED_PROXIES"), ","),
+		CloudflareRanges:       splitAndTrim(getOrDefault("CLOUDFLARE_RANGES", strings.Join(httpx.CloudflareRanges, ",")), ","),
 		GoogleOAuthClientID:    os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
 		VAPIDPublicKey:         os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey:        os.Getenv("VAPID_PRIVATE_KEY"),
@@ -124,6 +135,12 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("config: APP_TIMEZONE %q no es una zona horaria válida: %w", cfg.AppTimezone, err)
 	}
 	cfg.Location = loc
+	if _, err := httpx.ParsePrefixes(cfg.TrustedProxies); err != nil {
+		return nil, fmt.Errorf("config: TRUSTED_PROXIES: %w", err)
+	}
+	if _, err := httpx.ParsePrefixes(cfg.CloudflareRanges); err != nil {
+		return nil, fmt.Errorf("config: CLOUDFLARE_RANGES: %w", err)
+	}
 	return cfg, nil
 }
 
