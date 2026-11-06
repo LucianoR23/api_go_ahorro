@@ -128,3 +128,16 @@ func pickStatusColor(status int) string {
 		return colorMagenta // 1xx informational
 	}
 }
+
+// RedactQueryInLogs drops the query string from r.RequestURI, which is what
+// the production logger (httplog) prints as "url". Handlers read the query
+// from r.URL, which is untouched. Query strings can carry stream tickets,
+// search text or e-mail addresses, none of which belong in logs (plan 0.9).
+func RedactQueryInLogs(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "" {
+			r.RequestURI = r.URL.EscapedPath()
+		}
+		next.ServeHTTP(w, r)
+	})
+}

@@ -20,14 +20,15 @@ import (
 )
 
 type Handler struct {
-	svc    *Service
-	logger *slog.Logger
-	authMW *auth.Middleware
-	hhMW   *households.Middleware
+	svc     *Service
+	tickets *TicketStore
+	logger  *slog.Logger
+	authMW  *auth.Middleware
+	hhMW    *households.Middleware
 }
 
-func NewHandler(svc *Service, authMW *auth.Middleware, hhMW *households.Middleware, logger *slog.Logger) *Handler {
-	return &Handler{svc: svc, logger: logger, authMW: authMW, hhMW: hhMW}
+func NewHandler(svc *Service, tickets *TicketStore, authMW *auth.Middleware, hhMW *households.Middleware, logger *slog.Logger) *Handler {
+	return &Handler{svc: svc, tickets: tickets, logger: logger, authMW: authMW, hhMW: hhMW}
 }
 
 func (h *Handler) Mount(r chi.Router) {
@@ -40,6 +41,7 @@ func (h *Handler) Mount(r chi.Router) {
 			r.Get("/unread-count", h.UnreadCount)
 			r.Post("/mark-all-read", h.MarkAllRead)
 			r.Post("/generate", h.Generate) // manual trigger para testing
+			r.Post("/stream-ticket", h.StreamTicket)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", h.Get)
 				r.Post("/read", h.MarkRead)
@@ -103,6 +105,23 @@ type listResponseDTO struct {
 	TotalCount int64        `json:"totalCount"`
 	Limit      int32        `json:"limit"`
 	Offset     int32        `json:"offset"`
+}
+
+// StreamTicket: a single-use ticket to open GET /insights/stream for the
+// current household, valid for 60 seconds (plan 0.9).
+func (h *Handler) StreamTicket(w http.ResponseWriter, r *http.Request) {
+	userID, householdID, err := h.ctxUserAndHousehold(r)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	ticket, err := h.tickets.Issue(userID, householdID)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ticket": ticket, "expiresIn": int(TicketTTL.Seconds())})
 }
 
 func (h *Handler) UnreadCount(w http.ResponseWriter, r *http.Request) {
