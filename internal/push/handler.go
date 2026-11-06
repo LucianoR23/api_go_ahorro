@@ -92,7 +92,7 @@ func (h *Handler) Subscribe(w http.ResponseWriter, r *http.Request) {
 
 	var req subscribeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httpx.WriteError(w, r, h.logger, domain.NewValidationError("body", "JSON inválido: "+err.Error()))
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("body", "JSON inválido"))
 		return
 	}
 
@@ -171,7 +171,7 @@ func (h *Handler) Unsubscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	var req unsubscribeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httpx.WriteError(w, r, h.logger, domain.NewValidationError("body", "JSON inválido: "+err.Error()))
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("body", "JSON inválido"))
 		return
 	}
 	if req.Endpoint == "" {

@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 )
 
@@ -124,10 +123,8 @@ func TestRegister(t *testing.T) {
 		res := s.Do(t, post("/auth/register", body))
 		wantError(t, res, http.StatusUnprocessableEntity, "validation", "body")
 
-		testutil.KnownBug(t, "0.1", "decoder errors reach the client in English (json: unknown field ...)", func(t testing.TB) {
-			if msg := decodeError(t, res).Message; strings.Contains(msg, "json:") {
-				t.Errorf("message %q is the raw Go decoder error", msg)
-			}
-		})
+		if msg := decodeError(t, res).Message; msg != "campo desconocido: passwrod" {
+			t.Errorf("message = %q, want the Spanish unknown-field message", msg)
+		}
 	})
 }
