@@ -60,7 +60,7 @@ without superuser. Check with `\du`, `\l valuo_next` and `\ddp`.
 | `LOG_LEVEL` | `info` |
 | `TZ` | `America/Argentina/Buenos_Aires` |
 | `NO_COLOR` | `1` |
-| `DATABASE_URL` | `postgres://valuo_app:<PASS_APP>@<DB_HOST>:5432/valuo_next?sslmode=disable` |
+| `DATABASE_URL` | `postgres://valuo_app:<PASS_APP>@<DB_HOST>:5432/valuo_next?sslmode=disable`. Must be a **direct** connection to Postgres (staging: the Coolify Postgres resource), never a transaction pooler (PgBouncer in transaction mode, Supabase port 6543): the live insights stream needs `LISTEN/NOTIFY` on a session that stays open |
 | `MIGRATE_ON_START` | `true` |
 | `MIGRATE_DATABASE_URL` | `postgres://valuo_migrate:<PASS_MIGRATE>@<DB_HOST>:5432/valuo_next?sslmode=disable` |
 | `JWT_SECRET` / `JWT_REFRESH_SECRET` | two different `openssl rand -hex 32`, never reused across environments |

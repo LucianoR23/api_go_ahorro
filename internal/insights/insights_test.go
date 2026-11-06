@@ -410,16 +410,32 @@ func (st *sse) next(t *testing.T, within time.Duration) ([2]string, bool) {
 	}
 }
 
+// ticket asks the API for a single-use stream ticket, as the app does.
+func ticket(t *testing.T, h house, u apitest.User) string {
+	t.Helper()
+	var out struct {
+		Ticket    string `json:"ticket"`
+		ExpiresIn int    `json:"expiresIn"`
+	}
+	h.do(t, u, http.MethodPost, "/insights/stream-ticket", nil).Status(t, http.StatusOK).JSON(t, &out)
+	if out.Ticket == "" || out.ExpiresIn != 60 {
+		t.Fatalf("ticket = %+v", out)
+	}
+	return out.Ticket
+}
+
 func TestInsightStreamInDev(t *testing.T) {
 	t.Parallel()
 	s := apitest.New(t, apitest.WithRealtime()) // ENV=dev: DevRequestLogger wraps the writer
 	h := newHouse(t, s)
-	resp, _ := openStream(t, s, "?access_token="+h.member.Token+"&householdId="+h.id)
-	testutil.KnownBug(t, "0.9", "SSE answers 500 in dev: the request logger's writer has no Flush and the handler type-asserts http.Flusher", func(t testing.TB) {
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("stream in dev = %d", resp.StatusCode)
-		}
-	})
+	// Fixed in 0.9: it answered 500 (the dev logger's writer has no Flush).
+	resp, st := openStream(t, s, "?ticket="+ticket(t, h, h.member))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("stream in dev = %d", resp.StatusCode)
+	}
+	if ev, _ := st.next(t, 5*time.Second); ev[0] != "ready" {
+		t.Errorf("first event = %v", ev)
+	}
 }
 
 func TestInsightStream(t *testing.T) {
@@ -428,26 +444,33 @@ func TestInsightStream(t *testing.T) {
 	s := apitest.New(t, apitest.WithRealtime(), apitest.WithConfig(func(c *config.Config) { c.Env = "prod" }))
 	h := newHouse(t, s)
 
-	t.Run("auth and membership", func(t *testing.T) {
-		outsider := s.Register(t)
-		for _, tc := range []struct {
-			query string
-			want  int
-		}{
-			{"?householdId=" + h.id, http.StatusUnauthorized},
-			{"?householdId=" + h.id + "&access_token=bad", http.StatusUnauthorized},
-			{"?access_token=" + h.member.Token, http.StatusBadRequest},
-			{"?access_token=" + h.member.Token + "&householdId=x", http.StatusBadRequest},
-			{"?access_token=" + outsider.Token + "&householdId=" + h.id, http.StatusForbidden},
+	t.Run("only a fresh single-use ticket opens it", func(t *testing.T) {
+		used := ticket(t, h, h.member)
+		if resp, _ := openStream(t, s, "?ticket="+used); resp.StatusCode != http.StatusOK {
+			t.Fatalf("stream with a ticket = %d", resp.StatusCode)
+		}
+		for _, q := range []string{
+			"",                                // nothing
+			"?ticket=made-up",                 // unknown
+			"?ticket=" + used,                 // already used
+			"?access_token=" + h.member.Token, // the access token in the URL is no longer accepted
+			"?householdId=" + h.id,            // household alone
 		} {
-			if resp, _ := openStream(t, s, tc.query); resp.StatusCode != tc.want {
-				t.Errorf("stream%s = %d, want %d", tc.query, resp.StatusCode, tc.want)
+			if resp, _ := openStream(t, s, q); resp.StatusCode != http.StatusUnauthorized {
+				t.Errorf("stream%s = %d, want 401", q, resp.StatusCode)
 			}
 		}
+		// A ticket needs a household the user belongs to (404: the household
+		// middleware does not reveal households to outsiders).
+		outsider := s.Register(t)
+		s.Do(t, apitest.Req{Method: http.MethodPost, Path: "/insights/stream-ticket", Token: outsider.Token, Household: h.id}).
+			WantError(t, http.StatusNotFound, "not_found", "")
+		s.Do(t, apitest.Req{Method: http.MethodPost, Path: "/insights/stream-ticket", Household: h.id}).
+			WantError(t, http.StatusUnauthorized, "unauthorized", "")
 	})
 
 	t.Run("a new personal insight reaches the member's stream", func(t *testing.T) {
-		resp, st := openStream(t, s, "?access_token="+h.member.Token+"&householdId="+h.id)
+		resp, st := openStream(t, s, "?ticket="+ticket(t, h, h.member))
 		if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "text/event-stream" {
 			t.Fatalf("stream = %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
 		}
@@ -461,9 +484,9 @@ func TestInsightStream(t *testing.T) {
 		}
 	})
 
-	t.Run("the 30s request timeout closes the stream", func(t *testing.T) {
+	t.Run("the stream outlives the 30s request timeout", func(t *testing.T) {
 		t.Parallel()
-		resp, st := openStream(t, s, "?access_token="+h.owner.Token+"&householdId="+h.id)
+		resp, st := openStream(t, s, "?ticket="+ticket(t, h, h.owner))
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("stream = %d", resp.StatusCode)
 		}
@@ -480,10 +503,8 @@ func TestInsightStream(t *testing.T) {
 			gotClosed = true
 		case <-time.After(33 * time.Second):
 		}
-		testutil.KnownBug(t, "0.9", "the SSE stream sits in the 30s timeout group and is cut every 30 seconds", func(t testing.TB) {
-			if gotClosed {
-				t.Errorf("stream closed by the server within 33s")
-			}
-		})
+		if gotClosed {
+			t.Errorf("stream closed by the server within 33s")
+		}
 	})
 }

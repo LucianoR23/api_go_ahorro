@@ -355,8 +355,9 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	insightsListener := insights.NewListener(pool, insightsHub, logger)
 	a.starters = append(a.starters, insightsListener.Start)
 	a.realtime = insightsListener.Start
-	insightsHandler := insights.NewHandler(insightsSvc, authMW, householdsMW, logger)
-	insightsSSE := insights.NewSSEHandler(insightsHub, insightsRepo, tokenIssuer,
+	streamTickets := insights.NewTicketStore()
+	insightsHandler := insights.NewHandler(insightsSvc, streamTickets, authMW, householdsMW, logger)
+	insightsSSE := insights.NewSSEHandler(insightsHub, insightsRepo, streamTickets,
 		func(ctx context.Context, hh, u uuid.UUID) (bool, error) {
 			return householdsRepo.IsMember(ctx, hh, u)
 		})
@@ -426,6 +427,9 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// Logger de requests:
 	//   dev  → DevRequestLogger con colores ANSI por status (verde/amarillo/rojo)
 	//   prod → httplog con JSON estructurado (parsable por Loki/Coolify)
+	// Query strings never reach the logs (they can carry tickets, search
+	// text, e-mail addresses); see httpx.RedactQueryInLogs.
+	r.Use(httpx.RedactQueryInLogs)
 	if cfg.Env == "prod" {
 		reqLogger := httplog.NewLogger("ahorra-api", httplog.Options{
 			JSON:             true,
@@ -502,11 +506,6 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		// Insights (auth + household member).
 		insightsHandler.Mount(r)
 
-		// SSE stream para realtime de insights. Auth via ?access_token= (no
-		// header — EventSource del browser no soporta headers custom). Filtra
-		// por household + user dentro del Hub.
-		insightsSSE.Mount(r)
-
 		// Reports (auth + household member).
 		reportsHandler.Mount(r)
 
@@ -514,6 +513,12 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		// subscribe/unsubscribe requieren auth).
 		pushHandler.Mount(r)
 	})
+
+	// SSE stream of new insights: outside the 30 s timeout group (it lives as
+	// long as the page is open; the handler pushes the write deadline forward
+	// on each write). Opened with a single-use ticket from
+	// POST /insights/stream-ticket, never with the access token (plan 0.9).
+	insightsSSE.Mount(r)
 
 	// Support (/support/*): proxy a Lemy Support. Requiere auth (el mount lo
 	// aplica). No usa X-Household-ID — el soporte es por usuario. Se monta
