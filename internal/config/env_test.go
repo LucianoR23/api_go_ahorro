@@ -94,3 +94,34 @@ func TestLoadBrand(t *testing.T) {
 		}
 	})
 }
+
+func TestLoadTimezone(t *testing.T) {
+	t.Run("defaults to Buenos Aires", func(t *testing.T) {
+		setRequired(t)
+		t.Setenv("APP_TIMEZONE", "")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.AppTimezone != "America/Argentina/Buenos_Aires" || cfg.Location == nil || cfg.Location.String() != cfg.AppTimezone {
+			t.Errorf("timezone %q, location %v", cfg.AppTimezone, cfg.Location)
+		}
+	})
+
+	t.Run("another valid zone", func(t *testing.T) {
+		setRequired(t)
+		t.Setenv("APP_TIMEZONE", "America/Montevideo")
+		cfg, err := Load()
+		if err != nil || cfg.Location.String() != "America/Montevideo" {
+			t.Errorf("cfg = %v, err = %v", cfg, err)
+		}
+	})
+
+	t.Run("an invalid zone stops startup", func(t *testing.T) {
+		setRequired(t)
+		t.Setenv("APP_TIMEZONE", "Argentina/Narnia")
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "APP_TIMEZONE") {
+			t.Errorf("err = %v", err)
+		}
+	})
+}

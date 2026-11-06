@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 )
 
@@ -47,7 +48,7 @@ func NewWorker(svc *Service, households allHouseholdsLister, sender Sender, bran
 	if minute < 0 || minute > 59 {
 		minute = 0
 	}
-	return &Worker{svc: svc, households: households, sender: sender, brand: brand, hour: hour, minute: minute, logger: logger, now: time.Now}
+	return &Worker{svc: svc, households: households, sender: sender, brand: brand, hour: hour, minute: minute, logger: logger, now: dates.Now}
 }
 
 func (w *Worker) Start(ctx context.Context) func() {
@@ -64,7 +65,7 @@ func (w *Worker) Start(ctx context.Context) func() {
 				w.logger.Info("reports worker: detenido")
 				return
 			case <-timer.C:
-				w.runOnce(ctx, w.now())
+				w.runOnce(ctx, dates.DateOf(w.now()))
 			}
 		}
 	}()

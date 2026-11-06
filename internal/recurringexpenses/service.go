@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/LucianoR23/api_go_ahorra/internal/expenses"
 )
@@ -101,7 +102,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.RecurringE
 		return domain.RecurringExpense{}, domain.NewValidationError("createdBy", "no es miembro del hogar")
 	}
 	if in.StartsAt.IsZero() {
-		in.StartsAt = time.Now()
+		in.StartsAt = dates.Today()
 	}
 	re, err := s.repo.Create(ctx, CreateParams{
 		HouseholdID:       in.HouseholdID,
@@ -132,7 +133,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.RecurringE
 	// había corrido hoy), la materializamos al instante en vez de esperar al
 	// próximo ciclo. Best-effort: si falla, la plantilla igual quedó creada y
 	// el worker la levantará cuando corresponda.
-	if occ, ok := firstDueOccurrence(re, time.Now()); ok {
+	if occ, ok := firstDueOccurrence(re, dates.Today()); ok {
 		if genErr := s.generateOne(ctx, re, occ); genErr != nil {
 			if s.logger != nil {
 				s.logger.WarnContext(ctx, "recurring expense: primera ocurrencia falló",

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 )
 
@@ -97,7 +98,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Settlement
 		return domain.SettlementPayment{}, domain.NewValidationError("amount", "debe ser mayor a cero")
 	}
 	if in.PaidAt.IsZero() {
-		in.PaidAt = time.Now()
+		in.PaidAt = dates.Today()
 	}
 	if in.Note != nil {
 		trimmed := strings.TrimSpace(*in.Note)

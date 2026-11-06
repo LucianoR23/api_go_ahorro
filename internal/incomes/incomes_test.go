@@ -197,7 +197,7 @@ func TestIncomes(t *testing.T) {
 		if tot.Total != 300 || tot.BaseCurrency != "ARS" || tot.From != "2026-01-01" || tot.To != "2026-02-28" {
 			t.Errorf("totals = %+v", tot)
 		}
-		// Default range: the current month (UTC) up to today.
+		// Default range: the current month (app timezone) up to today.
 		h.do(t, h.owner, http.MethodGet, "/totals/income", nil).Status(t, http.StatusOK).JSON(t, &tot)
 		if !strings.HasSuffix(tot.From, "-01") {
 			t.Errorf("default from = %s", tot.From)

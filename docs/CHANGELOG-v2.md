@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.2: timezone
+- "Today", the current month and the hour of the daily jobs follow `APP_TIMEZONE` (default `America/Argentina/Buenos_Aires`) instead of UTC. Before, from 21:00 in Buenos Aires a card due that day already counted as overdue, a settlement, income or recurring series without a date started on the next day, the default report/goal month could jump ahead on the last evening of the month, and the jobs ran three hours early.
+- `internal/dates` is the single place that decides which day it is; it returns calendar days as midnight UTC, comparable with the `DATE` columns. Workers convert their tick to a calendar day once and pass it to the services; the zone database is embedded in the binary.
+- `APP_TIMEZONE` in config (an invalid zone stops startup), `.env.example` and `DEPLOY.md`; the image sets `TZ` so log timestamps match.
+- Decided with the user: no per-household timezone column yet; it comes with the first non-Argentine market (the plan notes it there).
+
 ### 0.1 (part 5): Spanish decoder errors
 - One shared `httpx.DecodeJSON` replaces 11 copies of `decodeJSON`. Its errors are Spanish and safe to show: "falta el cuerpo del pedido", "JSON inválido", "tipo de dato incorrecto" (with the field), "campo desconocido: <name>", "el pedido es demasiado grande", "algún campo tiene un valor inválido". The raw Go text (`json: unknown field ...`) no longer reaches the client; the push endpoints stop appending it too.
 

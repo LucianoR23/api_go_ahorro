@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 )
 
@@ -70,7 +71,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Income, er
 		return domain.Income{}, domain.NewValidationError("description", "no puede estar vacío")
 	}
 	if in.ReceivedAt.IsZero() {
-		in.ReceivedAt = time.Now()
+		in.ReceivedAt = dates.Today()
 	}
 
 	ok, err := s.households.IsMember(ctx, in.HouseholdID, in.ReceivedBy)
@@ -240,7 +241,7 @@ func (s *Service) CreateRecurring(ctx context.Context, in CreateRecurringInput) 
 		return domain.RecurringIncome{}, domain.NewValidationError("receivedBy", "no es miembro del hogar")
 	}
 	if in.StartsAt.IsZero() {
-		in.StartsAt = time.Now()
+		in.StartsAt = dates.Today()
 	}
 	ri, err := s.repo.CreateRecurring(ctx, CreateRecurringParams{
 		HouseholdID:     in.HouseholdID,
@@ -266,7 +267,7 @@ func (s *Service) CreateRecurring(ctx context.Context, in CreateRecurringInput) 
 	// el período en curso (el día del mes ya pasó, o el worker de las 00:30 ya
 	// había corrido hoy), la materializamos al instante en vez de esperar al
 	// próximo ciclo. Best-effort: si falla, la plantilla igual quedó creada.
-	if occ, ok := firstDueOccurrence(ri, time.Now()); ok {
+	if occ, ok := firstDueOccurrence(ri, dates.Today()); ok {
 		if genErr := s.generateOneRecurring(ctx, ri, occ); genErr != nil {
 			if s.logger != nil {
 				s.logger.WarnContext(ctx, "recurring income: primera ocurrencia falló",
