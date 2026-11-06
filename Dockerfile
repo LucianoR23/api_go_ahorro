@@ -5,9 +5,9 @@
 # Keep in sync with the `toolchain` line in go.mod (exact tag, supported Alpine).
 FROM golang:1.27.3-alpine3.24 AS build
 
-# git es necesario si algún mod tiene deps de repos privados; ca-certs para
-# que go mod download pueda hablar con proxy.golang.org por HTTPS.
-RUN apk add --no-cache git ca-certificates
+# No apk here: modules come from proxy.golang.org (no git needed) and the
+# image already ships the CA bundle. Fetching from Alpine's CDN failed twice
+# on the server (TLS errors), so the build no longer depends on it.
 
 WORKDIR /src
 
@@ -32,14 +32,14 @@ RUN go build \
     ./cmd/api
 
 # ---------- runtime stage ----------
-# Alpine mínimo con ca-certs + tzdata. ~8MB final. Date math uses
-# APP_TIMEZONE (the binary embeds the zone database); TZ only makes log and
-# process timestamps match it.
+# Minimal Alpine, no apk: the CA bundle is copied from the build stage and the
+# binary embeds the zone database (time/tzdata, plan 0.2), so TZ works without
+# the tzdata package. busybox provides adduser and the healthcheck's wget.
 FROM alpine:3.24.3
 ENV TZ=America/Argentina/Buenos_Aires
 
-RUN apk add --no-cache ca-certificates tzdata && \
-    adduser -D -u 10001 app
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+RUN adduser -D -u 10001 app
 
 WORKDIR /app
 COPY --from=build /out/api /app/api
