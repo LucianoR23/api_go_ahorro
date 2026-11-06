@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -45,6 +47,7 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/splitrules"
 	"github.com/LucianoR23/api_go_ahorra/internal/support"
 	"github.com/LucianoR23/api_go_ahorra/internal/users"
+	"github.com/LucianoR23/api_go_ahorra/internal/waitlist"
 )
 
 // EmailSender sends transactional mail (verification, password reset, invites).
@@ -70,6 +73,11 @@ type Options struct {
 	FXHTTPClient *http.Client
 	// AuthRateLimiter limits the auth endpoints. Default: in-memory per IP.
 	AuthRateLimiter auth.RateLimiter
+	// TurnstileVerifier checks waitlist captcha tokens. Default: Cloudflare
+	// with cfg.TurnstileSecretKey (none: skipped in dev, refused in prod).
+	TurnstileVerifier waitlist.TurnstileVerifier
+	// WaitlistLimiter limits POST /waitlist. Default: 5 per 10 min per IP.
+	WaitlistLimiter func(http.Handler) http.Handler
 }
 
 // App is the wired API.
@@ -444,14 +452,34 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// válidos vienen de la env var ALLOWED_ORIGINS (separada por coma).
 	// AllowCredentials=true es obligatorio para que el refresh token cookie
 	// (HttpOnly) viaje en las requests del frontend.
-	r.Use(cors.Handler(cors.Options{
+	// Waitlist (plan B.5): the landing calls it cross-origin without
+	// cookies; its own CORS (WAITLIST_ALLOWED_ORIGINS, no credentials)
+	// replaces the app's on /waitlist paths.
+	waitlistSender := opts.NewEmailSender(cfg.WaitlistFromEmail)
+	if opts.TurnstileVerifier == nil && cfg.TurnstileSecretKey != "" {
+		opts.TurnstileVerifier = waitlist.NewCloudflareTurnstile(cfg.TurnstileSecretKey)
+	}
+	waitlistSvc := waitlist.NewService(pool, waitlist.Config{
+		SiteURL:        cfg.WaitlistSiteURL,
+		AllowedHosts:   hostsOf(cfg.WaitlistAllowedOrigins),
+		APIPublicURL:   cfg.APIPublicURL,
+		Brand:          cfg.WaitlistBrandName,
+		ContactEmail:   cfg.WaitlistContactEmail,
+		RequireCaptcha: cfg.Env == "prod",
+		UnsubscribeKey: []byte("waitlist:" + cfg.JWTSecret),
+	}, opts.TurnstileVerifier, headerSender{waitlistSender}, logger)
+	waitlistHandler := waitlist.NewHandler(waitlistSvc, cfg.WaitlistAllowedOrigins, opts.WaitlistLimiter, logger)
+	a.starters = append(a.starters, waitlist.NewWorker(waitlistSvc, 4, 0, logger).Start)
+	r.Use(byPathPrefix("/waitlist", waitlistHandler.CORS()))
+
+	r.Use(skipPathPrefix("/waitlist", cors.Handler(cors.Options{
 		AllowedOrigins:   cfg.AllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Household-ID", "X-Request-ID"},
 		ExposedHeaders:   []string{"X-Request-ID", "Retry-After"},
 		AllowCredentials: true,
 		MaxAge:           300,
-	}))
+	})))
 
 	// Logger de requests:
 	//   dev  → DevRequestLogger con colores ANSI por status (verde/amarillo/rojo)
@@ -543,6 +571,9 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		// subscribe/unsubscribe requieren auth).
 		pushHandler.Mount(r)
 	})
+
+	// Waitlist (plan B.5): public, its own CORS and limits.
+	waitlistHandler.Mount(r)
 
 	// SSE stream of new insights: outside the 30 s timeout group (it lives as
 	// long as the page is open; the handler pushes the write deadline forward
@@ -724,4 +755,57 @@ func listInstallmentsDueOn(pool *pgxpool.Pool) func(ctx context.Context, due tim
 		}
 		return out, rows.Err()
 	}
+}
+
+// byPathPrefix applies mw only to requests under prefix.
+func byPathPrefix(prefix string, mw func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		wrapped := mw(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, prefix) {
+				wrapped.ServeHTTP(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// skipPathPrefix applies mw to every request except those under prefix.
+func skipPathPrefix(prefix string, mw func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		wrapped := mw(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, prefix) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			wrapped.ServeHTTP(w, r)
+		})
+	}
+}
+
+// hostsOf: the hostnames of origins like "https://valuo.ar" (Turnstile
+// reports the hostname the widget ran on).
+func hostsOf(origins []string) []string {
+	out := make([]string, 0, len(origins))
+	for _, o := range origins {
+		if u, err := url.Parse(o); err == nil && u.Hostname() != "" {
+			out = append(out, u.Hostname())
+		}
+	}
+	return out
+}
+
+// headerSender adapts an EmailSender for the waitlist, which needs extra
+// headers (List-Unsubscribe). Senders without header support send without.
+type headerSender struct{ EmailSender }
+
+func (h headerSender) SendWithHeaders(ctx context.Context, to []string, subject, html string, headers map[string]string) error {
+	if hs, ok := h.EmailSender.(interface {
+		SendWithHeaders(ctx context.Context, to []string, subject, html string, headers map[string]string) error
+	}); ok {
+		return hs.SendWithHeaders(ctx, to, subject, html, headers)
+	}
+	return h.Send(ctx, to, subject, html)
 }

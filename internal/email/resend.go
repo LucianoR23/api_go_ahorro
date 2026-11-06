@@ -45,11 +45,18 @@ type resendPayload struct {
 	To      []string `json:"to"`
 	Subject string   `json:"subject"`
 	HTML    string   `json:"html"`
+	// Headers: extra headers (e.g. List-Unsubscribe, plan B.5).
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 // Send POST a https://api.resend.com/emails. Devuelve error si el
 // status no es 2xx, con el body del response para diagnosticar.
 func (s *ResendSender) Send(ctx context.Context, to []string, subject, html string) error {
+	return s.SendWithHeaders(ctx, to, subject, html, nil)
+}
+
+// SendWithHeaders sends with extra headers (plan B.5: List-Unsubscribe).
+func (s *ResendSender) SendWithHeaders(ctx context.Context, to []string, subject, html string, headers map[string]string) error {
 	if !s.Configured() {
 		return errors.New("resend: api key no configurada")
 	}
@@ -57,7 +64,7 @@ func (s *ResendSender) Send(ctx context.Context, to []string, subject, html stri
 		return errors.New("resend: lista de destinatarios vacía")
 	}
 
-	body, err := json.Marshal(resendPayload{From: s.from, To: to, Subject: subject, HTML: html})
+	body, err := json.Marshal(resendPayload{From: s.from, To: to, Subject: subject, HTML: html, Headers: headers})
 	if err != nil {
 		return fmt.Errorf("resend: marshal: %w", err)
 	}

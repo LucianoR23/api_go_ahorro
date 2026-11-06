@@ -4,6 +4,14 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### B.5 (part 1): landing waitlist
+- Migration `000028`: `waitlist_entries` (email, monotributo flag, form, first-touch source/medium/campaign, referrer path, notice version, timestamps, hashed confirmation token). No name, IP or user agent at rest.
+- `POST /waitlist` per the contract (`valuo_web/docs/waitlist-contract.md`): 202 `{"status":"pending_confirmation"}` for new and known addresses alike; the confirmation mail goes in the background (similar latency), at most every 10 minutes, never to a confirmed address. 422 with the field for invalid data, attribution sanitized and never rejected, 4 KB body cap. Turnstile is verified with Cloudflare (single use, the landing's hostname); with `ENV=prod` and no `TURNSTILE_SECRET_KEY` every sign-up gets 403.
+- `POST /waitlist/confirm`: 200 (also when already confirmed) or 410.
+- Every mail has a one-click unsubscribe: a link to a page with a button (GET never deletes, mail scanners prefetch) and RFC 8058 `List-Unsubscribe` headers. Unsubscribing deletes the entry.
+- Own CORS on `/waitlist` (landing origins, POST, no credentials); 5 requests per 10 minutes per IP with a JSON 429 and `Retry-After`. A daily job deletes unconfirmed sign-ups older than 30 days.
+- New variables in `DEPLOY.md`: `WAITLIST_SITE_URL`, `WAITLIST_ALLOWED_ORIGINS`, `WAITLIST_BRAND_NAME`, `WAITLIST_FROM_EMAIL`, `WAITLIST_CONTACT_EMAIL`, `TURNSTILE_SECRET_KEY`, `API_PUBLIC_URL`.
+
 ### 0.6 (parts 2 to 4): permissions, ownership, push
 - Edit and delete of others' records (decided with the user): expenses by their author or the household owner; incomes by the member who received them or the owner; settlements by the two members in the payment or the owner. Others get 403. Confirming a variable bill draft stays open to any member.
 - Personal insights are listed, counted, read, marked and deleted only by their owner; household-level insights stay shared.
