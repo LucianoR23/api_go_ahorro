@@ -4,6 +4,11 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.5 (part 2): Google sign-in and verified emails
+- `POST /auth/google` links to an existing account only if its email is verified. Before, anyone could register someone else's email, never verify it, and own the account the day the real owner signed in with Google. Now it answers 409: "Ya existe una cuenta con este email sin verificar. Ingresá con tu contraseña (o recuperala con "Olvidé mi contraseña") y verificá tu email; después vas a poder entrar con Google." The app shows that message as is.
+- A password reset marks the email verified (the link reached the mailbox). The real owner recovers such an account with "Olvidé mi contraseña": the intruder's sessions end and Google links.
+- 409 messages no longer end in the internal `: domain: conflicto con el estado actual`; `domain.ConflictError` carries a message written for the user.
+
 ### 0.5 (part 1): server-side sessions
 - Migration `000025`: `user_sessions`, one row per signed-in device. The refresh token is an opaque random value; only its SHA-256 is stored, with the user agent. No IP column on purpose (the privacy policy keeps IPs 7 days at most). Stale sessions of a user are deleted when they sign in.
 - Refresh rotates the token; an already-rotated token presented again revokes the session (theft), except within 30 s of the rotation (two tabs refreshing at once), where it is only refused. Sessions slide: 7 days from the last use.
