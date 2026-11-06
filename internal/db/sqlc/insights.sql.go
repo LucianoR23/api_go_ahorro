@@ -48,15 +48,19 @@ FROM daily_insights
 WHERE household_id = $1
   AND is_read = false
   AND ($2::uuid IS NULL OR user_id = $2::uuid)
+  AND (user_id IS NULL OR user_id = $3::uuid)
 `
 
 type CountUnreadInsightsByHouseholdParams struct {
 	HouseholdID uuid.UUID  `json:"household_id"`
 	UserID      *uuid.UUID `json:"user_id"`
+	Viewer      uuid.UUID  `json:"viewer"`
 }
 
+// Only what the viewer may see: household-level insights and their own
+// personal ones (plan 0.6).
 func (q *Queries) CountUnreadInsightsByHousehold(ctx context.Context, arg CountUnreadInsightsByHouseholdParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countUnreadInsightsByHousehold, arg.HouseholdID, arg.UserID)
+	row := q.db.QueryRow(ctx, countUnreadInsightsByHousehold, arg.HouseholdID, arg.UserID, arg.Viewer)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -160,15 +164,17 @@ SET is_read = true
 WHERE household_id = $1
   AND is_read = false
   AND ($2::uuid IS NULL OR user_id = $2::uuid)
+  AND (user_id IS NULL OR user_id = $3::uuid)
 `
 
 type MarkAllInsightsReadByHouseholdParams struct {
 	HouseholdID uuid.UUID  `json:"household_id"`
 	UserID      *uuid.UUID `json:"user_id"`
+	Viewer      uuid.UUID  `json:"viewer"`
 }
 
 func (q *Queries) MarkAllInsightsReadByHousehold(ctx context.Context, arg MarkAllInsightsReadByHouseholdParams) error {
-	_, err := q.db.Exec(ctx, markAllInsightsReadByHousehold, arg.HouseholdID, arg.UserID)
+	_, err := q.db.Exec(ctx, markAllInsightsReadByHousehold, arg.HouseholdID, arg.UserID, arg.Viewer)
 	return err
 }
 

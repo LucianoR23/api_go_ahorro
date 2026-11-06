@@ -18,6 +18,7 @@ import (
 type householdLookup interface {
 	IsMember(ctx context.Context, householdID, userID uuid.UUID) (bool, error)
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Household, error)
+	GetMemberRole(ctx context.Context, householdID, userID uuid.UUID) (domain.Role, error)
 }
 
 // balanceReader: interface del paquete balances. Nos da el saldo firmado
@@ -219,13 +220,23 @@ func (s *Service) List(ctx context.Context, f ListFilter) ([]domain.SettlementPa
 // Delete: cualquier miembro del hogar puede borrar (es corrección de error,
 // no un flujo crítico). Futuro: restringir a creador/owner si hace ruido.
 // Verifica que el settlement pertenezca al hogar antes de borrar.
-func (s *Service) Delete(ctx context.Context, householdID, id uuid.UUID) error {
+func (s *Service) Delete(ctx context.Context, householdID, id, actor uuid.UUID) error {
 	sp, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
 	if sp.HouseholdID != householdID {
 		return domain.ErrNotFound
+	}
+	// Only the two members in the payment or the household owner (plan 0.6).
+	if actor != sp.FromUser && actor != sp.ToUser {
+		role, err := s.households.GetMemberRole(ctx, householdID, actor)
+		if err != nil {
+			return err
+		}
+		if !domain.CanModify(actor, []uuid.UUID{sp.FromUser, sp.ToUser}, role) {
+			return domain.ErrForbidden
+		}
 	}
 	return s.repo.Delete(ctx, id)
 }

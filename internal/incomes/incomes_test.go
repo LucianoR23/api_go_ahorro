@@ -211,17 +211,13 @@ func TestIncomes(t *testing.T) {
 		}
 	})
 
-	t.Run("another member edits and deletes my income", func(t *testing.T) {
+	t.Run("another member cannot edit or delete my income", func(t *testing.T) {
 		h := newHouse(t, s)
 		i := h.create(t, h.owner, nil)
 		edit := h.do(t, h.member, http.MethodPatch, "/incomes/"+i.ID, map[string]any{"source": "gift", "description": "Ajeno", "receivedAt": "2026-01-05"})
-		testutil.KnownBug(t, "0.6", "any household member can edit another member's income", func(t testing.TB) {
-			edit.Status(t, http.StatusForbidden)
-		})
+		edit.Status(t, http.StatusForbidden)
 		del := h.do(t, h.member, http.MethodDelete, "/incomes/"+i.ID, nil)
-		testutil.KnownBug(t, "0.6", "any household member can delete another member's income", func(t testing.TB) {
-			del.Status(t, http.StatusForbidden)
-		})
+		del.Status(t, http.StatusForbidden)
 	})
 
 	t.Run("another user's payment method is accepted", func(t *testing.T) {

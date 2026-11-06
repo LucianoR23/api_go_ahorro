@@ -456,17 +456,17 @@ func TestEditAndDeleteExpenses(t *testing.T) {
 			WantError(t, http.StatusUnprocessableEntity, "validation", "amount")
 	})
 
-	t.Run("another member edits and deletes my expense", func(t *testing.T) {
+	t.Run("another member cannot edit or delete my expense; the household owner can", func(t *testing.T) {
 		h := newHouse(t, s)
 		mine := h.cashExpense(t, h.owner, 100, map[string]any{"description": "Mío"}).Expense
 		edit := h.do(t, h.member, http.MethodPatch, "/expenses/"+mine.ID, map[string]any{"description": "Ajeno", "spentAt": "2026-01-10"})
-		testutil.KnownBug(t, "0.6", "any household member can edit another member's expense", func(t testing.TB) {
-			edit.Status(t, http.StatusForbidden)
-		})
+		edit.Status(t, http.StatusForbidden)
 		del := h.do(t, h.member, http.MethodDelete, "/expenses/"+mine.ID, nil)
-		testutil.KnownBug(t, "0.6", "any household member can delete another member's expense", func(t testing.TB) {
-			del.Status(t, http.StatusForbidden)
-		})
+		del.Status(t, http.StatusForbidden)
+
+		theirs := h.cashExpense(t, h.member, 50, map[string]any{"description": "Del miembro"}).Expense
+		h.do(t, h.owner, http.MethodPatch, "/expenses/"+theirs.ID, map[string]any{"description": "Corregido"}).Status(t, http.StatusOK)
+		h.do(t, h.owner, http.MethodDelete, "/expenses/"+theirs.ID, nil).Status(t, http.StatusNoContent)
 	})
 
 	t.Run("a category from another household is accepted on edit", func(t *testing.T) {

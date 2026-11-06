@@ -84,3 +84,15 @@ type HouseholdInvite struct {
 	RevokedAt   *time.Time `json:"revokedAt,omitempty"`
 	CreatedAt   time.Time  `json:"createdAt"`
 }
+
+// CanModify: who may edit or delete a record other members can see (plan
+// 0.6, decided 2026-11-06): its author or participants, and the household
+// owner. Configurable later (9.5).
+func CanModify(actor uuid.UUID, authors []uuid.UUID, actorRole Role) bool {
+	for _, a := range authors {
+		if a == actor {
+			return true
+		}
+	}
+	return actorRole == RoleOwner
+}

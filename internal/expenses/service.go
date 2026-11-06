@@ -29,6 +29,7 @@ type householdLookup interface {
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Household, error)
 	ListMembers(ctx context.Context, householdID uuid.UUID) ([]domain.HouseholdMemberDetail, error)
 	IsMember(ctx context.Context, householdID, userID uuid.UUID) (bool, error)
+	GetMemberRole(ctx context.Context, householdID, userID uuid.UUID) (domain.Role, error)
 }
 
 // fxConverter: lo mínimo que precisamos de fxrates.Service.
@@ -624,7 +625,7 @@ type UpdateInput struct {
 }
 
 func (s *Service) Update(ctx context.Context, householdID, id, actorUserID uuid.UUID, in UpdateInput) (domain.Expense, error) {
-	if err := s.requireInHousehold(ctx, householdID, id); err != nil {
+	if err := s.requireCanModify(ctx, householdID, id, actorUserID); err != nil {
 		return domain.Expense{}, err
 	}
 	if in.Description == nil && in.SpentAt == nil && !in.SetCategory {
@@ -787,7 +788,7 @@ func (s *Service) maybeEmitRecurringSpike(ctx context.Context, series domain.Rec
 }
 
 func (s *Service) Delete(ctx context.Context, householdID, id, actorUserID uuid.UUID) error {
-	if err := s.requireInHousehold(ctx, householdID, id); err != nil {
+	if err := s.requireCanModify(ctx, householdID, id, actorUserID); err != nil {
 		return err
 	}
 	// Snapshot antes del delete porque después ya no podemos leer los shares.
@@ -880,8 +881,8 @@ type UpdateInstallmentInput struct {
 // por separado (usa la query SetInstallmentPaid que maneja paid_at). Si las
 // fechas cambian, UpdateInstallmentDates. Si ambos, ejecuta las dos.
 // Valida ownership a través del expense → household.
-func (s *Service) UpdateInstallment(ctx context.Context, householdID, expenseID uuid.UUID, installmentNumber int, in UpdateInstallmentInput) (domain.ExpenseInstallment, error) {
-	if err := s.requireInHousehold(ctx, householdID, expenseID); err != nil {
+func (s *Service) UpdateInstallment(ctx context.Context, householdID, expenseID, actorUserID uuid.UUID, installmentNumber int, in UpdateInstallmentInput) (domain.ExpenseInstallment, error) {
+	if err := s.requireCanModify(ctx, householdID, expenseID, actorUserID); err != nil {
 		return domain.ExpenseInstallment{}, err
 	}
 	if installmentNumber < 1 {
@@ -937,13 +938,29 @@ func (s *Service) UpdateInstallment(ctx context.Context, householdID, expenseID 
 	return result, nil
 }
 
-func (s *Service) requireInHousehold(ctx context.Context, householdID, id uuid.UUID) error {
+// requireCanModify: the expense is in the household and the actor is its
+// author or the household owner (plan 0.6); others get 403.
+func (s *Service) requireCanModify(ctx context.Context, householdID, id, actor uuid.UUID) error {
 	e, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
 	if e.HouseholdID != householdID {
 		return domain.ErrNotFound
+	}
+	return s.requireAuthorOrOwner(ctx, householdID, actor, e.CreatedBy)
+}
+
+func (s *Service) requireAuthorOrOwner(ctx context.Context, householdID, actor, author uuid.UUID) error {
+	if actor == author {
+		return nil
+	}
+	role, err := s.households.GetMemberRole(ctx, householdID, actor)
+	if err != nil {
+		return err
+	}
+	if !domain.CanModify(actor, []uuid.UUID{author}, role) {
+		return domain.ErrForbidden
 	}
 	return nil
 }

@@ -59,6 +59,8 @@ type Querier interface {
 	// de cuenta para exigir transferencia previa.
 	CountHouseholdsOwnedByUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountIncomesByHousehold(ctx context.Context, arg CountIncomesByHouseholdParams) (int64, error)
+	// Only what the viewer may see: household-level insights and their own
+	// personal ones (plan 0.6).
 	CountUnreadInsightsByHousehold(ctx context.Context, arg CountUnreadInsightsByHouseholdParams) (int64, error)
 	// ===================== audit_events (plan 0.17) =====================
 	CreateAuditEvent(ctx context.Context, arg CreateAuditEventParams) error
