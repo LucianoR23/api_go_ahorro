@@ -252,11 +252,9 @@ func TestSettlements(t *testing.T) {
 		}
 
 		page := h.do(t, h.owner, http.MethodGet, "/settlements?limit=1", nil)
-		testutil.KnownBug(t, "0.1", "GET /settlements has no totalCount, so the app pages without knowing the total", func(t testing.TB) {
-			if !strings.Contains(string(page.Body), `"totalCount":3`) {
-				t.Errorf("page = %s", page.Body)
-			}
-		})
+		if !strings.Contains(string(page.Body), `"totalCount":3`) {
+			t.Errorf("page = %s", page.Body)
+		}
 
 		res := h.do(t, h.owner, http.MethodGet, "/settlements?offset=3000000000", nil)
 		if res.Code == http.StatusInternalServerError {

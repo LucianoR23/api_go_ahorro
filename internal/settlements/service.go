@@ -205,11 +205,14 @@ func (s *Service) Get(ctx context.Context, householdID, id uuid.UUID) (domain.Se
 
 // List delega al repo. householdID ya está verificado por el middleware.
 // El handler pasa los filtros ya parseados.
-func (s *Service) List(ctx context.Context, f ListFilter) ([]domain.SettlementPayment, error) {
+// List returns one page, the total count and the filter actually applied
+// (with the default limit filled in).
+func (s *Service) List(ctx context.Context, f ListFilter) ([]domain.SettlementPayment, int64, ListFilter, error) {
 	if f.Limit <= 0 {
 		f.Limit = 50
 	}
-	return s.repo.List(ctx, f)
+	items, total, err := s.repo.List(ctx, f)
+	return items, total, f, err
 }
 
 // Delete: cualquier miembro del hogar puede borrar (es corrección de error,

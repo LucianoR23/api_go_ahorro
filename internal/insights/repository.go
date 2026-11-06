@@ -104,7 +104,8 @@ type ListFilters struct {
 // ListByHousehold: query directa via pgx para no obligar a regenerar sqlc
 // cuando agregamos filtros. Soporta los mismos filtros que la versión
 // sqlc + búsqueda Q en title/body.
-func (r *Repository) ListByHousehold(ctx context.Context, householdID uuid.UUID, f ListFilters) ([]domain.DailyInsight, error) {
+// ListByHousehold returns one page and the total count for the same filters.
+func (r *Repository) ListByHousehold(ctx context.Context, householdID uuid.UUID, f ListFilters) ([]domain.DailyInsight, int64, error) {
 	if f.Limit <= 0 {
 		f.Limit = 50
 	}
@@ -137,6 +138,14 @@ func (r *Repository) ListByHousehold(ctx context.Context, householdID uuid.UUID,
 		where = append(where, fmt.Sprintf("(title ILIKE $%d OR body ILIKE $%d)", len(args), len(args)))
 	}
 
+	var total int64
+	if err := r.pool.QueryRow(ctx,
+		"SELECT COUNT(*)::bigint FROM daily_insights WHERE "+strings.Join(where, " AND "),
+		args...,
+	).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("insights.Count: %w", err)
+	}
+
 	args = append(args, f.Limit, f.Offset)
 	sql := fmt.Sprintf(
 		"SELECT id, household_id, user_id, insight_date, insight_type, title, body, severity, is_read, metadata, created_at, ref_id FROM daily_insights WHERE %s ORDER BY insight_date DESC, created_at DESC LIMIT $%d OFFSET $%d",
@@ -146,7 +155,7 @@ func (r *Repository) ListByHousehold(ctx context.Context, householdID uuid.UUID,
 
 	rows, err := r.pool.Query(ctx, sql, args...)
 	if err != nil {
-		return nil, fmt.Errorf("insights.List: %w", err)
+		return nil, 0, fmt.Errorf("insights.List: %w", err)
 	}
 	defer rows.Close()
 
@@ -164,7 +173,7 @@ func (r *Repository) ListByHousehold(ctx context.Context, householdID uuid.UUID,
 			&ins.Title, &ins.Body, &ins.Severity, &ins.IsRead, &ins.Metadata,
 			&createdAt, &refID,
 		); err != nil {
-			return nil, fmt.Errorf("insights.List scan: %w", err)
+			return nil, 0, fmt.Errorf("insights.List scan: %w", err)
 		}
 		ins.UserID = userID
 		ins.RefID = refID
@@ -176,7 +185,7 @@ func (r *Repository) ListByHousehold(ctx context.Context, householdID uuid.UUID,
 		}
 		out = append(out, ins)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 func (r *Repository) CountUnread(ctx context.Context, householdID uuid.UUID, userID *uuid.UUID) (int64, error) {

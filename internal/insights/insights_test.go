@@ -80,9 +80,11 @@ func (h house) generate(t testing.TB, date string) {
 
 func (h house) list(t testing.TB, u apitest.User, query string) []insightJSON {
 	t.Helper()
-	var out []insightJSON
-	h.do(t, u, http.MethodGet, "/insights"+query, nil).Status(t, http.StatusOK).JSON(t, &out)
-	return out
+	var page struct {
+		Items []insightJSON `json:"items"`
+	}
+	h.do(t, u, http.MethodGet, "/insights"+query, nil).Status(t, http.StatusOK).JSON(t, &page)
+	return page.Items
 }
 
 func ofType(list []insightJSON, typ string) []insightJSON {
@@ -295,11 +297,9 @@ func TestInsightEndpoints(t *testing.T) {
 		}
 		h.do(t, h.owner, http.MethodGet, "/insights/nope", nil).WantError(t, http.StatusUnprocessableEntity, "validation", "id")
 		page := h.do(t, h.owner, http.MethodGet, "/insights?limit=1", nil)
-		testutil.KnownBug(t, "0.1", "GET /insights returns a bare array without totalCount", func(t testing.TB) {
-			if !strings.Contains(string(page.Body), `"totalCount"`) {
-				t.Errorf("page = %s", page.Body)
-			}
-		})
+		if !strings.Contains(string(page.Body), `"totalCount"`) {
+			t.Errorf("page = %s", page.Body)
+		}
 	})
 
 	t.Run("another member reads, marks and deletes my personal insight", func(t *testing.T) {

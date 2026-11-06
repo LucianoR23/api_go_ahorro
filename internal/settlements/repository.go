@@ -94,7 +94,8 @@ type ListFilter struct {
 
 // List: query directa via pgx para soportar el filtro WithUser (OR)
 // sin regenerar sqlc.
-func (r *Repository) List(ctx context.Context, f ListFilter) ([]domain.SettlementPayment, error) {
+// List returns one page and the total count for the same filters.
+func (r *Repository) List(ctx context.Context, f ListFilter) ([]domain.SettlementPayment, int64, error) {
 	args := []any{f.HouseholdID}
 	where := []string{"household_id = $1"}
 	add := func(clause string, val any) {
@@ -118,6 +119,14 @@ func (r *Repository) List(ctx context.Context, f ListFilter) ([]domain.Settlemen
 		add("paid_at <= $%d", pgtype.Date{Time: *f.ToDate, Valid: true})
 	}
 
+	var total int64
+	if err := r.pool.QueryRow(ctx,
+		"SELECT COUNT(*)::bigint FROM settlement_payments WHERE "+strings.Join(where, " AND "),
+		args...,
+	).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("settlements.Count: %w", err)
+	}
+
 	args = append(args, f.Limit, f.Offset)
 	sql := fmt.Sprintf(
 		"SELECT id, household_id, from_user, to_user, amount_base, base_currency, note, paid_at, created_at FROM settlement_payments WHERE %s ORDER BY paid_at DESC, created_at DESC LIMIT $%d OFFSET $%d",
@@ -125,7 +134,7 @@ func (r *Repository) List(ctx context.Context, f ListFilter) ([]domain.Settlemen
 	)
 	rows, err := r.pool.Query(ctx, sql, args...)
 	if err != nil {
-		return nil, fmt.Errorf("settlements.List: %w", err)
+		return nil, 0, fmt.Errorf("settlements.List: %w", err)
 	}
 	defer rows.Close()
 	var out []domain.SettlementPayment
@@ -135,11 +144,11 @@ func (r *Repository) List(ctx context.Context, f ListFilter) ([]domain.Settlemen
 			&sp.ID, &sp.HouseholdID, &sp.FromUser, &sp.ToUser,
 			&sp.AmountBase, &sp.BaseCurrency, &sp.Note, &sp.PaidAt, &sp.CreatedAt,
 		); err != nil {
-			return nil, fmt.Errorf("settlements.List scan: %w", err)
+			return nil, 0, fmt.Errorf("settlements.List scan: %w", err)
 		}
 		out = append(out, toDomain(sp))
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
