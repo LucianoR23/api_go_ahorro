@@ -322,20 +322,20 @@ func TestInsightEndpoints(t *testing.T) {
 		})
 	})
 
-	t.Run("manual generation is open to any member, with any date", func(t *testing.T) {
+	t.Run("manual generation is for superadmins only", func(t *testing.T) {
 		h, _ := setup(t)
+		h.do(t, h.member, http.MethodPost, "/insights/generate?at=2026-03-15", nil).
+			WantError(t, http.StatusForbidden, "forbidden", "")
+		h.s.MakeSuperadmin(t, h.member)
 		var r struct {
 			Created int `json:"created"`
 			Failed  int `json:"failed"`
 		}
-		res := h.do(t, h.member, http.MethodPost, "/insights/generate?at=2026-03-15", nil)
-		res.Status(t, http.StatusOK).JSON(t, &r)
+		// ?at= is honored here because apitest runs with ENV=dev.
+		h.do(t, h.member, http.MethodPost, "/insights/generate?at=2026-03-15", nil).Status(t, http.StatusOK).JSON(t, &r)
 		if r.Created != 1 || r.Failed != 0 { // the Sunday weekly review
 			t.Errorf("generate = %+v", r)
 		}
-		testutil.KnownBug(t, "0.6", "/insights/generate is open to any member with an arbitrary ?at=", func(t testing.TB) {
-			res.Status(t, http.StatusForbidden)
-		})
 	})
 
 	t.Run("household scoped", func(t *testing.T) {

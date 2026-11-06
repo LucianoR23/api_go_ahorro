@@ -141,3 +141,20 @@ func RedactQueryInLogs(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// MaxJSONBody caps request bodies (plan 0.6): 1 MB is far above any JSON the
+// API takes. Uploads (support tickets) are mounted outside and set their own.
+const MaxJSONBody = 1 << 20
+
+// LimitBody caps the request body; reading past it fails, and DecodeJSON
+// turns that into "el pedido es demasiado grande".
+func LimitBody(n int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, n)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
