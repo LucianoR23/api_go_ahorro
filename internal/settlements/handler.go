@@ -65,7 +65,10 @@ type settlementDTO struct {
 }
 
 type listResponseDTO struct {
-	Items []settlementDTO `json:"items"`
+	Items      []settlementDTO `json:"items"`
+	TotalCount int64           `json:"totalCount"`
+	Limit      int32           `json:"limit"`
+	Offset     int32           `json:"offset"`
 }
 
 // ===================== handlers =====================
@@ -134,12 +137,12 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	items, err := h.svc.List(r.Context(), f)
+	items, total, applied, err := h.svc.List(r.Context(), f)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	out := listResponseDTO{Items: make([]settlementDTO, len(items))}
+	out := listResponseDTO{Items: make([]settlementDTO, len(items)), TotalCount: total, Limit: applied.Limit, Offset: applied.Offset}
 	for i, sp := range items {
 		out.Items[i] = toDTO(sp)
 	}

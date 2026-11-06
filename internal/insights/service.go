@@ -207,7 +207,7 @@ func (s *Service) publish(ctx context.Context, ins domain.DailyInsight) {
 
 // ===================== lectura / escritura =====================
 
-func (s *Service) List(ctx context.Context, householdID uuid.UUID, f ListFilters) ([]domain.DailyInsight, error) {
+func (s *Service) List(ctx context.Context, householdID uuid.UUID, f ListFilters) ([]domain.DailyInsight, int64, error) {
 	return s.repo.ListByHousehold(ctx, householdID, f)
 }
 

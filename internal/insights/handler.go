@@ -80,7 +80,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f := parseListFilters(r)
-	items, err := h.svc.List(r.Context(), householdID, f)
+	items, total, err := h.svc.List(r.Context(), householdID, f)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -89,7 +89,19 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	for i, ins := range items {
 		out[i] = toDTO(ins)
 	}
-	httpx.WriteJSON(w, http.StatusOK, out)
+	limit := f.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	httpx.WriteJSON(w, http.StatusOK, listResponseDTO{Items: out, TotalCount: total, Limit: limit, Offset: f.Offset})
+}
+
+// listResponseDTO: one page of insights, same shape as the expenses list.
+type listResponseDTO struct {
+	Items      []insightDTO `json:"items"`
+	TotalCount int64        `json:"totalCount"`
+	Limit      int32        `json:"limit"`
+	Offset     int32        `json:"offset"`
 }
 
 func (h *Handler) UnreadCount(w http.ResponseWriter, r *http.Request) {

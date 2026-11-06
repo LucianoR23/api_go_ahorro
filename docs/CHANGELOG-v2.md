@@ -4,6 +4,10 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.1 (part 3): totalCount on insights and settlements
+- **Breaking:** `GET /insights` answers a page `{items, totalCount, limit, offset}` (same shape as `/expenses` and `/incomes`) instead of a bare array. The app changes in the same release (`ahorra_app` 0.1 part 3).
+- `GET /settlements` adds `totalCount`, `limit` and `offset` to its `{items}` (additive).
+
 ### 0.1 (part 2): partial PATCH
 - `PATCH /expenses/{id}` only changes the fields it receives. Before, it was a full replace: a description-only edit was rejected, and an omitted `categoryId` wiped the category. `categoryId: null` removes it on purpose.
 - `PATCH /payment-methods/{id}/credit-card` only changes the fields it receives; `lastFour` and `debitPaymentMethodId` are cleared only with an explicit `null` (an unrelated edit used to wipe both).
