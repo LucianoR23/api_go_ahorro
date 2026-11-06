@@ -144,7 +144,10 @@ pgrep -a 'apt|unattended'
 Plus, from the Oracle Cloud console: the VCN **Security List / NSG ingress rules**
 of the instance, and how you open Coolify (domain or `:8000`).
 
-### 6.1 Cloud firewall (Oracle Security List) ☐
+### 6.1 Cloud firewall (Oracle Security List) ☑ 2026-11-05
+
+Done: ingress is 22, 80 and 443 only (3000, 8000 and 6001 removed one at a time;
+the panel, live deployment logs and terminal keep working through its domain).
 
 Docker publishes ports through its own iptables chains, which bypass `ufw` and
 the host's INPUT rules, so the **cloud firewall is the one that counts**.
@@ -157,18 +160,23 @@ rest; mixing them breaks container networking.
 
 Verify from another machine: `nc -zv <ip> 5432` and `nc -zv <ip> 8000` must fail.
 
-### 6.2 Databases not public ☐
+### 6.2 Databases not public ☑ 2026-11-05
+
+Done: every Postgres port is published on 127.0.0.1 only (inventory).
 
 In Coolify, every database resource: **Make it publicly available = off**.
 `docker ps` must show no `0.0.0.0:5432` (or any DB port) mapping.
 
-### 6.3 Coolify panel ☐
+### 6.3 Coolify panel ☑ 2026-11-05
+
+Done: 2FA on, panel on `coolify.lemydev.com`, 8000/6001 closed. The IP
+allowlist stays optional.
 
 - Profile → **Two-factor authentication** on (keep the recovery codes offline).
 - Panel served on its own domain over HTTPS; then close 8000/6001/6002 (6.1).
 - Optional: restrict the panel domain to your IPs (Cloudflare Access or a Traefik IP allowlist).
 
-### 6.4 Automatic security updates ☐
+### 6.4 Automatic security updates ☑ 2026-11-05
 
 **Found 2026-11-05:** an `apt-get update` hung since 2026-04-12 held the lists
 lock, so the daily job ran on April's package lists and applied nothing for about
@@ -181,7 +189,7 @@ Ubuntu cloud images ship `unattended-upgrades` enabled; the inventory confirms i
 time). Reboots stay manual: `cat /var/run/reboot-required` tells when one is
 pending; reboot at a quiet hour (it restarts every container on the server).
 
-### 6.5 fail2ban for SSH ☐
+### 6.5 fail2ban for SSH ☑ 2026-11-05
 
 ```bash
 sudo apt-get install -y fail2ban
@@ -191,7 +199,15 @@ sudo systemctl enable --now fail2ban
 sudo fail2ban-client status sshd
 ```
 
-### 6.6 Logs kept 7 days ☐
+### 6.6 Logs kept 7 days ☑ 2026-11-05
+
+Done with `server-ops/step2-maintenance.sh` (journald 7 days, logrotate daily x 7,
+`daemon.json` with journald and live-restore, remaining updates incl. Docker 29.9.3,
+reboot into kernel 7.0). Staging app, staging API, landing and the proxy were
+recreated and log to journald. The other 25 containers (Coolify itself and the
+owner's other projects) keep `json-file` 10m x 3 until their next redeploy or
+Coolify update; list them with
+`docker ps -q | xargs docker inspect --format '{{.HostConfig.LogConfig.Type}} {{.Name}}' | grep -v ^journald`.
 
 The published privacy policy promises technical logs with IPs are kept **7 days**
 (`valuo_web/src/config/legal.ts`). Size caps (`json-file` with `max-size`) do not
@@ -231,10 +247,13 @@ sudo dockerd --validate --config-file /etc/docker/daemon.json && sudo systemctl 
 Verify: `docker info --format '{{.LoggingDriver}}'` gives `journald`; after a week,
 `journalctl --until '7 days ago' | head` is empty.
 
-### 6.7 Traefik (Coolify proxy) on the current minor ☐
+### 6.7 Traefik (Coolify proxy) on the current minor ☑ 2026-11-05
+
+Done: `traefik:v3.7.17` pinned, no errors in the proxy logs, all sites answer
+with valid certificates. Backup kept on the server in `/data/coolify/proxy.bak-0.20`.
 
 **State 2026-11-05:** the proxy compose uses the floating tag `traefik:v3.6` but
-runs v3.6.13 (the image was never pulled again); the v3.6 line got its last
+runs v3.6.25 (Coolify's panel showed v3.6.13); the v3.6 line got its last
 patch (v3.6.25) in August 2026, so it no longer receives fixes. Target:
 **`traefik:v3.7.17`** (latest v3.7 patch on Docker Hub, 2026-11-05), pinned.
 
@@ -266,7 +285,11 @@ result has `.`/`..` segments (3.7.3), a `Host` rule of `*` matches every request
 header values give 431 (3.7.17). None applies to our apps.
 
 
-### 6.8 SSH: keys only, no password, root only by key ☐ (last; keep a second session open)
+### 6.8 SSH: keys only, no password, root only by key ☑ 2026-11-05
+
+Done with `server-ops/step4-ssh.sh`: `MaxAuthTries 3`, `X11Forwarding no`,
+`PermitRootLogin prohibit-password` (`sshd -T` prints it as `without-password`,
+same setting); new login checked. Password login was already off.
 
 Coolify manages the server over SSH **as root with its own key**, so root login
 cannot be fully disabled; it stays key-only. On Ubuntu 24.04 the first value
@@ -283,12 +306,12 @@ Before closing the current session: open a **new** terminal and log in again;
 check Coolify still reaches the server (Servers → localhost → Validate).
 Rollback: `sudo rm /etc/ssh/sshd_config.d/01-hardening.conf && sudo systemctl reload ssh`.
 
-### 6.9 Least-privilege database users ☐
+### 6.9 Least-privilege database users ☐ (staging done; production with the first v2 deploy)
 
 Staging: done (`valuo_migrate` owns the schema, `valuo_app` has DML only; section 1).
 Production gets the same split when the API v2 is first deployed there.
 
-### 6.10 Secrets and rotation ☐
+### 6.10 Secrets and rotation ☑ 2026-11-05 (documented; rotate when needed)
 
 Secrets live only in Coolify's environment variables (never in the repo;
 gitleaks in CI). Rotation, one at a time:
