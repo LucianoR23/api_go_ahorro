@@ -153,6 +153,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// Cablear el lookup de is_superadmin para el middleware RequireSuperadmin.
 	// Sin esto, el middleware rechaza todo /admin/* (fail-closed).
 	authMW.SetSuperadminChecker(userRepo)
+	authMW.SetUserLookup(userRepo)
 	authHandler := auth.NewHandler(authSvc, authMW, logger, cfg.Env == "prod")
 
 	// Password reset: mismo patrón que invites — token random (32 bytes),

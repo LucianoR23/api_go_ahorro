@@ -25,6 +25,7 @@ type Middleware struct {
 	tokens *TokenIssuer
 	logger *slog.Logger
 	admins superadminChecker
+	users  userLookup
 }
 
 func NewMiddleware(tokens *TokenIssuer, logger *slog.Logger) *Middleware {
@@ -123,4 +124,45 @@ func extractBearerToken(r *http.Request) (string, error) {
 		return "", domain.NewAuthError("formato de Authorization inválido")
 	}
 	return parts[1], nil
+}
+
+// userLookup: what RequireVerifiedEmail needs from the users repository.
+type userLookup interface {
+	GetByID(ctx context.Context, id uuid.UUID) (domain.User, error)
+}
+
+// SetUserLookup wires the lookup RequireVerifiedEmail uses.
+func (m *Middleware) SetUserLookup(u userLookup) { m.users = u }
+
+// RequireVerifiedEmail composes after RequireAuth and lets through only
+// users with a verified email (plan 0.5: AI features, bots and paid checkout
+// will sit behind it). Others get 403 with code "email_unverified", so the
+// app can offer to resend the verification mail. Fail-closed if not wired.
+func (m *Middleware) RequireVerifiedEmail(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := UserIDFrom(r.Context())
+		if !ok {
+			m.logger.ErrorContext(r.Context(), "RequireVerifiedEmail sin userID en ctx")
+			httpx.WriteError(w, r, m.logger, domain.ErrUnauthorized)
+			return
+		}
+		if m.users == nil {
+			m.logger.ErrorContext(r.Context(), "RequireVerifiedEmail sin lookup cableado")
+			httpx.WriteError(w, r, m.logger, domain.ErrForbidden)
+			return
+		}
+		u, err := m.users.GetByID(r.Context(), userID)
+		if err != nil {
+			httpx.WriteError(w, r, m.logger, err)
+			return
+		}
+		if u.EmailVerifiedAt == nil {
+			httpx.WriteJSON(w, http.StatusForbidden, httpx.ErrorResponse{
+				Code:    "email_unverified",
+				Message: "Verificá tu email para usar esta función.",
+			})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
