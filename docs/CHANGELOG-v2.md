@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.4: drafts are not spending
+- Unconfirmed drafts (variable recurring bills waiting for the real amount) no longer count anywhere: monthly report and trends, goal progress, insight sums and due-soon alerts, and balances between members all filter `status = 'confirmed'`.
+- `GET /expenses` lists confirmed expenses by default, exposes `status` (it was always empty in the list) and takes `?status=confirmed|draft|all`. The app keeps showing drafts in its "Pendientes de confirmar" card (`/expenses/drafts`), so it needs no change.
+- Confirming a draft rescales its installments and every member's share in the same transaction. Before, only the expense row changed: the installment and the shares kept the estimate, so balances and goals used the wrong amount.
+- Found on the way: balances compared billing dates with the database's `CURRENT_DATE` (UTC); they now use today in the app timezone (0.2).
+
 ### 0.3b: recurring incomes linked to their series
 - Migration `000024`: `incomes.recurring_income_id` (nullable, `ON DELETE SET NULL`, partial index), like `expenses.recurring_expense_id`. Incomes generated before it stay `NULL` (no reliable match to their series).
 - Recurring income generation records the series and checks for an income on that date first: a run that booked the income but failed to mark the series no longer books it twice on the retry.
