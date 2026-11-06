@@ -216,6 +216,7 @@ func TestCreateExpense(t *testing.T) {
 		}{
 			{"amount", 0, "amount"},
 			{"amount", -5, "amount"},
+			{"amount", 1e11, "amount"}, // beyond NUMERIC(12,2): was a 500 (plan 0.7)
 			{"currency", "BRL", "currency"},
 			{"description", "  ", "description"},
 			{"spentAt", "10/01/2026", "spentAt"},

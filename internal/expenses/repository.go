@@ -51,17 +51,17 @@ func (r *Repository) CreateTx(ctx context.Context, b CreateBundle) (domain.Expen
 	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
 		qTx := r.q.WithTx(tx)
 
-		amount, err := numericFromFloat(b.Expense.Amount, 2)
+		amount, err := numericFromDecimal(b.Expense.Amount, 2)
 		if err != nil {
 			return fmt.Errorf("amount inválido: %w", err)
 		}
-		amountBase, err := numericFromFloat(b.Expense.AmountBase, 2)
+		amountBase, err := numericFromDecimal(b.Expense.AmountBase, 2)
 		if err != nil {
 			return fmt.Errorf("amountBase inválido: %w", err)
 		}
 		rateUsed := pgtype.Numeric{}
 		if b.Expense.RateUsed != nil {
-			rateUsed, err = numericFromFloat(*b.Expense.RateUsed, 4)
+			rateUsed, err = numericFromDecimal(*b.Expense.RateUsed, 4)
 			if err != nil {
 				return fmt.Errorf("rateUsed inválido: %w", err)
 			}
@@ -96,11 +96,11 @@ func (r *Repository) CreateTx(ctx context.Context, b CreateBundle) (domain.Expen
 		detail.Expense = expenseToDomain(eRow)
 
 		for _, iw := range b.Installments {
-			instAmount, err := numericFromFloat(iw.Installment.InstallmentAmount, 2)
+			instAmount, err := numericFromDecimal(iw.Installment.InstallmentAmount, 2)
 			if err != nil {
 				return fmt.Errorf("installment amount: %w", err)
 			}
-			instAmountBase, err := numericFromFloat(iw.Installment.InstallmentAmountBase, 2)
+			instAmountBase, err := numericFromDecimal(iw.Installment.InstallmentAmountBase, 2)
 			if err != nil {
 				return fmt.Errorf("installment amount_base: %w", err)
 			}
@@ -130,7 +130,7 @@ func (r *Repository) CreateTx(ctx context.Context, b CreateBundle) (domain.Expen
 			installmentDomain := installmentToDomain(iRow)
 			sharesDomain := make([]domain.InstallmentShare, 0, len(iw.Shares))
 			for _, sh := range iw.Shares {
-				owed, err := numericFromFloat(sh.AmountBaseOwed, 2)
+				owed, err := numericFromDecimal(sh.AmountBaseOwed, 2)
 				if err != nil {
 					return fmt.Errorf("share amount: %w", err)
 				}
@@ -194,7 +194,7 @@ func (r *Repository) GetDetail(ctx context.Context, id uuid.UUID) (domain.Expens
 		byInst[s.InstallmentID] = append(byInst[s.InstallmentID], domain.InstallmentShare{
 			InstallmentID:  s.InstallmentID,
 			UserID:         s.UserID,
-			AmountBaseOwed: floatFromNumeric(s.AmountBaseOwed),
+			AmountBaseOwed: money.FromNumeric(s.AmountBaseOwed),
 		})
 	}
 
@@ -348,9 +348,9 @@ func (r *Repository) ListDrafts(ctx context.Context, householdID uuid.UUID) ([]d
 // el rate antes de llamar; el repo solo persiste. rate_used/rate_at pueden
 // ser nil si la currency del expense coincide con la base.
 type ConfirmDraftParams struct {
-	Amount     float64
-	AmountBase float64
-	RateUsed   *float64
+	Amount     decimal.Decimal
+	AmountBase decimal.Decimal
+	RateUsed   *decimal.Decimal
 	RateAt     *time.Time
 }
 
@@ -368,17 +368,17 @@ type ConfirmDraftParams struct {
 // the new amount as at creation (the last absorbs rounding); each share keeps
 // its proportion of its installment.
 func (r *Repository) ConfirmDraft(ctx context.Context, id uuid.UUID, p ConfirmDraftParams) (domain.Expense, error) {
-	amountN, err := numericFromFloat(p.Amount, 2)
+	amountN, err := numericFromDecimal(p.Amount, 2)
 	if err != nil {
 		return domain.Expense{}, err
 	}
-	baseN, err := numericFromFloat(p.AmountBase, 2)
+	baseN, err := numericFromDecimal(p.AmountBase, 2)
 	if err != nil {
 		return domain.Expense{}, err
 	}
 	rateN := pgtype.Numeric{}
 	if p.RateUsed != nil {
-		rateN, err = numericFromFloat(*p.RateUsed, 4)
+		rateN, err = numericFromDecimal(*p.RateUsed, 4)
 		if err != nil {
 			return domain.Expense{}, err
 		}
@@ -420,8 +420,8 @@ func (r *Repository) ConfirmDraft(ctx context.Context, id uuid.UUID, p ConfirmDr
 		// Installments split evenly; each installment's shares keep the old
 		// proportions.
 		n := len(insts)
-		amts := money.Even(money.FromFloat(p.Amount).Round(money.AmountScale), n)
-		bases := money.Even(money.FromFloat(p.AmountBase).Round(money.AmountScale), n)
+		amts := money.Even(p.Amount.Round(money.AmountScale), n)
+		bases := money.Even(p.AmountBase.Round(money.AmountScale), n)
 		for k, inst := range insts {
 			if _, err := tx.Exec(ctx,
 				`UPDATE expense_installments SET installment_amount = $2, installment_amount_base = $3 WHERE id = $1`,
@@ -526,9 +526,9 @@ func (r *Repository) SetInstallmentPaid(ctx context.Context, id uuid.UUID, paid 
 // ===================== mappers =====================
 
 func expenseToDomain(e sqlcgen.Expense) domain.Expense {
-	var rateUsed *float64
+	var rateUsed *decimal.Decimal
 	if e.RateUsed.Valid {
-		v := floatFromNumeric(e.RateUsed)
+		v := money.FromNumeric(e.RateUsed)
 		rateUsed = &v
 	}
 	var rateAt *time.Time
@@ -542,9 +542,9 @@ func expenseToDomain(e sqlcgen.Expense) domain.Expense {
 		CreatedBy:          e.CreatedBy,
 		CategoryID:         e.CategoryID,
 		PaymentMethodID:    e.PaymentMethodID,
-		Amount:             floatFromNumeric(e.Amount),
+		Amount:             money.FromNumeric(e.Amount),
 		Currency:           e.Currency,
-		AmountBase:         floatFromNumeric(e.AmountBase),
+		AmountBase:         money.FromNumeric(e.AmountBase),
 		BaseCurrency:       e.BaseCurrency,
 		RateUsed:           rateUsed,
 		RateAt:             rateAt,
@@ -574,8 +574,8 @@ func installmentToDomain(i sqlcgen.ExpenseInstallment) domain.ExpenseInstallment
 		ID:                    i.ID,
 		ExpenseID:             i.ExpenseID,
 		InstallmentNumber:     int(i.InstallmentNumber),
-		InstallmentAmount:     floatFromNumeric(i.InstallmentAmount),
-		InstallmentAmountBase: floatFromNumeric(i.InstallmentAmountBase),
+		InstallmentAmount:     money.FromNumeric(i.InstallmentAmount),
+		InstallmentAmountBase: money.FromNumeric(i.InstallmentAmountBase),
 		BillingDate:           i.BillingDate.Time,
 		DueDate:               due,
 		IsPaid:                i.IsPaid,

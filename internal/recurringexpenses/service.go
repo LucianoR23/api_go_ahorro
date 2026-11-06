@@ -3,6 +3,8 @@ package recurringexpenses
 import (
 	"context"
 	"errors"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 	"log/slog"
 	"strings"
 	"time"
@@ -65,7 +67,7 @@ type CreateInput struct {
 	CreatedBy         uuid.UUID
 	CategoryID        *uuid.UUID
 	PaymentMethodID   uuid.UUID
-	Amount            float64
+	Amount            decimal.Decimal
 	Currency          string
 	Description       string
 	Installments      int
@@ -85,7 +87,10 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.RecurringE
 	in.Frequency = strings.ToLower(strings.TrimSpace(in.Frequency))
 	in.Description = strings.TrimSpace(in.Description)
 
-	if in.Amount <= 0 {
+	if !money.InRange(in.Amount) {
+		return domain.RecurringExpense{}, domain.NewValidationError("amount", "monto fuera de rango")
+	}
+	if in.Amount.Sign() <= 0 {
 		return domain.RecurringExpense{}, domain.NewValidationError("amount", "debe ser mayor a cero")
 	}
 	if in.Description == "" {
@@ -176,7 +181,7 @@ func (s *Service) List(ctx context.Context, householdID uuid.UUID) ([]domain.Rec
 }
 
 type UpdateInput struct {
-	Amount            float64
+	Amount            decimal.Decimal
 	Currency          string
 	Description       string
 	Installments      int
@@ -210,7 +215,10 @@ func (s *Service) Update(ctx context.Context, householdID, id uuid.UUID, in Upda
 	in.Frequency = strings.ToLower(strings.TrimSpace(in.Frequency))
 	in.Description = strings.TrimSpace(in.Description)
 
-	if in.Amount <= 0 {
+	if !money.InRange(in.Amount) {
+		return domain.RecurringExpense{}, domain.NewValidationError("amount", "monto fuera de rango")
+	}
+	if in.Amount.Sign() <= 0 {
 		return domain.RecurringExpense{}, domain.NewValidationError("amount", "debe ser mayor a cero")
 	}
 	if in.Description == "" {
@@ -293,13 +301,13 @@ func (s *Service) Stats(ctx context.Context, householdID, recurringID uuid.UUID,
 	// variación de cada punto comparamos con el inmediato siguiente (el más
 	// viejo en el array), que es el mes anterior.
 	points := make([]domain.SeriesPoint, len(rows))
-	var sum float64
+	sum := decimal.Zero
 	for i, e := range rows {
 		var variation *float64
 		if i+1 < len(rows) {
 			prev := rows[i+1].Amount
-			if prev > 0 {
-				v := (e.Amount - prev) / prev * 100
+			if prev.Sign() > 0 {
+				v := e.Amount.Sub(prev).Div(prev).Mul(decimal.NewFromInt(100)).InexactFloat64()
 				variation = &v
 			}
 		}
@@ -310,14 +318,14 @@ func (s *Service) Stats(ctx context.Context, householdID, recurringID uuid.UUID,
 			SpentAt:      e.SpentAt,
 			VariationPct: variation,
 		}
-		sum += e.Amount
+		sum = sum.Add(e.Amount)
 	}
 	out := domain.SeriesStats{
 		RecurringExpenseID: recurringID,
 		History:            points,
 	}
 	if len(points) > 0 {
-		out.AverageLastN = sum / float64(len(points))
+		out.AverageLastN = sum.Div(decimal.NewFromInt(int64(len(points)))).Round(money.AmountScale)
 		out.LastVariationPct = points[0].VariationPct
 	}
 	return out, nil

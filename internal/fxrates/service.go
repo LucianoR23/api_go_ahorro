@@ -3,6 +3,8 @@ package fxrates
 import (
 	"context"
 	"fmt"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 	"log/slog"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
@@ -81,55 +83,59 @@ func (s *Service) Current() []domain.ExchangeRate {
 //   - X → ARS: amount * rate(X)
 //   - X → Y:   amount * rate(X) / rate(Y)
 //
-// Si `from == to` devuelve el mismo monto + rate=1.
+// Si `from == to` devuelve el mismo monto + rate=1. The converted amount
+// is not rounded (plan 0.7): callers round it to cents when they store it.
 // El rate retornado es el que se usó para convertir (para guardar en expense).
-func (s *Service) Convert(ctx context.Context, amount float64, from, to string) (converted, rate float64, err error) {
+func (s *Service) Convert(ctx context.Context, amount decimal.Decimal, from, to string) (converted, rate decimal.Decimal, err error) {
 	if from == "" || to == "" {
-		return 0, 0, domain.NewValidationError("currency", "from/to requeridos")
+		return decimal.Zero, decimal.Zero, domain.NewValidationError("currency", "from/to requeridos")
 	}
+	one := decimal.NewFromInt(1)
 	if from == to {
-		return amount, 1, nil
+		return amount, one, nil
 	}
 
 	const ars = "ARS"
 	source := domain.RateSourceBlue
 
-	// Helper: obtener el rate de una moneda extranjera contra ARS.
-	get := func(currency string) (float64, error) {
+	// get: the rate of a foreign currency against ARS. Rates are NUMERIC(12,4)
+	// in the database; FromFloat restores those 4 decimals exactly.
+	get := func(currency string) (decimal.Decimal, error) {
 		if r, ok := s.cache.get(currency, source); ok && r.RateAvg > 0 {
-			return r.RateAvg, nil
+			return money.FromFloat(r.RateAvg), nil
 		}
 		// Fallback a DB: caché puede estar frío justo después de reiniciar.
 		r, err := s.repo.GetLatest(ctx, currency, source)
 		if err != nil {
-			return 0, fmt.Errorf("sin cotización para %s: %w", currency, err)
+			return decimal.Zero, fmt.Errorf("sin cotización para %s: %w", currency, err)
 		}
 		s.cache.set(r)
-		return r.RateAvg, nil
+		return money.FromFloat(r.RateAvg), nil
 	}
 
 	switch {
 	case from == ars:
 		r, err := get(to)
 		if err != nil {
-			return 0, 0, err
+			return decimal.Zero, decimal.Zero, err
 		}
-		return amount / r, r, nil
+		return amount.Div(r), r, nil
 	case to == ars:
 		r, err := get(from)
 		if err != nil {
-			return 0, 0, err
+			return decimal.Zero, decimal.Zero, err
 		}
-		return amount * r, r, nil
+		return amount.Mul(r), r, nil
 	default:
 		rFrom, err := get(from)
 		if err != nil {
-			return 0, 0, err
+			return decimal.Zero, decimal.Zero, err
 		}
 		rTo, err := get(to)
 		if err != nil {
-			return 0, 0, err
+			return decimal.Zero, decimal.Zero, err
 		}
-		return amount * rFrom / rTo, rFrom / rTo, nil
+		cross := rFrom.Div(rTo)
+		return amount.Mul(rFrom).Div(rTo), cross, nil
 	}
 }

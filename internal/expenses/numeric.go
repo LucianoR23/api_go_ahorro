@@ -1,49 +1,14 @@
 package expenses
 
 import (
-	"fmt"
-	"math"
-	"math/big"
-
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
+
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
 )
 
-// numericFromFloat convierte float64 → pgtype.Numeric con `scale` decimales
-// (redondeo al más cercano). scale=2 para amounts (NUMERIC(12,2)), scale=4
-// para rates (NUMERIC(12,4)).
-func numericFromFloat(v float64, scale int) (pgtype.Numeric, error) {
-	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return pgtype.Numeric{}, fmt.Errorf("valor inválido: %v", v)
-	}
-	mult := math.Pow10(scale)
-	scaled := v * mult
-	if scaled > 1e18 || scaled < -1e18 {
-		return pgtype.Numeric{}, fmt.Errorf("valor fuera de rango: %v", v)
-	}
-	var i64 int64
-	if scaled >= 0 {
-		i64 = int64(scaled + 0.5)
-	} else {
-		i64 = int64(scaled - 0.5)
-	}
-	return pgtype.Numeric{
-		Int:   new(big.Int).SetInt64(i64),
-		Exp:   int32(-scale),
-		Valid: true,
-	}, nil
-}
-
-// floatFromNumeric convierte pgtype.Numeric → float64.
-// Precisión: suficiente para amounts de hasta 12 dígitos con 2 decimales.
-func floatFromNumeric(n pgtype.Numeric) float64 {
-	if !n.Valid || n.Int == nil {
-		return 0
-	}
-	f, _ := new(big.Float).SetInt(n.Int).Float64()
-	if n.Exp < 0 {
-		f /= math.Pow10(int(-n.Exp))
-	} else if n.Exp > 0 {
-		f *= math.Pow10(int(n.Exp))
-	}
-	return f
+// numericFromDecimal: a decimal as NUMERIC with scale decimals (plan 0.7).
+// The error is always nil; it keeps the shape of the old float helper.
+func numericFromDecimal(d decimal.Decimal, scale int32) (pgtype.Numeric, error) {
+	return money.ToNumeric(d, scale), nil
 }

@@ -3,6 +3,8 @@ package incomes
 import (
 	"context"
 	"fmt"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 	"log/slog"
 	"strings"
 	"time"
@@ -26,7 +28,7 @@ type householdLookup interface {
 // fxConverter: convierte amount de una currency a otra. Lo implementa
 // fxrates.Service. Definido acá para no acoplar.
 type fxConverter interface {
-	Convert(ctx context.Context, amount float64, from, to string) (converted, rate float64, err error)
+	Convert(ctx context.Context, amount decimal.Decimal, from, to string) (converted, rate decimal.Decimal, err error)
 }
 
 type Service struct {
@@ -50,7 +52,7 @@ type CreateInput struct {
 	HouseholdID     uuid.UUID
 	ReceivedBy      uuid.UUID
 	PaymentMethodID *uuid.UUID
-	Amount          float64
+	Amount          decimal.Decimal
 	Currency        string
 	Source          string
 	Description     string
@@ -68,7 +70,10 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Income, er
 	in.Source = strings.ToLower(strings.TrimSpace(in.Source))
 	in.Description = strings.TrimSpace(in.Description)
 
-	if in.Amount <= 0 {
+	if !money.InRange(in.Amount) {
+		return domain.Income{}, domain.NewValidationError("amount", "monto fuera de rango")
+	}
+	if in.Amount.Sign() <= 0 {
 		return domain.Income{}, domain.NewValidationError("amount", "debe ser mayor a cero")
 	}
 	if !isValidSource(in.Source) {
@@ -100,11 +105,13 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Income, er
 
 	// Conversión FX. Mismo patrón que expenses: si la moneda del input
 	// coincide con la base, no guardamos rate (convert devuelve 1).
+	in.Amount = in.Amount.Round(money.AmountScale)
 	amountBase, rate, err := s.fx.Convert(ctx, in.Amount, in.Currency, hh.BaseCurrency)
 	if err != nil {
 		return domain.Income{}, err
 	}
-	var rateUsed *float64
+	amountBase = amountBase.Round(money.AmountScale)
+	var rateUsed *decimal.Decimal
 	var rateAt *time.Time
 	if in.Currency != hh.BaseCurrency {
 		r := rate
@@ -214,14 +221,14 @@ func (s *Service) requireReceiverOrOwner(ctx context.Context, householdID, actor
 
 // TotalsInRange devuelve la suma de ingresos (amount_base) en [from, to].
 // Usado por /totals/income. Si no hay ingresos devuelve 0.
-func (s *Service) TotalsInRange(ctx context.Context, householdID uuid.UUID, from, to time.Time) (float64, string, error) {
+func (s *Service) TotalsInRange(ctx context.Context, householdID uuid.UUID, from, to time.Time) (decimal.Decimal, string, error) {
 	hh, err := s.households.GetByID(ctx, householdID)
 	if err != nil {
-		return 0, "", err
+		return decimal.Zero, "", err
 	}
 	total, err := s.repo.SumBaseInRange(ctx, householdID, from, to)
 	if err != nil {
-		return 0, "", err
+		return decimal.Zero, "", err
 	}
 	return total, hh.BaseCurrency, nil
 }
@@ -236,7 +243,7 @@ type CreateRecurringInput struct {
 	HouseholdID     uuid.UUID
 	ReceivedBy      uuid.UUID
 	PaymentMethodID *uuid.UUID
-	Amount          float64
+	Amount          decimal.Decimal
 	Currency        string
 	Description     string
 	Source          string
@@ -254,7 +261,10 @@ func (s *Service) CreateRecurring(ctx context.Context, in CreateRecurringInput) 
 	in.Frequency = strings.ToLower(strings.TrimSpace(in.Frequency))
 	in.Description = strings.TrimSpace(in.Description)
 
-	if in.Amount <= 0 {
+	if !money.InRange(in.Amount) {
+		return domain.RecurringIncome{}, domain.NewValidationError("amount", "monto fuera de rango")
+	}
+	if in.Amount.Sign() <= 0 {
 		return domain.RecurringIncome{}, domain.NewValidationError("amount", "debe ser mayor a cero")
 	}
 	if !isValidSource(in.Source) {
@@ -333,7 +343,7 @@ func (s *Service) GetRecurring(ctx context.Context, householdID, id uuid.UUID) (
 }
 
 type UpdateRecurringInput struct {
-	Amount          float64
+	Amount          decimal.Decimal
 	Currency        string
 	Description     string
 	Source          string
@@ -361,7 +371,10 @@ func (s *Service) UpdateRecurring(ctx context.Context, householdID, id uuid.UUID
 	in.Frequency = strings.ToLower(strings.TrimSpace(in.Frequency))
 	in.Description = strings.TrimSpace(in.Description)
 
-	if in.Amount <= 0 {
+	if !money.InRange(in.Amount) {
+		return domain.RecurringIncome{}, domain.NewValidationError("amount", "monto fuera de rango")
+	}
+	if in.Amount.Sign() <= 0 {
 		return domain.RecurringIncome{}, domain.NewValidationError("amount", "debe ser mayor a cero")
 	}
 	if !isValidSource(in.Source) {
@@ -461,7 +474,8 @@ func (s *Service) generateOneRecurring(ctx context.Context, t domain.RecurringIn
 	if err != nil {
 		return err
 	}
-	var rateUsed *float64
+	amountBase = amountBase.Round(money.AmountScale)
+	var rateUsed *decimal.Decimal
 	var rateAt *time.Time
 	if t.Currency != hh.BaseCurrency {
 		r := rate

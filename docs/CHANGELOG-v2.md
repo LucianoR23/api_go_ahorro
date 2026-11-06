@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.7 (part 2): expenses, incomes, recurring expenses and FX in decimal
+- Expenses, installments, shares, incomes, recurring incomes and recurring expenses keep money as `decimal.Decimal` end to end (database, arithmetic, JSON). Percentages stay floats.
+- `fxrates.Convert` works in decimal; callers round the converted amount to cents when storing it. 0.10 USD at 1200 is exactly 120 ARS.
+- Request bodies still decode amounts as JSON numbers (a string still gets a 422 naming the field) and convert them exactly. An amount beyond what the column holds (over 9,999,999,999.99) is now a 422 `monto fuera de rango` instead of a 500.
+- Spike insights and shared-expense notifications print amounts with two decimals from the exact value.
+
 ### 0.7 (part 1): money package, exact splits
 - New dependency `github.com/shopspring/decimal` v1.6.0 (approved by the user; it was already an indirect v1.2.0). `internal/money`: NUMERIC conversions, JSON as a number (the contract with the app does not change), and `Allocate`/`Even`.
 - Splitting rule for installments and shares (`buildShares`, `buildInstallments`, draft confirmation): every part but the last is rounded down to cents and the last takes the rest. Sums are exact and no part is negative (before, rounding up could leave the last share or installment below zero, failing the `CHECK >= 0`). Some splits move a cent: 200.00 in 3 installments is now 66.66 / 66.66 / 66.68 (was 66.67 / 66.67 / 66.66).

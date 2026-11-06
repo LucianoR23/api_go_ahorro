@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"github.com/shopspring/decimal"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,11 +17,11 @@ type Expense struct {
 	CategoryID      *uuid.UUID
 	PaymentMethodID uuid.UUID
 
-	Amount       float64
+	Amount       decimal.Decimal
 	Currency     string
-	AmountBase   float64
+	AmountBase   decimal.Decimal
 	BaseCurrency string
-	RateUsed     *float64
+	RateUsed     *decimal.Decimal
 	RateAt       *time.Time
 
 	Description  string
@@ -46,8 +47,8 @@ type ExpenseInstallment struct {
 	ID                    uuid.UUID
 	ExpenseID             uuid.UUID
 	InstallmentNumber     int
-	InstallmentAmount     float64
-	InstallmentAmountBase float64
+	InstallmentAmount     decimal.Decimal
+	InstallmentAmountBase decimal.Decimal
 	BillingDate           time.Time
 	DueDate               *time.Time
 	IsPaid                bool
@@ -60,7 +61,7 @@ type ExpenseInstallment struct {
 type InstallmentShare struct {
 	InstallmentID  uuid.UUID
 	UserID         uuid.UUID
-	AmountBaseOwed float64
+	AmountBaseOwed decimal.Decimal
 }
 
 // ExpenseDetail: vista completa (expense + installments + shares)

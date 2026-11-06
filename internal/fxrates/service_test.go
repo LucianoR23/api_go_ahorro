@@ -7,6 +7,7 @@ package fxrates
 import (
 	"context"
 	"errors"
+	"github.com/shopspring/decimal"
 	"io"
 	"log/slog"
 	"net/http"
@@ -145,8 +146,8 @@ func TestRefreshHydrateAndConvert(t *testing.T) {
 
 	t.Run("convert with a cold cache reads the database", func(t *testing.T) {
 		cold := NewService(repo, nil, quietLogger())
-		got, rate, err := cold.Convert(ctx, 10, "USD", "ARS")
-		if err != nil || got != 12000 || rate != 1200 {
+		got, rate, err := cold.Convert(ctx, decimal.NewFromInt(10), "USD", "ARS")
+		if err != nil || !got.Equal(decimal.NewFromInt(12000)) || !rate.Equal(decimal.NewFromInt(1200)) {
 			t.Errorf("Convert = %v, %v, %v", got, rate, err)
 		}
 		if _, ok := find(cold.Current(), "USD", domain.RateSourceBlue); !ok {
@@ -156,7 +157,7 @@ func TestRefreshHydrateAndConvert(t *testing.T) {
 
 	t.Run("convert without any rate fails with not found", func(t *testing.T) {
 		empty := NewService(NewRepository(testdb.New(t)), nil, quietLogger())
-		_, _, err := empty.Convert(ctx, 1, "USD", "ARS")
+		_, _, err := empty.Convert(ctx, decimal.NewFromInt(1), "USD", "ARS")
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("err = %v, want ErrNotFound", err)
 		}

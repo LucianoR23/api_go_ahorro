@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/db"
 	sqlcgen "github.com/LucianoR23/api_go_ahorra/internal/db/sqlc"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 )
@@ -35,11 +36,11 @@ type CreateParams struct {
 	HouseholdID     uuid.UUID
 	ReceivedBy      uuid.UUID
 	PaymentMethodID *uuid.UUID
-	Amount          float64
+	Amount          decimal.Decimal
 	Currency        string
-	AmountBase      float64
+	AmountBase      decimal.Decimal
 	BaseCurrency    string
-	RateUsed        *float64
+	RateUsed        *decimal.Decimal
 	RateAt          *time.Time
 	Source          string
 	Description     string
@@ -62,17 +63,17 @@ func (r *Repository) HasRecurringOccurrence(ctx context.Context, seriesID uuid.U
 }
 
 func (r *Repository) Create(ctx context.Context, p CreateParams) (domain.Income, error) {
-	amountN, err := db.NumericFromFloat(p.Amount, 2)
+	amountN, err := numericOf(p.Amount, money.AmountScale)
 	if err != nil {
 		return domain.Income{}, err
 	}
-	amountBaseN, err := db.NumericFromFloat(p.AmountBase, 2)
+	amountBaseN, err := numericOf(p.AmountBase, money.AmountScale)
 	if err != nil {
 		return domain.Income{}, err
 	}
 	var rateN pgtype.Numeric
 	if p.RateUsed != nil {
-		rateN, err = db.NumericFromFloat(*p.RateUsed, 4)
+		rateN, err = numericOf(*p.RateUsed, money.RateScale)
 		if err != nil {
 			return domain.Income{}, err
 		}
@@ -204,16 +205,16 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 
 // SumBaseInRange devuelve el total amount_base (en base_currency del hogar)
 // recibido en [from, to]. Usado por /totals/income.
-func (r *Repository) SumBaseInRange(ctx context.Context, householdID uuid.UUID, from, to time.Time) (float64, error) {
+func (r *Repository) SumBaseInRange(ctx context.Context, householdID uuid.UUID, from, to time.Time) (decimal.Decimal, error) {
 	n, err := r.q.SumIncomesByHouseholdInRange(ctx, sqlcgen.SumIncomesByHouseholdInRangeParams{
 		HouseholdID: householdID,
 		Column2:     pgtype.Date{Time: from, Valid: true},
 		Column3:     pgtype.Date{Time: to, Valid: true},
 	})
 	if err != nil {
-		return 0, fmt.Errorf("incomes.SumBaseInRange: %w", err)
+		return decimal.Zero, fmt.Errorf("incomes.SumBaseInRange: %w", err)
 	}
-	return db.FloatFromNumeric(n), nil
+	return money.FromNumeric(n), nil
 }
 
 // ===================== recurring_incomes =====================
@@ -222,7 +223,7 @@ type CreateRecurringParams struct {
 	HouseholdID     uuid.UUID
 	ReceivedBy      uuid.UUID
 	PaymentMethodID *uuid.UUID
-	Amount          float64
+	Amount          decimal.Decimal
 	Currency        string
 	Description     string
 	Source          string
@@ -236,7 +237,7 @@ type CreateRecurringParams struct {
 }
 
 func (r *Repository) CreateRecurring(ctx context.Context, p CreateRecurringParams) (domain.RecurringIncome, error) {
-	amountN, err := db.NumericFromFloat(p.Amount, 2)
+	amountN, err := numericOf(p.Amount, money.AmountScale)
 	if err != nil {
 		return domain.RecurringIncome{}, err
 	}
@@ -300,7 +301,7 @@ func (r *Repository) ListActiveRecurring(ctx context.Context, date time.Time) ([
 }
 
 type UpdateRecurringParams struct {
-	Amount          float64
+	Amount          decimal.Decimal
 	Currency        string
 	Description     string
 	Source          string
@@ -313,7 +314,7 @@ type UpdateRecurringParams struct {
 }
 
 func (r *Repository) UpdateRecurring(ctx context.Context, id uuid.UUID, p UpdateRecurringParams) (domain.RecurringIncome, error) {
-	amountN, err := db.NumericFromFloat(p.Amount, 2)
+	amountN, err := numericOf(p.Amount, money.AmountScale)
 	if err != nil {
 		return domain.RecurringIncome{}, err
 	}
@@ -366,9 +367,9 @@ func (r *Repository) DeleteRecurring(ctx context.Context, id uuid.UUID) error {
 // ===================== mappers + helpers =====================
 
 func toIncome(row sqlcgen.Income) domain.Income {
-	var rateUsed *float64
+	var rateUsed *decimal.Decimal
 	if row.RateUsed.Valid {
-		f := db.FloatFromNumeric(row.RateUsed)
+		f := money.FromNumeric(row.RateUsed)
 		rateUsed = &f
 	}
 	var rateAt *time.Time
@@ -381,9 +382,9 @@ func toIncome(row sqlcgen.Income) domain.Income {
 		HouseholdID:       row.HouseholdID,
 		ReceivedBy:        row.ReceivedBy,
 		PaymentMethodID:   row.PaymentMethodID,
-		Amount:            db.FloatFromNumeric(row.Amount),
+		Amount:            money.FromNumeric(row.Amount),
 		Currency:          row.Currency,
-		AmountBase:        db.FloatFromNumeric(row.AmountBase),
+		AmountBase:        money.FromNumeric(row.AmountBase),
 		BaseCurrency:      row.BaseCurrency,
 		RateUsed:          rateUsed,
 		RateAt:            rateAt,
@@ -410,7 +411,7 @@ func toRecurring(row sqlcgen.RecurringIncome) domain.RecurringIncome {
 		HouseholdID:     row.HouseholdID,
 		ReceivedBy:      row.ReceivedBy,
 		PaymentMethodID: row.PaymentMethodID,
-		Amount:          db.FloatFromNumeric(row.Amount),
+		Amount:          money.FromNumeric(row.Amount),
 		Currency:        row.Currency,
 		Description:     row.Description,
 		Source:          row.Source,
@@ -446,4 +447,10 @@ func datePtr(p *time.Time) pgtype.Date {
 		return pgtype.Date{}
 	}
 	return pgtype.Date{Time: *p, Valid: true}
+}
+
+// numericOf: a decimal as NUMERIC (plan 0.7). The error is always nil; it
+// keeps the call sites of the old float helper.
+func numericOf(d decimal.Decimal, scale int32) (pgtype.Numeric, error) {
+	return money.ToNumeric(d, scale), nil
 }
