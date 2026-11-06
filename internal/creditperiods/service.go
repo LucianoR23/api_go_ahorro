@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/LucianoR23/api_go_ahorra/internal/paymethods"
 )
@@ -111,7 +112,7 @@ func (s *Service) Status(ctx context.Context, ownerID, paymentMethodID uuid.UUID
 		}
 		return Status{}, err
 	}
-	today := now.UTC().Truncate(24 * time.Hour)
+	today := dates.DateOf(now)
 	return Status{
 		DueDatePassed: today.After(latest.DueDate),
 		LatestPeriod:  &latest,

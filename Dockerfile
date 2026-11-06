@@ -32,9 +32,11 @@ RUN go build \
     ./cmd/api
 
 # ---------- runtime stage ----------
-# Alpine mínimo con ca-certs + tzdata (necesario para time.LoadLocation si
-# algún día usamos timezones distintos). ~8MB final.
+# Alpine mínimo con ca-certs + tzdata. ~8MB final. Date math uses
+# APP_TIMEZONE (the binary embeds the zone database); TZ only makes log and
+# process timestamps match it.
 FROM alpine:3.24.3
+ENV TZ=America/Argentina/Buenos_Aires
 
 RUN apk add --no-cache ca-certificates tzdata && \
     adduser -D -u 10001 app

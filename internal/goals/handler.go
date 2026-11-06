@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/auth"
+	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/LucianoR23/api_go_ahorra/internal/households"
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
@@ -323,7 +324,7 @@ func parseAt(r *http.Request) time.Time {
 			return t
 		}
 	}
-	return time.Now()
+	return dates.Today()
 }
 
 func toDTO(g domain.BudgetGoal) goalDTO {

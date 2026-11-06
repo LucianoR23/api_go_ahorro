@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/auth"
+	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/LucianoR23/api_go_ahorra/internal/households"
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
@@ -71,7 +72,7 @@ func (h *Handler) Trends(w http.ResponseWriter, r *http.Request) {
 			months = n
 		}
 	}
-	at := time.Now()
+	at := dates.Today()
 	if s := r.URL.Query().Get("at"); s != "" {
 		if t, err := time.Parse("2006-01-02", s); err == nil {
 			at = t
@@ -117,7 +118,7 @@ func (h *Handler) hhCtx(r *http.Request) (uuid.UUID, error) {
 // parseMonth: acepta "YYYY-MM" o vacío (→ mes actual).
 func parseMonth(s string) (time.Time, error) {
 	if s == "" {
-		return time.Now(), nil
+		return dates.Today(), nil
 	}
 	t, err := time.Parse("2006-01", s)
 	if err != nil {

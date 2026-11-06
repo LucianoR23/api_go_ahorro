@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 )
 
 // Worker: genera expenses recurrentes una vez al día a las 00:30 local.
@@ -25,14 +27,14 @@ func NewWorker(svc *Service, hour, minute int, logger *slog.Logger) *Worker {
 	if minute < 0 || minute > 59 {
 		minute = 30
 	}
-	return &Worker{svc: svc, hour: hour, minute: minute, logger: logger, now: time.Now}
+	return &Worker{svc: svc, hour: hour, minute: minute, logger: logger, now: dates.Now}
 }
 
 func (w *Worker) Start(ctx context.Context) func() {
 	ctx, cancel := context.WithCancel(ctx)
 
 	go func() {
-		w.runOnce(ctx, w.now())
+		w.runOnce(ctx, dates.DateOf(w.now()))
 
 		for {
 			now := w.now()
@@ -44,7 +46,7 @@ func (w *Worker) Start(ctx context.Context) func() {
 				w.logger.Info("recurring expenses worker: detenido")
 				return
 			case <-timer.C:
-				w.runOnce(ctx, w.now())
+				w.runOnce(ctx, dates.DateOf(w.now()))
 			}
 		}
 	}()
@@ -67,7 +69,7 @@ func (w *Worker) runOnce(ctx context.Context, at time.Time) {
 	runCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	today := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, at.Location())
+	today := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, time.UTC)
 	start := time.Now()
 	created, failed, err := w.svc.GenerateDue(runCtx, today)
 	if err != nil {

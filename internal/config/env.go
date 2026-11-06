@@ -7,6 +7,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 )
 
 // Config concentra todas las variables de entorno tipadas que la app necesita.
@@ -38,6 +41,12 @@ type Config struct {
 	InviteFromEmail        string
 	PasswordResetFromEmail string
 	VerificationFromEmail  string
+
+	// AppTimezone (APP_TIMEZONE): the IANA zone that decides "today", the
+	// current month and the hour the daily jobs run (plan 0.2). Location is
+	// the loaded zone.
+	AppTimezone string
+	Location    *time.Location
 
 	// AppBaseURL: URL pública del frontend (ej: https://app.ahorra.app).
 	// Se usa para armar los links de invitación que van en los mails.
@@ -98,6 +107,7 @@ func Load() (*Config, error) {
 		PasswordResetFromEmail: getOrDefault("PASSWORD_RESET_FROM_EMAIL", brand+" <onboarding@resend.dev>"),
 		VerificationFromEmail:  getOrDefault("VERIFICATION_FROM_EMAIL", brand+" <onboarding@resend.dev>"),
 		AppBaseURL:             getOrDefault("APP_BASE_URL", "http://localhost:3005"),
+		AppTimezone:            getOrDefault("APP_TIMEZONE", dates.DefaultTimezone),
 		GoogleOAuthClientID:    os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
 		VAPIDPublicKey:         os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey:        os.Getenv("VAPID_PRIVATE_KEY"),
@@ -109,6 +119,11 @@ func Load() (*Config, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
+	loc, err := time.LoadLocation(cfg.AppTimezone)
+	if err != nil {
+		return nil, fmt.Errorf("config: APP_TIMEZONE %q no es una zona horaria válida: %w", cfg.AppTimezone, err)
+	}
+	cfg.Location = loc
 	return cfg, nil
 }
 

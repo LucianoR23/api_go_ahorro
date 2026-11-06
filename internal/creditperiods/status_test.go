@@ -48,7 +48,9 @@ func TestStatusDayBoundary(t *testing.T) {
 	}{
 		{"day before the due date", at(6, 12), false},
 		{"due date, morning", at(7, 9), false},
+		{"due date, 23:00 in Buenos Aires (02:00 UTC next day)", at(7, 23), false},
 		{"day after the due date", at(8, 9), true},
+		{"day after, 00:30", time.Date(2026, 12, 8, 0, 30, 0, 0, ar), true},
 	} {
 		st, err := svc.Status(ctx, userID, pmID, tc.now)
 		if err != nil {
@@ -59,13 +61,11 @@ func TestStatusDayBoundary(t *testing.T) {
 		}
 	}
 
-	testutil.KnownBug(t, "0.2", "card status computes today in UTC: from 21:00 in Buenos Aires the due date already counts as passed", func(t testing.TB) {
-		st, err := svc.Status(ctx, userID, pmID, at(7, 22))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if st.DueDatePassed {
-			t.Errorf("at 22:00 on the due date (Buenos Aires) dueDatePassed = true")
-		}
-	})
+	st, err := svc.Status(ctx, userID, pmID, at(7, 22))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.DueDatePassed {
+		t.Errorf("at 22:00 on the due date (Buenos Aires) dueDatePassed = true")
+	}
 }

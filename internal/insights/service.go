@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 )
 
@@ -171,7 +172,7 @@ func (s *Service) CreateEvent(ctx context.Context, in EventInput) (domain.DailyI
 	ins, created, err := s.repo.Create(ctx, CreateParams{
 		HouseholdID: in.HouseholdID,
 		UserID:      in.UserID,
-		InsightDate: dayStart(time.Now()),
+		InsightDate: dates.Today(),
 		InsightType: in.InsightType,
 		Title:       in.Title,
 		Body:        in.Body,

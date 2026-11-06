@@ -69,6 +69,7 @@ without superuser. Check with `\du`, `\l valuo_next` and `\ddp`.
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | per environment, from `go run ./cmd/vapidgen`; subject `mailto:...` |
 | `RESEND_API_KEY` | sending-only key for the verified domain; empty = no emails |
 | `BRAND_NAME` | product name in emails (default `Ahorro`; 1.1 sets `Valuo`) |
+| `APP_TIMEZONE` | IANA zone for "today", the current month and the daily jobs (default `America/Argentina/Buenos_Aires`; an invalid value stops startup) |
 | `*_FROM_EMAIL` (4) | sender on the verified domain (default `<BRAND_NAME> <onboarding@resend.dev>`) |
 | `SOPORTE_API_URL` / `SOPORTE_API_KEY` | empty = `/support/*` responds 503 |
 

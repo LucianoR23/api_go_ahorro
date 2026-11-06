@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/auth"
+	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/LucianoR23/api_go_ahorra/internal/households"
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
@@ -206,7 +207,7 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	at := time.Now()
+	at := dates.Today()
 	if s := r.URL.Query().Get("at"); s != "" {
 		if t, err := time.Parse("2006-01-02", s); err == nil {
 			at = t

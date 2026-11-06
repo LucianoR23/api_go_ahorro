@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/auth"
+	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/LucianoR23/api_go_ahorra/internal/households"
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
@@ -482,7 +483,7 @@ func (h *Handler) TotalsIncome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	now := time.Now().UTC()
+	now := dates.Today()
 	from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	if v := q.Get("from"); v != "" {

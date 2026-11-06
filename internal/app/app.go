@@ -25,6 +25,7 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/categories"
 	"github.com/LucianoR23/api_go_ahorra/internal/config"
 	"github.com/LucianoR23/api_go_ahorra/internal/creditperiods"
+	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/LucianoR23/api_go_ahorra/internal/email"
 	"github.com/LucianoR23/api_go_ahorra/internal/expenses"
@@ -119,6 +120,7 @@ func (a *App) StartRealtime(ctx context.Context) (stop func()) { return a.realti
 
 // New builds the App. ctx bounds the startup work (FX cache hydration).
 func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *slog.Logger, opts Options) (*App, error) {
+	dates.SetLocation(cfg.Location) // nil keeps the default (Buenos Aires)
 	if opts.NewEmailSender == nil {
 		opts.NewEmailSender = func(from string) EmailSender { return email.NewResendSender(cfg.ResendAPIKey, from) }
 	}

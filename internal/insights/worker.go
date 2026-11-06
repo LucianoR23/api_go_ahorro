@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 )
 
 // Worker: corre una vez al día a las HH:MM local (default 01:00). Idempotente
@@ -26,14 +28,14 @@ func NewWorker(svc *Service, hour, minute int, logger *slog.Logger) *Worker {
 	if minute < 0 || minute > 59 {
 		minute = 0
 	}
-	return &Worker{svc: svc, hour: hour, minute: minute, logger: logger, now: time.Now}
+	return &Worker{svc: svc, hour: hour, minute: minute, logger: logger, now: dates.Now}
 }
 
 func (w *Worker) Start(ctx context.Context) func() {
 	ctx, cancel := context.WithCancel(ctx)
 
 	go func() {
-		w.runOnce(ctx, w.now())
+		w.runOnce(ctx, dates.DateOf(w.now()))
 
 		for {
 			now := w.now()
@@ -45,7 +47,7 @@ func (w *Worker) Start(ctx context.Context) func() {
 				w.logger.Info("insights worker: detenido")
 				return
 			case <-timer.C:
-				w.runOnce(ctx, w.now())
+				w.runOnce(ctx, dates.DateOf(w.now()))
 			}
 		}
 	}()
