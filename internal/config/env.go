@@ -75,6 +75,9 @@ type Config struct {
 	VAPIDPublicKey  string
 	VAPIDPrivateKey string
 	VAPIDSubject    string // "mailto:admin@ahorra.app"
+	// PushExtraHosts (PUSH_EXTRA_HOSTS): push endpoint hosts accepted
+	// besides the known push services. Tests only; leave empty.
+	PushExtraHosts []string
 
 	// Lemy Support: proxy al servicio centralizado de soporte. La API key se
 	// saca del panel (https://soporte.lemydev.com) y se muestra una sola vez.
@@ -123,6 +126,7 @@ func Load() (*Config, error) {
 		VAPIDPublicKey:         os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey:        os.Getenv("VAPID_PRIVATE_KEY"),
 		VAPIDSubject:           getOrDefault("VAPID_SUBJECT", "mailto:admin@ahorra.app"),
+		PushExtraHosts:         splitAndTrim(os.Getenv("PUSH_EXTRA_HOSTS"), ","),
 		SupportAPIURL:          getOrDefault("SOPORTE_API_URL", "http://localhost:8081"),
 		SupportAPIKey:          os.Getenv("SOPORTE_API_KEY"),
 	}

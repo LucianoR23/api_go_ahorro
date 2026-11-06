@@ -234,6 +234,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		PublicKey:  cfg.VAPIDPublicKey,
 		PrivateKey: cfg.VAPIDPrivateKey,
 		Subject:    cfg.VAPIDSubject,
+		ExtraHosts: cfg.PushExtraHosts,
 	}, logger)
 	pushHandler := push.NewHandler(pushSvc, authMW, logger)
 
