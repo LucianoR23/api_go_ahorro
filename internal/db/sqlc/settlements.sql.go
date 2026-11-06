@@ -22,10 +22,16 @@ FROM expense_installment_shares s
 JOIN expense_installments i ON i.id = s.installment_id
 JOIN expenses e ON e.id = i.expense_id
 WHERE e.household_id = $1
-  AND i.billing_date <= CURRENT_DATE
+  AND e.status = 'confirmed'
+  AND i.billing_date <= $2::date
   AND s.user_id <> e.created_by
 GROUP BY e.household_id, s.user_id, e.created_by
 `
+
+type BalanceMatrixByHouseholdParams struct {
+	HouseholdID uuid.UUID   `json:"household_id"`
+	Today       pgtype.Date `json:"today"`
+}
 
 type BalanceMatrixByHouseholdRow struct {
 	HouseholdID uuid.UUID      `json:"household_id"`
@@ -37,8 +43,8 @@ type BalanceMatrixByHouseholdRow struct {
 // Para la vista de matriz completa del hogar. Devuelve una fila por cada
 // par (debtor, creditor) con shares billed y settlements ya agregados.
 // El service combina las direcciones y netea.
-func (q *Queries) BalanceMatrixByHousehold(ctx context.Context, householdID uuid.UUID) ([]BalanceMatrixByHouseholdRow, error) {
-	rows, err := q.db.Query(ctx, balanceMatrixByHousehold, householdID)
+func (q *Queries) BalanceMatrixByHousehold(ctx context.Context, arg BalanceMatrixByHouseholdParams) ([]BalanceMatrixByHouseholdRow, error) {
+	rows, err := q.db.Query(ctx, balanceMatrixByHousehold, arg.HouseholdID, arg.Today)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +79,8 @@ SELECT
         WHERE e.household_id = $1
           AND e.created_by = $2::uuid
           AND s.user_id = $3::uuid
-          AND i.billing_date <= CURRENT_DATE
+          AND e.status = 'confirmed'
+          AND i.billing_date <= $4::date
     ), 0)::numeric AS owed_by_from,
     COALESCE((
         SELECT SUM(s.amount_base_owed)::numeric
@@ -83,7 +90,8 @@ SELECT
         WHERE e.household_id = $1
           AND e.created_by = $3::uuid
           AND s.user_id = $2::uuid
-          AND i.billing_date <= CURRENT_DATE
+          AND e.status = 'confirmed'
+          AND i.billing_date <= $4::date
     ), 0)::numeric AS owed_by_to,
     COALESCE((
         SELECT SUM(amount_base)::numeric
@@ -102,9 +110,10 @@ SELECT
 `
 
 type BalanceOwedBetweenParams struct {
-	HouseholdID uuid.UUID `json:"household_id"`
-	ToUser      uuid.UUID `json:"to_user"`
-	FromUser    uuid.UUID `json:"from_user"`
+	HouseholdID uuid.UUID   `json:"household_id"`
+	ToUser      uuid.UUID   `json:"to_user"`
+	FromUser    uuid.UUID   `json:"from_user"`
+	Today       pgtype.Date `json:"today"`
 }
 
 type BalanceOwedBetweenRow struct {
@@ -118,8 +127,10 @@ type BalanceOwedBetweenRow struct {
 // Devuelve cuánto debe `from_user` a `to_user` en el hogar, calculado on-demand.
 // Fórmula (ver sección 6 del plan):
 //
-//	owed_by_from = SUM(shares.amount_base_owed) sobre expenses creados por to_user
-//	               con installment.billing_date <= CURRENT_DATE y share.user_id = from_user
+//	owed_by_from = SUM(shares.amount_base_owed) sobre expenses confirmados creados
+//	               por to_user con installment.billing_date <= today y share.user_id = from_user
+//	               (today comes from the app timezone, not the DB's CURRENT_DATE; drafts
+//	               are not debts until confirmed, plan 0.4)
 //	owed_by_to   = análoga en sentido inverso
 //	settled_fwd  = SUM(settlements from_user → to_user)
 //	settled_bwd  = SUM(settlements to_user → from_user)
@@ -128,7 +139,12 @@ type BalanceOwedBetweenRow struct {
 // > 0 → from_user debe ese monto a to_user
 // < 0 → to_user debe a from_user (el signo lo resuelve el service)
 func (q *Queries) BalanceOwedBetween(ctx context.Context, arg BalanceOwedBetweenParams) (BalanceOwedBetweenRow, error) {
-	row := q.db.QueryRow(ctx, balanceOwedBetween, arg.HouseholdID, arg.ToUser, arg.FromUser)
+	row := q.db.QueryRow(ctx, balanceOwedBetween,
+		arg.HouseholdID,
+		arg.ToUser,
+		arg.FromUser,
+		arg.Today,
+	)
 	var i BalanceOwedBetweenRow
 	err := row.Scan(
 		&i.OwedByFrom,

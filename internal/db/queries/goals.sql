@@ -46,6 +46,7 @@ SELECT COALESCE(SUM(i.installment_amount_base), 0)::numeric AS total_base
 FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
 WHERE e.household_id = $1
+  AND e.status = 'confirmed'
   AND (sqlc.narg(category_id)::uuid IS NULL OR e.category_id = sqlc.narg(category_id)::uuid)
   AND COALESCE(i.due_date, i.billing_date) >= $2::date
   AND COALESCE(i.due_date, i.billing_date) <= $3::date;
@@ -62,6 +63,7 @@ SELECT (
         JOIN expense_installments i ON i.id = s.installment_id
         JOIN expenses e ON e.id = i.expense_id
         WHERE e.household_id = $1
+          AND e.status = 'confirmed'
           AND e.is_shared = true
           AND s.user_id = $2
           AND (sqlc.narg(category_id)::uuid IS NULL OR e.category_id = sqlc.narg(category_id)::uuid)
@@ -74,6 +76,7 @@ SELECT (
         FROM expense_installments i
         JOIN expenses e ON e.id = i.expense_id
         WHERE e.household_id = $1
+          AND e.status = 'confirmed'
           AND e.is_shared = false
           AND e.created_by = $2
           AND (sqlc.narg(category_id)::uuid IS NULL OR e.category_id = sqlc.narg(category_id)::uuid)

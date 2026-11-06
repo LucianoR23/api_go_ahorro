@@ -5,6 +5,7 @@
 SELECT COALESCE(SUM(amount_base), 0)::numeric AS total_base
 FROM expenses
 WHERE household_id = $1
+  AND status = 'confirmed'
   AND spent_at >= $2::date
   AND spent_at <= $3::date;
 
@@ -15,6 +16,7 @@ SELECT COALESCE(SUM(i.installment_amount_base), 0)::numeric AS total_base
 FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
 WHERE e.household_id = $1
+  AND e.status = 'confirmed'
   AND i.billing_date >= $2::date
   AND i.billing_date <= $3::date;
 
@@ -25,6 +27,7 @@ SELECT COALESCE(SUM(i.installment_amount_base), 0)::numeric AS total_base
 FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
 WHERE e.household_id = $1
+  AND e.status = 'confirmed'
   AND COALESCE(i.due_date, i.billing_date) >= $2::date
   AND COALESCE(i.due_date, i.billing_date) <= $3::date;
 
@@ -41,6 +44,7 @@ SELECT
 FROM expenses e
 LEFT JOIN categories c ON c.id = e.category_id
 WHERE e.household_id = $1
+  AND e.status = 'confirmed'
   AND e.spent_at >= $2::date
   AND e.spent_at <= $3::date
 GROUP BY e.category_id, c.name
@@ -58,6 +62,7 @@ SELECT
     COUNT(*) FILTER (WHERE recurring_expense_id IS NULL)::bigint AS variable_count
 FROM expenses
 WHERE household_id = $1
+  AND status = 'confirmed'
   AND spent_at >= $2::date
   AND spent_at <= $3::date;
 
@@ -73,6 +78,7 @@ SELECT
     COUNT(*)::bigint AS tx_count
 FROM expenses
 WHERE household_id = $1
+  AND status = 'confirmed'
   AND spent_at >= $2::date
   AND spent_at <= $3::date
 GROUP BY month
@@ -86,6 +92,7 @@ SELECT
 FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
 WHERE e.household_id = $1
+  AND e.status = 'confirmed'
   AND COALESCE(i.due_date, i.billing_date) >= $2::date
   AND COALESCE(i.due_date, i.billing_date) <= $3::date
 GROUP BY month

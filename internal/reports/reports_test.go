@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
 )
@@ -182,11 +181,9 @@ func TestMonthlyReport(t *testing.T) {
 		}
 		var m monthlyJSON
 		h.get(t, "/reports/monthly?month=2026-03", &m)
-		testutil.KnownBug(t, "0.4", "monthly report counts unconfirmed drafts as spending", func(t testing.TB) {
-			if m.Spent != 0 {
-				t.Errorf("spent with only a draft = %v", m.Spent)
-			}
-		})
+		if m.Spent != 0 {
+			t.Errorf("spent with only a draft = %v", m.Spent)
+		}
 	})
 
 	t.Run("household scoped", func(t *testing.T) {

@@ -16,8 +16,10 @@ DELETE FROM settlement_payments WHERE id = $1;
 -- name: BalanceOwedBetween :one
 -- Devuelve cuánto debe `from_user` a `to_user` en el hogar, calculado on-demand.
 -- Fórmula (ver sección 6 del plan):
---   owed_by_from = SUM(shares.amount_base_owed) sobre expenses creados por to_user
---                  con installment.billing_date <= CURRENT_DATE y share.user_id = from_user
+--   owed_by_from = SUM(shares.amount_base_owed) sobre expenses confirmados creados
+--                  por to_user con installment.billing_date <= today y share.user_id = from_user
+--                  (today comes from the app timezone, not the DB's CURRENT_DATE; drafts
+--                  are not debts until confirmed, plan 0.4)
 --   owed_by_to   = análoga en sentido inverso
 --   settled_fwd  = SUM(settlements from_user → to_user)
 --   settled_bwd  = SUM(settlements to_user → from_user)
@@ -33,7 +35,8 @@ SELECT
         WHERE e.household_id = $1
           AND e.created_by = sqlc.arg(to_user)::uuid
           AND s.user_id = sqlc.arg(from_user)::uuid
-          AND i.billing_date <= CURRENT_DATE
+          AND e.status = 'confirmed'
+          AND i.billing_date <= sqlc.arg(today)::date
     ), 0)::numeric AS owed_by_from,
     COALESCE((
         SELECT SUM(s.amount_base_owed)::numeric
@@ -43,7 +46,8 @@ SELECT
         WHERE e.household_id = $1
           AND e.created_by = sqlc.arg(from_user)::uuid
           AND s.user_id = sqlc.arg(to_user)::uuid
-          AND i.billing_date <= CURRENT_DATE
+          AND e.status = 'confirmed'
+          AND i.billing_date <= sqlc.arg(today)::date
     ), 0)::numeric AS owed_by_to,
     COALESCE((
         SELECT SUM(amount_base)::numeric
@@ -73,7 +77,8 @@ FROM expense_installment_shares s
 JOIN expense_installments i ON i.id = s.installment_id
 JOIN expenses e ON e.id = i.expense_id
 WHERE e.household_id = $1
-  AND i.billing_date <= CURRENT_DATE
+  AND e.status = 'confirmed'
+  AND i.billing_date <= sqlc.arg(today)::date
   AND s.user_id <> e.created_by
 GROUP BY e.household_id, s.user_id, e.created_by;
 

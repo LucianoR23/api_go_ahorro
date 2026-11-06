@@ -657,6 +657,7 @@ func listInstallmentsDueOn(pool *pgxpool.Pool) func(ctx context.Context, due tim
 			FROM expense_installments ei
 			JOIN expenses e ON e.id = ei.expense_id
 			WHERE ei.is_paid = false
+			  AND e.status = 'confirmed'
 			  AND ei.due_date = $1
 		`
 		rows, err := pool.Query(ctx, q, pgtype.Date{Time: due, Valid: true})

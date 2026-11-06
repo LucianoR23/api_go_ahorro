@@ -437,7 +437,7 @@ func parseUUIDParam(r *http.Request, name string) (uuid.UUID, error) {
 	return id, nil
 }
 
-// parseListFilter lee ?categoryId=...&paymentMethodId=...&from=YYYY-MM-DD&to=...&kind=fixed|variable&limit=&offset=
+// parseListFilter lee ?categoryId=...&paymentMethodId=...&from=YYYY-MM-DD&to=...&kind=fixed|variable&status=confirmed|draft|all&limit=&offset=
 func parseListFilter(r *http.Request) (ListFilter, error) {
 	q := r.URL.Query()
 	var f ListFilter
@@ -469,6 +469,12 @@ func parseListFilter(r *http.Request) (ListFilter, error) {
 			return f, domain.NewValidationError("to", "formato debe ser YYYY-MM-DD")
 		}
 		f.ToDate = &t
+	}
+	switch v := q.Get("status"); v {
+	case "", "confirmed", "draft", "all":
+		f.Status = v
+	default:
+		return f, domain.NewValidationError("status", "debe ser confirmed, draft o all")
 	}
 	switch v := q.Get("kind"); v {
 	case "", "fixed", "variable":
