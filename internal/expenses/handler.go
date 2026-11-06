@@ -69,10 +69,12 @@ type shareOverrideReq struct {
 	Amount float64   `json:"amount"`
 }
 
+// updateReq: partial update. An absent field is left as is; categoryId: null
+// removes the category. description and spentAt cannot be cleared.
 type updateReq struct {
-	Description string     `json:"description"`
-	SpentAt     string     `json:"spentAt"`
-	CategoryID  *uuid.UUID `json:"categoryId,omitempty"`
+	Description httpx.Optional[string]    `json:"description"`
+	SpentAt     httpx.Optional[string]    `json:"spentAt"`
+	CategoryID  httpx.Optional[uuid.UUID] `json:"categoryId"`
 }
 
 // ===================== response DTOs =====================
@@ -241,16 +243,29 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	spentAt, err := time.Parse("2006-01-02", req.SpentAt)
-	if err != nil {
-		httpx.WriteError(w, r, h.logger, domain.NewValidationError("spentAt", "formato debe ser YYYY-MM-DD"))
-		return
+	var in UpdateInput
+	if req.Description.Set {
+		if req.Description.Null {
+			httpx.WriteError(w, r, h.logger, domain.NewValidationError("description", "no puede estar vacío"))
+			return
+		}
+		in.Description = &req.Description.Value
 	}
-	e, err := h.svc.Update(r.Context(), householdID, id, userID, UpdateInput{
-		Description: req.Description,
-		SpentAt:     spentAt,
-		CategoryID:  req.CategoryID,
-	})
+	if req.SpentAt.Set {
+		t, err := time.Parse("2006-01-02", req.SpentAt.Value)
+		if req.SpentAt.Null || err != nil {
+			httpx.WriteError(w, r, h.logger, domain.NewValidationError("spentAt", "formato debe ser YYYY-MM-DD"))
+			return
+		}
+		in.SpentAt = &t
+	}
+	if req.CategoryID.Set {
+		in.SetCategory = true
+		if !req.CategoryID.Null {
+			in.CategoryID = &req.CategoryID.Value
+		}
+	}
+	e, err := h.svc.Update(r.Context(), householdID, id, userID, in)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -264,9 +279,9 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 //   - "dueDate": null   → setear a NULL (ClearDueDate=true)
 //   - "dueDate": "YYYY-MM-DD" → setear ese valor
 type updateInstallmentReq struct {
-	BillingDate *string         `json:"billingDate,omitempty"`
-	DueDate     json.RawMessage `json:"dueDate,omitempty"`
-	IsPaid      *bool           `json:"isPaid,omitempty"`
+	BillingDate httpx.Optional[string] `json:"billingDate"`
+	DueDate     json.RawMessage        `json:"dueDate,omitempty"`
+	IsPaid      *bool                  `json:"isPaid,omitempty"`
 }
 
 func (h *Handler) UpdateInstallment(w http.ResponseWriter, r *http.Request) {
@@ -295,8 +310,11 @@ func (h *Handler) UpdateInstallment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	in := UpdateInstallmentInput{IsPaid: req.IsPaid}
-	if req.BillingDate != nil {
-		t, err := time.Parse("2006-01-02", *req.BillingDate)
+	switch {
+	case req.BillingDate.Null:
+		in.ClearBillingDate = true
+	case req.BillingDate.Set:
+		t, err := time.Parse("2006-01-02", req.BillingDate.Value)
 		if err != nil {
 			httpx.WriteError(w, r, h.logger, domain.NewValidationError("billingDate", "formato debe ser YYYY-MM-DD"))
 			return

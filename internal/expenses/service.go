@@ -374,13 +374,9 @@ func (s *Service) buildInstallments(
 	// del mes candidato (override si existe, default si no) — no contra
 	// DefaultClosingDay — para que un override con closing distinto del
 	// template asigne bien el gasto.
-	firstMonth := in.SpentAt
-	firstCandidate, err := resolveForClosingMonth(ctx, s.periodsReader, cc, in.SpentAt)
+	firstMonth, err := s.firstClosingMonth(ctx, cc, in.SpentAt)
 	if err != nil {
 		return nil, err
-	}
-	if in.SpentAt.After(firstCandidate.BillingDate) {
-		firstMonth = in.SpentAt.AddDate(0, 1, 0)
 	}
 
 	runningOriginal := 0.0
@@ -415,6 +411,44 @@ func (s *Service) buildInstallments(
 		out = append(out, InstallmentWithShares{Installment: inst, Shares: buildShares(amtBase, weights)})
 	}
 	return out, nil
+}
+
+// firstClosingMonth: the closing month of an expense's first installment. It
+// compares against the real closing of the candidate month (override if any,
+// default otherwise), so an override with another closing day assigns the
+// expense correctly.
+func (s *Service) firstClosingMonth(ctx context.Context, cc domain.CreditCard, spentAt time.Time) (time.Time, error) {
+	candidate, err := resolveForClosingMonth(ctx, s.periodsReader, cc, spentAt)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if spentAt.After(candidate.BillingDate) {
+		return spentAt.AddDate(0, 1, 0), nil
+	}
+	return spentAt, nil
+}
+
+// autoBillingDate: the billing date installment n gets when the expense is
+// created: spent_at for non-credit methods, the card's closing date of the
+// n-th period otherwise. Used when a PATCH clears a manual billing date.
+func (s *Service) autoBillingDate(ctx context.Context, e domain.Expense, n int) (time.Time, error) {
+	pm, err := s.paymMethods.GetPaymentMethod(ctx, e.PaymentMethodID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if pm.Kind != domain.KindCredit {
+		return e.SpentAt, nil
+	}
+	cc, err := s.paymMethods.CreditCardByPaymentMethod(ctx, pm.ID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	firstMonth, err := s.firstClosingMonth(ctx, cc, e.SpentAt)
+	if err != nil {
+		return time.Time{}, err
+	}
+	p, err := resolveForClosingMonth(ctx, s.periodsReader, cc, addMonths(firstMonth, n-1))
+	return p.BillingDate, err
 }
 
 // buildShares divide el amount de una cuota (en base currency) entre los
@@ -580,9 +614,12 @@ func (s *Service) List(ctx context.Context, householdID uuid.UUID, f ListFilter)
 }
 
 // UpdateInput: campos editables del expense.
+// UpdateInput: partial update; nil leaves the field as is. SetCategory with a
+// nil CategoryID removes the category.
 type UpdateInput struct {
-	Description string
-	SpentAt     time.Time
+	Description *string
+	SpentAt     *time.Time
+	SetCategory bool
 	CategoryID  *uuid.UUID
 }
 
@@ -590,17 +627,31 @@ func (s *Service) Update(ctx context.Context, householdID, id, actorUserID uuid.
 	if err := s.requireInHousehold(ctx, householdID, id); err != nil {
 		return domain.Expense{}, err
 	}
-	in.Description = strings.TrimSpace(in.Description)
-	if in.Description == "" {
-		return domain.Expense{}, domain.NewValidationError("description", "no puede estar vacío")
+	if in.Description == nil && in.SpentAt == nil && !in.SetCategory {
+		return domain.Expense{}, domain.NewValidationError("body", "debe enviar al menos un campo")
 	}
-	if in.SpentAt.IsZero() {
-		return domain.Expense{}, domain.NewValidationError("spentAt", "requerido")
+	// The detail before the change: it fills the fields the request leaves
+	// out, and resolves the push recipients if the expense was shared.
+	prev, err := s.repo.GetDetail(ctx, id)
+	if err != nil {
+		return domain.Expense{}, err
 	}
-	// Capturamos el detail antes para resolver recipients del push si el
-	// gasto era compartido (post-update mantenemos las shares, no cambia).
-	prev, _ := s.repo.GetDetail(ctx, id)
-	updated, err := s.repo.UpdateMeta(ctx, id, in.Description, in.SpentAt, in.CategoryID)
+	description := prev.Expense.Description
+	if in.Description != nil {
+		description = strings.TrimSpace(*in.Description)
+		if description == "" {
+			return domain.Expense{}, domain.NewValidationError("description", "no puede estar vacío")
+		}
+	}
+	spentAt := prev.Expense.SpentAt
+	if in.SpentAt != nil {
+		spentAt = *in.SpentAt
+	}
+	categoryID := prev.Expense.CategoryID
+	if in.SetCategory {
+		categoryID = in.CategoryID
+	}
+	updated, err := s.repo.UpdateMeta(ctx, id, description, spentAt, categoryID)
 	if err != nil {
 		return updated, err
 	}
@@ -816,10 +867,13 @@ func (s *Service) notifyExpenseMutation(ctx context.Context, d domain.ExpenseDet
 // UpdateInstallmentInput: campos editables en PATCH /expenses/{id}/installments/{n}.
 // Todos opcionales. Si no viene ninguno, devolvemos validation error.
 type UpdateInstallmentInput struct {
-	BillingDate  *time.Time
-	DueDate      *time.Time // pointer-to-pointer no necesario: si el cliente manda null explícito lo tratamos como "quitar"
-	ClearDueDate bool       // si true, forzamos due_date=NULL aunque DueDate venga nil por no enviarse
-	IsPaid       *bool
+	BillingDate *time.Time
+	// ClearBillingDate: billingDate: null puts the installment back on the
+	// date it gets automatically (see autoBillingDate).
+	ClearBillingDate bool
+	DueDate          *time.Time // pointer-to-pointer no necesario: si el cliente manda null explícito lo tratamos como "quitar"
+	ClearDueDate     bool       // si true, forzamos due_date=NULL aunque DueDate venga nil por no enviarse
+	IsPaid           *bool
 }
 
 // UpdateInstallment: aplica los cambios pedidos. Si IsPaid cambia, actualiza
@@ -833,7 +887,7 @@ func (s *Service) UpdateInstallment(ctx context.Context, householdID, expenseID 
 	if installmentNumber < 1 {
 		return domain.ExpenseInstallment{}, domain.NewValidationError("installmentNumber", "debe ser >= 1")
 	}
-	if in.BillingDate == nil && in.DueDate == nil && !in.ClearDueDate && in.IsPaid == nil {
+	if in.BillingDate == nil && !in.ClearBillingDate && in.DueDate == nil && !in.ClearDueDate && in.IsPaid == nil {
 		return domain.ExpenseInstallment{}, domain.NewValidationError("body", "debe enviar al menos un campo")
 	}
 
@@ -843,10 +897,19 @@ func (s *Service) UpdateInstallment(ctx context.Context, householdID, expenseID 
 	}
 
 	result := current
-	if in.BillingDate != nil || in.DueDate != nil || in.ClearDueDate {
+	if in.BillingDate != nil || in.ClearBillingDate || in.DueDate != nil || in.ClearDueDate {
 		billing := current.BillingDate
-		if in.BillingDate != nil {
+		switch {
+		case in.BillingDate != nil:
 			billing = *in.BillingDate
+		case in.ClearBillingDate:
+			e, err := s.repo.GetByID(ctx, expenseID)
+			if err != nil {
+				return domain.ExpenseInstallment{}, err
+			}
+			if billing, err = s.autoBillingDate(ctx, e, installmentNumber); err != nil {
+				return domain.ExpenseInstallment{}, err
+			}
 		}
 		var due *time.Time
 		switch {

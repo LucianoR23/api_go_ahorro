@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
 )
@@ -308,21 +307,29 @@ func TestPaymentMethods(t *testing.T) {
 			got.DebitPaymentMethodID == nil || *got.DebitPaymentMethodID != debit.ID {
 			t.Errorf("updated card = %+v", got)
 		}
-		testutil.KnownBug(t, "0.1", "PATCH credit-card replaces the whole card: an omitted lastFour is wiped", func(t testing.TB) {
-			if got.LastFour == nil {
-				t.Errorf("lastFour 4321 cleared by a PATCH that did not mention it")
-			}
-		})
+		if got.LastFour == nil {
+			t.Errorf("lastFour 4321 cleared by a PATCH that did not mention it")
+		}
 		var again struct {
 			DebitPaymentMethodID *string `json:"debitPaymentMethodId"`
 		}
 		do(t, s, http.MethodPatch, path, u, map[string]any{"alias": "Cabal Oro", "defaultClosingDay": 21, "defaultDueDay": 1}).
 			Status(t, http.StatusOK).JSON(t, &again)
-		testutil.KnownBug(t, "0.1", "PATCH credit-card wipes debitPaymentMethodId when the edit does not resend it", func(t testing.TB) {
-			if again.DebitPaymentMethodID == nil {
-				t.Errorf("debit account unlinked by an unrelated edit")
-			}
-		})
+		if again.DebitPaymentMethodID == nil {
+			t.Errorf("debit account unlinked by an unrelated edit")
+		}
+		var cleared struct {
+			Alias                string  `json:"alias"`
+			LastFour             *string `json:"lastFour"`
+			DebitPaymentMethodID *string `json:"debitPaymentMethodId"`
+		}
+		do(t, s, http.MethodPatch, path, u, map[string]any{"lastFour": nil, "debitPaymentMethodId": nil}).
+			Status(t, http.StatusOK).JSON(t, &cleared)
+		if cleared.LastFour != nil || cleared.DebitPaymentMethodID != nil || cleared.Alias != "Cabal Oro" {
+			t.Errorf("null did not clear only lastFour and the debit account: %+v", cleared)
+		}
+		do(t, s, http.MethodPatch, path, u, map[string]any{}).WantError(t, http.StatusUnprocessableEntity, "validation", "body")
+		do(t, s, http.MethodPatch, path, u, map[string]any{"defaultClosingDay": 40}).WantError(t, http.StatusUnprocessableEntity, "validation", "defaultClosingDay")
 		do(t, s, http.MethodPatch, path, u, map[string]any{"alias": "x", "defaultClosingDay": 20, "defaultDueDay": 1,
 			"debitPaymentMethodId": cc.ID}).WantError(t, http.StatusUnprocessableEntity, "validation", "debitPaymentMethodId")
 		do(t, s, http.MethodPatch, path, u, map[string]any{"alias": "", "defaultClosingDay": 20, "defaultDueDay": 1}).

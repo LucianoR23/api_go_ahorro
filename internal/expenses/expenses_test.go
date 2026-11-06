@@ -365,10 +365,31 @@ func TestEditAndDeleteExpenses(t *testing.T) {
 		if got.Description != "Editado" || got.SpentAt != "2026-02-01" || got.Amount != 100 {
 			t.Errorf("edited = %+v", got)
 		}
-		partial := h.do(t, h.owner, http.MethodPatch, "/expenses/"+e.ID, map[string]any{"description": "Solo la descripción"})
-		testutil.KnownBug(t, "0.1", "PATCH /expenses/{id} is a full replace: a partial edit without spentAt is rejected", func(t testing.TB) {
-			partial.Status(t, http.StatusOK)
-		})
+		// Partial: an absent field is left as is.
+		var partial apitest.Expense
+		h.do(t, h.owner, http.MethodPatch, "/expenses/"+e.ID, map[string]any{"description": "Solo la descripción"}).
+			Status(t, http.StatusOK).JSON(t, &partial)
+		if partial.Description != "Solo la descripción" || partial.SpentAt != "2026-02-01" {
+			t.Errorf("partial edit = %+v", partial)
+		}
+		h.do(t, h.owner, http.MethodPatch, "/expenses/"+e.ID, map[string]any{}).
+			WantError(t, http.StatusUnprocessableEntity, "validation", "body")
+		// categoryId: absent keeps it, null removes it.
+		var cats []struct {
+			ID string `json:"id"`
+		}
+		h.do(t, h.owner, http.MethodGet, "/categories", nil).Status(t, http.StatusOK).JSON(t, &cats)
+		var withCat, keeps, cleared apitest.Expense
+		h.do(t, h.owner, http.MethodPatch, "/expenses/"+e.ID, map[string]any{"categoryId": cats[0].ID}).Status(t, http.StatusOK).JSON(t, &withCat)
+		h.do(t, h.owner, http.MethodPatch, "/expenses/"+e.ID, map[string]any{"description": "Otra"}).Status(t, http.StatusOK).JSON(t, &keeps)
+		h.do(t, h.owner, http.MethodPatch, "/expenses/"+e.ID, map[string]any{"categoryId": nil}).Status(t, http.StatusOK).JSON(t, &cleared)
+		if withCat.CategoryID == nil || keeps.CategoryID == nil || *keeps.CategoryID != cats[0].ID || cleared.CategoryID != nil {
+			t.Errorf("category set/kept/cleared = %v %v %v", withCat.CategoryID, keeps.CategoryID, cleared.CategoryID)
+		}
+		h.do(t, h.owner, http.MethodPatch, "/expenses/"+e.ID, map[string]any{"description": nil}).
+			WantError(t, http.StatusUnprocessableEntity, "validation", "description")
+		h.do(t, h.owner, http.MethodPatch, "/expenses/"+e.ID, map[string]any{"spentAt": nil}).
+			WantError(t, http.StatusUnprocessableEntity, "validation", "spentAt")
 		h.do(t, h.owner, http.MethodPatch, "/expenses/"+e.ID, map[string]any{"description": "", "spentAt": "2026-02-01"}).
 			WantError(t, http.StatusUnprocessableEntity, "validation", "description")
 		h.do(t, h.owner, http.MethodPatch, "/expenses/"+e.ID, map[string]any{"description": "x", "spentAt": ""}).
@@ -382,6 +403,10 @@ func TestEditAndDeleteExpenses(t *testing.T) {
 		card := s.CreateCreditCard(t, h.owner, "Visa", 25, 5, "2026-11-26", "2026-12-07")
 		e := s.CreateExpense(t, h.owner, h.id, map[string]any{"paymentMethodId": card.ID, "amount": 200, "spentAt": "2026-11-10", "installments": 2}).Expense
 		path := "/expenses/" + e.ID + "/installments/"
+
+		var before apitest.ExpenseDetail
+		h.do(t, h.owner, http.MethodGet, "/expenses/"+e.ID, nil).Status(t, http.StatusOK).JSON(t, &before)
+		autoBilling := before.Installments[1].BillingDate
 
 		var inst apitest.Installment
 		h.do(t, h.owner, http.MethodPatch, path+"1", map[string]any{"isPaid": true}).Status(t, http.StatusOK).JSON(t, &inst)
@@ -400,10 +425,13 @@ func TestEditAndDeleteExpenses(t *testing.T) {
 		}
 
 		h.do(t, h.owner, http.MethodPatch, path+"2", map[string]any{"dueDate": "2026-12-01"}).WantError(t, http.StatusUnprocessableEntity, "validation", "dueDate")
-		nullBilling := h.do(t, h.owner, http.MethodPatch, path+"2", map[string]any{"billingDate": nil, "isPaid": true})
-		testutil.KnownBug(t, "0.1", "billingDate: null on PATCH installments is silently ignored instead of rejected or applied", func(t testing.TB) {
-			nullBilling.Status(t, http.StatusUnprocessableEntity)
-		})
+		// billingDate: null puts the installment back on the card's own date.
+		var reset apitest.Installment
+		h.do(t, h.owner, http.MethodPatch, path+"2", map[string]any{"billingDate": nil, "isPaid": true}).
+			Status(t, http.StatusOK).JSON(t, &reset)
+		if reset.BillingDate != autoBilling || autoBilling == "2026-12-20" || !reset.IsPaid {
+			t.Errorf("billingDate reset to %s, want the automatic %s (paid %v)", reset.BillingDate, autoBilling, reset.IsPaid)
+		}
 		h.do(t, h.owner, http.MethodPatch, path+"2", map[string]any{"dueDate": 5}).WantError(t, http.StatusUnprocessableEntity, "validation", "dueDate")
 		h.do(t, h.owner, http.MethodPatch, path+"2", map[string]any{"billingDate": "mañana"}).WantError(t, http.StatusUnprocessableEntity, "validation", "billingDate")
 		h.do(t, h.owner, http.MethodPatch, path+"2", map[string]any{}).WantError(t, http.StatusUnprocessableEntity, "validation", "body")
