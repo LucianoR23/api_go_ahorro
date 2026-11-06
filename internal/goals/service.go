@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/api_go_ahorra/internal/ownership"
 )
 
 // householdLookup: valida membresía para scope=user (el user del goal debe
@@ -24,10 +25,15 @@ type fxConverter interface {
 }
 
 type Service struct {
+	own        *ownership.Checker
 	repo       *Repository
 	households householdLookup
 	fx         fxConverter
 }
+
+// SetOwnership wires the checks that client ids belong where they claim
+// (plan 0.6). Without it, writes that carry those ids fail.
+func (s *Service) SetOwnership(c *ownership.Checker) { s.own = c }
 
 func NewService(repo *Repository, households householdLookup, fx fxConverter) *Service {
 	return &Service{repo: repo, households: households, fx: fx}
@@ -63,6 +69,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.BudgetGoal
 	}
 
 	if err := validateGoal(in.Scope, in.GoalType, in.Period, in.Currency, in.CategoryID, in.UserID, in.TargetAmount); err != nil {
+		return domain.BudgetGoal{}, err
+	}
+	if err := s.own.Category(ctx, in.CategoryID, in.HouseholdID); err != nil {
 		return domain.BudgetGoal{}, err
 	}
 	ok, err := s.households.IsMember(ctx, in.HouseholdID, in.CreatedBy)
@@ -134,6 +143,9 @@ func (s *Service) Update(ctx context.Context, householdID, id uuid.UUID, in Upda
 		in.Currency = existing.Currency
 	}
 	if err := validateGoal(existing.Scope, existing.GoalType, in.Period, in.Currency, in.CategoryID, existing.UserID, in.TargetAmount); err != nil {
+		return domain.BudgetGoal{}, err
+	}
+	if err := s.own.Category(ctx, in.CategoryID, householdID); err != nil {
 		return domain.BudgetGoal{}, err
 	}
 	return s.repo.Update(ctx, id, UpdateParams{

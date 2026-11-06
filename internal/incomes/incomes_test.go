@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
 )
@@ -117,6 +116,10 @@ func TestIncomes(t *testing.T) {
 		}
 		h.do(t, h.owner, http.MethodPost, "/incomes", income(map[string]any{"receivedBy": s.Register(t).ID})).
 			WantError(t, http.StatusUnprocessableEntity, "validation", "receivedBy")
+		// The receiver's own payment method is fine; the recorder's is not (0.6).
+		h.create(t, h.owner, map[string]any{"receivedBy": h.member.ID, "paymentMethodId": s.Cash(t, h.member).ID})
+		h.do(t, h.owner, http.MethodPost, "/incomes", income(map[string]any{"receivedBy": h.member.ID, "paymentMethodId": s.Cash(t, h.owner).ID})).
+			WantError(t, http.StatusNotFound, "not_found", "")
 	})
 
 	t.Run("foreign currency uses the stored blue rate", func(t *testing.T) {
@@ -223,11 +226,9 @@ func TestIncomes(t *testing.T) {
 	t.Run("another user's payment method is accepted", func(t *testing.T) {
 		h := newHouse(t, s)
 		res := h.do(t, h.owner, http.MethodPost, "/incomes", income(map[string]any{"paymentMethodId": s.Cash(t, h.member).ID}))
-		testutil.KnownBug(t, "0.6", "an income's payment_method_id is not checked against the acting user", func(t testing.TB) {
-			if res.Code == http.StatusCreated {
-				t.Errorf("income recorded on another user's payment method")
-			}
-		})
+		if res.Code == http.StatusCreated {
+			t.Errorf("income recorded on another user's payment method")
+		}
 	})
 
 	t.Run("household scoped", func(t *testing.T) {

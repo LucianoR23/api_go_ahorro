@@ -11,6 +11,23 @@ import (
 	"github.com/google/uuid"
 )
 
+const categoryInHousehold = `-- name: CategoryInHousehold :one
+SELECT EXISTS (SELECT 1 FROM categories WHERE id = $1 AND household_id = $2)::bool
+`
+
+type CategoryInHouseholdParams struct {
+	ID          uuid.UUID `json:"id"`
+	HouseholdID uuid.UUID `json:"household_id"`
+}
+
+// A category id sent by a client belongs to that household (plan 0.6).
+func (q *Queries) CategoryInHousehold(ctx context.Context, arg CategoryInHouseholdParams) (bool, error) {
+	row := q.db.QueryRow(ctx, categoryInHousehold, arg.ID, arg.HouseholdID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createCategory = `-- name: CreateCategory :one
 INSERT INTO categories (household_id, name, icon, color)
 VALUES ($1, $2, $3, $4)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/api_go_ahorra/internal/ownership"
 )
 
 // householdLookup: interface mínima que necesitamos de households.
@@ -29,11 +30,16 @@ type fxConverter interface {
 }
 
 type Service struct {
+	own        *ownership.Checker
 	repo       *Repository
 	households householdLookup
 	fx         fxConverter
 	logger     *slog.Logger
 }
+
+// SetOwnership wires the checks that client ids belong where they claim
+// (plan 0.6). Without it, writes that carry those ids fail.
+func (s *Service) SetOwnership(c *ownership.Checker) { s.own = c }
 
 func NewService(repo *Repository, households householdLookup, fx fxConverter, logger *slog.Logger) *Service {
 	return &Service{repo: repo, households: households, fx: fx, logger: logger}
@@ -73,6 +79,10 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Income, er
 	}
 	if in.ReceivedAt.IsZero() {
 		in.ReceivedAt = dates.Today()
+	}
+	// The money lands on the receiver's account: the method must be theirs.
+	if err := s.own.PaymentMethod(ctx, in.PaymentMethodID, in.ReceivedBy); err != nil {
+		return domain.Income{}, err
 	}
 
 	ok, err := s.households.IsMember(ctx, in.HouseholdID, in.ReceivedBy)
@@ -256,6 +266,9 @@ func (s *Service) CreateRecurring(ctx context.Context, in CreateRecurringInput) 
 	if in.Description == "" {
 		return domain.RecurringIncome{}, domain.NewValidationError("description", "no puede estar vacío")
 	}
+	if err := s.own.PaymentMethod(ctx, in.PaymentMethodID, in.ReceivedBy); err != nil {
+		return domain.RecurringIncome{}, err
+	}
 	ok, err := s.households.IsMember(ctx, in.HouseholdID, in.ReceivedBy)
 	if err != nil {
 		return domain.RecurringIncome{}, err
@@ -339,6 +352,9 @@ func (s *Service) UpdateRecurring(ctx context.Context, householdID, id uuid.UUID
 	}
 	if existing.HouseholdID != householdID {
 		return domain.RecurringIncome{}, domain.ErrNotFound
+	}
+	if err := s.own.PaymentMethod(ctx, in.PaymentMethodID, existing.ReceivedBy); err != nil {
+		return domain.RecurringIncome{}, err
 	}
 	in.Currency = strings.ToUpper(strings.TrimSpace(in.Currency))
 	in.Source = strings.ToLower(strings.TrimSpace(in.Source))

@@ -193,6 +193,23 @@ func (q *Queries) ListPaymentMethodsByOwner(ctx context.Context, ownerUserID uui
 	return items, nil
 }
 
+const paymentMethodOwnedBy = `-- name: PaymentMethodOwnedBy :one
+SELECT EXISTS (SELECT 1 FROM payment_methods WHERE id = $1 AND owner_user_id = $2)::bool
+`
+
+type PaymentMethodOwnedByParams struct {
+	ID          uuid.UUID `json:"id"`
+	OwnerUserID uuid.UUID `json:"owner_user_id"`
+}
+
+// A payment method id sent by a client belongs to that user (plan 0.6).
+func (q *Queries) PaymentMethodOwnedBy(ctx context.Context, arg PaymentMethodOwnedByParams) (bool, error) {
+	row := q.db.QueryRow(ctx, paymentMethodOwnedBy, arg.ID, arg.OwnerUserID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const reactivatePaymentMethod = `-- name: ReactivatePaymentMethod :one
 UPDATE payment_methods
 SET is_active           = true,

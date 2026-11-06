@@ -36,6 +36,7 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
 	"github.com/LucianoR23/api_go_ahorra/internal/incomes"
 	"github.com/LucianoR23/api_go_ahorra/internal/insights"
+	"github.com/LucianoR23/api_go_ahorra/internal/ownership"
 	"github.com/LucianoR23/api_go_ahorra/internal/paymethods"
 	"github.com/LucianoR23/api_go_ahorra/internal/push"
 	"github.com/LucianoR23/api_go_ahorra/internal/recurringexpenses"
@@ -274,7 +275,9 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// + credit_card defaults), creditperiods (overrides mensuales), fxrates
 	// (conversión a base currency).
 	expensesRepo := expenses.NewRepository(pool)
+	ownChecker := ownership.NewChecker(pool) // plan 0.6: client ids belong where they claim
 	expensesSvc := expenses.NewService(expensesRepo, householdsRepo, paymethodsSvc, creditPeriodsRepo, fxSvc, splitRulesSvc)
+	expensesSvc.SetOwnership(ownChecker)
 	expensesSvc.SetNotifier(pushAdapter)
 	expensesHandler := expenses.NewHandler(expensesSvc, authMW, householdsMW, logger)
 
@@ -296,6 +299,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// expenses). El worker de recurring_incomes se agrega en CP8.4.
 	incomesRepo := incomes.NewRepository(pool)
 	incomesSvc := incomes.NewService(incomesRepo, householdsRepo, fxSvc, logger)
+	incomesSvc.SetOwnership(ownChecker)
 	incomesHandler := incomes.NewHandler(incomesSvc, authMW, householdsMW, logger)
 	// Worker diario 00:30 local — genera ingresos recurrentes.
 	incomesWorker := incomes.NewWorker(incomesSvc, 0, 30, logger)
@@ -306,6 +310,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// FX, credit_card_periods). Worker 00:30 también.
 	recurringExpensesRepo := recurringexpenses.NewRepository(pool)
 	recurringExpensesSvc := recurringexpenses.NewService(recurringExpensesRepo, householdsRepo, expensesSvc, logger)
+	recurringExpensesSvc.SetOwnership(ownChecker)
 	// Wiring cruzado: expenses.ConfirmDraft necesita leer/actualizar la
 	// recurrente (threshold + last_amount); recurringExpenses.Stats necesita
 	// leer el histórico de expenses. Post-construcción para evitar ciclos.
@@ -320,6 +325,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// e incomes — no cachea nada.
 	goalsRepo := goals.NewRepository(pool)
 	goalsSvc := goals.NewService(goalsRepo, householdsRepo, fxSvc)
+	goalsSvc.SetOwnership(ownChecker)
 	goalsHandler := goals.NewHandler(goalsSvc, authMW, householdsMW, logger)
 
 	// insights: genera daily_summary, alerts (goals >=80%) y weekly_review

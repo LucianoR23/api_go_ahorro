@@ -7,7 +7,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
 )
@@ -145,13 +144,11 @@ func TestGoalsCRUD(t *testing.T) {
 		}
 	})
 
-	t.Run("a category from another household is accepted", func(t *testing.T) {
+	t.Run("a category from another household is rejected", func(t *testing.T) {
 		h := newHouse(t, s)
 		other := newHouse(t, s)
 		res := h.do(t, h.owner, http.MethodPost, "/goals", map[string]any{"goalType": "category_limit", "categoryId": other.category, "targetAmount": 1})
-		testutil.KnownBug(t, "0.6", "a goal's category_id is not checked against the household", func(t testing.TB) {
-			res.Status(t, http.StatusUnprocessableEntity)
-		})
+		res.Status(t, http.StatusUnprocessableEntity)
 	})
 
 	t.Run("household scoped", func(t *testing.T) {
