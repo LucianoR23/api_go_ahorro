@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
 )
@@ -28,11 +27,9 @@ func TestCORS(t *testing.T) {
 		if !strings.Contains(exposed, "x-request-id") {
 			t.Errorf("exposed = %q", exposed)
 		}
-		testutil.KnownBug(t, "0.1", "CORS does not expose Retry-After, so the app cannot show the retry delay", func(t testing.TB) {
-			if !strings.Contains(exposed, "retry-after") {
-				t.Errorf("exposed headers = %q", exposed)
-			}
-		})
+		if !strings.Contains(exposed, "retry-after") {
+			t.Errorf("exposed headers = %q", exposed)
+		}
 	})
 
 	t.Run("preflight allows the household header", func(t *testing.T) {

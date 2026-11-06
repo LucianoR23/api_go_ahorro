@@ -582,7 +582,7 @@ func parseIncomeListFilter(r *http.Request, householdID uuid.UUID) (ListFilter, 
 		f.Limit = int32(n)
 	}
 	if v := q.Get("offset"); v != "" {
-		n, err := strconv.Atoi(v)
+		n, err := strconv.ParseInt(v, 10, 32)
 		if err != nil || n < 0 {
 			return f, domain.NewValidationError("offset", "debe ser entero >= 0")
 		}

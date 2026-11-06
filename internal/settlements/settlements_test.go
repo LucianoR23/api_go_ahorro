@@ -259,11 +259,9 @@ func TestSettlements(t *testing.T) {
 		})
 
 		res := h.do(t, h.owner, http.MethodGet, "/settlements?offset=3000000000", nil)
-		testutil.KnownBug(t, "0.1", "settlements offset above 2^31-1 overflows int32 and the query fails with 500", func(t testing.TB) {
-			if res.Code == http.StatusInternalServerError {
-				t.Errorf("offset 3000000000 answered 500")
-			}
-		})
+		if res.Code == http.StatusInternalServerError {
+			t.Errorf("offset 3000000000 answered 500")
+		}
 	})
 
 	t.Run("a third member deletes a payment between two others", func(t *testing.T) {

@@ -248,11 +248,15 @@ func TestRecurringExpenseGeneration(t *testing.T) {
 			t.Errorf("generated expense not split: %+v", d.Installments)
 		}
 		res := h.do(t, h.owner, http.MethodGet, "/expenses/"+got[0].ID, nil)
-		testutil.KnownBug(t, "0.1", "the expense JSON has no recurringExpenseId, so the app cannot tell fixed expenses or find a draft's series", func(t testing.TB) {
-			if !strings.Contains(string(res.Body), `"recurringExpenseId":"`+r.ID+`"`) {
-				t.Errorf("expense %s does not say it belongs to series %s", got[0].ID, r.ID)
+		if !strings.Contains(string(res.Body), `"recurringExpenseId":"`+r.ID+`"`) {
+			t.Errorf("expense %s does not say it belongs to series %s", got[0].ID, r.ID)
+		}
+		for kind, want := range map[string]bool{"fixed": true, "variable": false, "": true} {
+			body := string(h.do(t, h.owner, http.MethodGet, "/expenses?kind="+kind, nil).Status(t, http.StatusOK).Body)
+			if strings.Contains(body, got[0].ID) != want {
+				t.Errorf("kind=%q lists the generated expense = %v, want %v", kind, !want, want)
 			}
-		})
+		}
 
 		h.do(t, h.owner, http.MethodPatch, "/recurring-expenses/"+r.ID+"/active", map[string]any{"isActive": false}).Status(t, http.StatusNoContent)
 		h.runJob(t, "2026-03-31")

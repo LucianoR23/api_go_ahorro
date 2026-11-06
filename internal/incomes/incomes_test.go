@@ -205,11 +205,9 @@ func TestIncomes(t *testing.T) {
 		h.do(t, h.owner, http.MethodGet, "/totals/income?from=x", nil).WantError(t, http.StatusUnprocessableEntity, "validation", "from")
 
 		res := h.do(t, h.owner, http.MethodGet, "/incomes?offset=3000000000", nil)
-		testutil.KnownBug(t, "0.1", "incomes offset above 2^31-1 overflows int32 and the query fails with 500", func(t testing.TB) {
-			if res.Code == http.StatusInternalServerError {
-				t.Errorf("offset 3000000000 answered 500")
-			}
-		})
+		if res.Code == http.StatusInternalServerError {
+			t.Errorf("offset 3000000000 answered 500")
+		}
 	})
 
 	t.Run("another member edits and deletes my income", func(t *testing.T) {

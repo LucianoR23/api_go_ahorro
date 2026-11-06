@@ -324,23 +324,14 @@ func TestReadAndFilterExpenses(t *testing.T) {
 		for q, field := range map[string]string{
 			"?categoryId=x": "categoryId", "?paymentMethodId=x": "paymentMethodId", "?from=2026-1-1": "from",
 			"?to=hoy": "to", "?limit=0": "limit", "?limit=201": "limit", "?offset=-1": "offset",
+			"?kind=recurring": "kind",
 		} {
 			h.do(t, h.owner, http.MethodGet, "/expenses"+q, nil).WantError(t, http.StatusUnprocessableEntity, "validation", field)
 		}
 	})
 
-	t.Run("an offset past int32 wraps around", func(t *testing.T) {
-		res := h.do(t, h.owner, http.MethodGet, "/expenses?offset=3000000000", nil)
-		// The service clamps the wrapped (negative) offset to 0, so this answers
-		// 200 with the first page and echoes the negative offset back.
-		var l listJSON
-		res.Status(t, http.StatusOK).JSON(t, &l)
-		if l.Offset >= 0 {
-			t.Errorf("offset echoed = %d", l.Offset)
-		}
-		testutil.KnownBug(t, "0.1", "offset above 2^31-1 overflows int32 instead of being rejected", func(t testing.TB) {
-			res.Status(t, http.StatusUnprocessableEntity)
-		})
+	t.Run("an offset past int32 is rejected", func(t *testing.T) {
+		h.do(t, h.owner, http.MethodGet, "/expenses?offset=3000000000", nil).WantError(t, http.StatusUnprocessableEntity, "validation", "offset")
 	})
 
 	t.Run("get one", func(t *testing.T) {
