@@ -329,3 +329,20 @@ type UserSession struct {
 	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
 	RevokedAt       pgtype.Timestamptz `json:"revoked_at"`
 }
+
+type WaitlistEntry struct {
+	ID               uuid.UUID          `json:"id"`
+	Email            string             `json:"email"`
+	Monotributo      bool               `json:"monotributo"`
+	Form             string             `json:"form"`
+	Source           pgtype.Text        `json:"source"`
+	Medium           pgtype.Text        `json:"medium"`
+	Campaign         pgtype.Text        `json:"campaign"`
+	ReferrerPath     pgtype.Text        `json:"referrer_path"`
+	NoticeVersion    string             `json:"notice_version"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ConfirmedAt      pgtype.Timestamptz `json:"confirmed_at"`
+	ConfirmTokenHash []byte             `json:"confirm_token_hash"`
+	ConfirmExpiresAt pgtype.Timestamptz `json:"confirm_expires_at"`
+	LastSentAt       pgtype.Timestamptz `json:"last_sent_at"`
+}

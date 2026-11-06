@@ -71,6 +71,13 @@ without superuser. Check with `\du`, `\l valuo_next` and `\ddp`.
 | `BRAND_NAME` | product name in emails (default `Ahorro`; 1.1 sets `Valuo`) |
 | `TRUSTED_PROXIES` | Traefik's Docker network, the only peer allowed to set `X-Forwarded-For`: `10.0.0.0/8` on this server (Docker `default-address-pools`). Empty trusts nobody (the client IP becomes Traefik's) |
 | `CLOUDFLARE_RANGES` | leave empty: defaults to Cloudflare's published ranges; `CF-Connecting-IP` is believed only when the connection came from one of them |
+| `WAITLIST_SITE_URL` | the landing origin, e.g. `https://preview.valuo.ar` on staging (confirmation links go to `/confirmar#token=`) |
+| `WAITLIST_ALLOWED_ORIGINS` | CORS origins of `POST /waitlist`, comma separated; defaults to `WAITLIST_SITE_URL` |
+| `WAITLIST_BRAND_NAME` | name in the waitlist mails (`Valuo`; defaults to `BRAND_NAME`) |
+| `WAITLIST_FROM_EMAIL` | sender of the confirmation mail, on the verified domain (e.g. `Valuo <hola@valuo.ar>`); Resend **open and click tracking off** for that domain (the privacy policy promises it) |
+| `WAITLIST_CONTACT_EMAIL` | where people ask for deletion (`hola@valuo.ar`) |
+| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret (widget in Invisible mode, hostname = the landing). Required with `ENV=prod`: without it every sign-up gets 403 |
+| `API_PUBLIC_URL` | this API's public origin (e.g. `https://api-next.valuo.ar`), for the one-click unsubscribe link. Unsubscribe tokens are signed with `JWT_SECRET`: rotating it breaks the links in mails already sent |
 | `APP_TIMEZONE` | IANA zone for "today", the current month and the daily jobs (default `America/Argentina/Buenos_Aires`; an invalid value stops startup) |
 | `*_FROM_EMAIL` (4) | sender on the verified domain (default `<BRAND_NAME> <onboarding@resend.dev>`) |
 | `SOPORTE_API_URL` / `SOPORTE_API_KEY` | empty = `/support/*` responds 503 |

@@ -44,6 +44,20 @@ type Config struct {
 	PasswordResetFromEmail string
 	VerificationFromEmail  string
 
+	// Waitlist (plan B.5, contract valuo_web/docs/waitlist-contract.md).
+	// WaitlistSiteURL: the landing; confirmation links go to
+	// {WaitlistSiteURL}/confirmar#token=. WaitlistAllowedOrigins: CORS
+	// origins of POST /waitlist (default: the site). TurnstileSecretKey:
+	// Cloudflare Turnstile; without it sign-ups are refused when ENV=prod.
+	// APIPublicURL: this API's public origin, for the unsubscribe link.
+	WaitlistSiteURL        string
+	WaitlistAllowedOrigins []string
+	WaitlistFromEmail      string
+	WaitlistBrandName      string
+	WaitlistContactEmail   string
+	TurnstileSecretKey     string
+	APIPublicURL           string
+
 	// TrustedProxies (TRUSTED_PROXIES, CIDRs, comma separated): the reverse
 	// proxy's network (Traefik); only connections from it may set
 	// X-Forwarded-For. Empty: trust nobody (plan 0.6).
@@ -121,6 +135,10 @@ func Load() (*Config, error) {
 		AppBaseURL:             getOrDefault("APP_BASE_URL", "http://localhost:3005"),
 		AppTimezone:            getOrDefault("APP_TIMEZONE", dates.DefaultTimezone),
 		TrustedProxies:         splitAndTrim(os.Getenv("TRUSTED_PROXIES"), ","),
+		WaitlistSiteURL:        strings.TrimRight(getOrDefault("WAITLIST_SITE_URL", "http://localhost:3000"), "/"),
+		WaitlistContactEmail:   os.Getenv("WAITLIST_CONTACT_EMAIL"),
+		TurnstileSecretKey:     os.Getenv("TURNSTILE_SECRET_KEY"),
+		APIPublicURL:           strings.TrimRight(getOrDefault("API_PUBLIC_URL", "http://localhost:8080"), "/"),
 		CloudflareRanges:       splitAndTrim(getOrDefault("CLOUDFLARE_RANGES", strings.Join(httpx.CloudflareRanges, ",")), ","),
 		GoogleOAuthClientID:    os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
 		VAPIDPublicKey:         os.Getenv("VAPID_PUBLIC_KEY"),
@@ -130,6 +148,10 @@ func Load() (*Config, error) {
 		SupportAPIURL:          getOrDefault("SOPORTE_API_URL", "http://localhost:8081"),
 		SupportAPIKey:          os.Getenv("SOPORTE_API_KEY"),
 	}
+
+	cfg.WaitlistAllowedOrigins = splitAndTrim(getOrDefault("WAITLIST_ALLOWED_ORIGINS", cfg.WaitlistSiteURL), ",")
+	cfg.WaitlistBrandName = getOrDefault("WAITLIST_BRAND_NAME", cfg.BrandName)
+	cfg.WaitlistFromEmail = getOrDefault("WAITLIST_FROM_EMAIL", cfg.WaitlistBrandName+" <onboarding@resend.dev>")
 
 	if err := cfg.validate(); err != nil {
 		return nil, err

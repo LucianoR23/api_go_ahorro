@@ -38,7 +38,9 @@ type Server struct {
 	Pool   *pgxpool.Pool
 	Mail   *FakeMailer
 	Google *FakeGoogle
-	Config *config.Config
+	// Turnstile answers the waitlist's captcha checks (plan B.5).
+	Turnstile *FakeTurnstile
+	Config    *config.Config
 	// Jobs runs the background jobs' work for a given date (no schedulers).
 	Jobs app.Jobs
 }
@@ -55,7 +57,10 @@ type settings struct {
 // WithRealRateLimits keeps the production auth rate limiter (off by default
 // so tests can create many users).
 func WithRealRateLimits() Option {
-	return func(s *settings) { s.opts.AuthRateLimiter = auth.NewInMemoryRateLimiter() }
+	return func(s *settings) {
+		s.opts.AuthRateLimiter = auth.NewInMemoryRateLimiter()
+		s.opts.WaitlistLimiter = nil // the production 5 per 10 minutes per IP
+	}
 }
 
 // WithRealtime starts the insights listener, so GET /insights/stream
@@ -97,14 +102,24 @@ func New(t testing.TB, opts ...Option) *Server {
 		GoogleOAuthClientID: "test-client-id",
 		VAPIDSubject:        "mailto:test@example.test",
 		SupportAPIURL:       "http://127.0.0.1:1", // unreachable unless a test overrides it
+		// Waitlist (plan B.5).
+		WaitlistSiteURL:        "https://landing.test",
+		WaitlistAllowedOrigins: []string{"https://landing.test"},
+		WaitlistBrandName:      "TestBrand",
+		WaitlistFromEmail:      "TestBrand <waitlist@example.test>",
+		WaitlistContactEmail:   "hola@example.test",
+		APIPublicURL:           "https://api.test",
 	}
 	mail := &FakeMailer{}
 	g := &FakeGoogle{}
+	ts := &FakeTurnstile{}
 	appOpts := app.Options{
-		NewEmailSender:  func(from string) app.EmailSender { return mail.from(from) },
-		GoogleVerifier:  g,
-		AuthRateLimiter: noLimits{},
-		FXHTTPClient:    &http.Client{Transport: blockedTransport{}},
+		NewEmailSender:    func(from string) app.EmailSender { return mail.from(from) },
+		GoogleVerifier:    g,
+		TurnstileVerifier: ts,
+		AuthRateLimiter:   noLimits{},
+		WaitlistLimiter:   func(next http.Handler) http.Handler { return next },
+		FXHTTPClient:      &http.Client{Transport: blockedTransport{}},
 	}
 	st := settings{cfg: cfg, opts: &appOpts}
 	for _, o := range opts {
@@ -124,7 +139,7 @@ func New(t testing.TB, opts ...Option) *Server {
 	srv := httptest.NewServer(a.Router())
 	t.Cleanup(srv.Close)
 
-	return &Server{URL: srv.URL, Pool: pool, Mail: mail, Google: g, Config: cfg, Jobs: a.Jobs()}
+	return &Server{URL: srv.URL, Pool: pool, Mail: mail, Google: g, Turnstile: ts, Config: cfg, Jobs: a.Jobs()}
 }
 
 // Req is one HTTP request against the server.

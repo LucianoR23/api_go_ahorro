@@ -49,6 +49,7 @@ type Querier interface {
 	// Devuelve la fila completa para que el service compare con last_amount y
 	// decida si dispara recurring_spike.
 	ConfirmExpenseDraft(ctx context.Context, arg ConfirmExpenseDraftParams) (Expense, error)
+	ConfirmWaitlistEntry(ctx context.Context, id uuid.UUID) error
 	// Usada en validaciones: no dejar al user sin ningún método activo
 	// (Efectivo no se puede desactivar si es el último).
 	CountActivePaymentMethodsByOwner(ctx context.Context, ownerUserID uuid.UUID) (int64, error)
@@ -126,6 +127,7 @@ type Querier interface {
 	// Registro vía OAuth (Google): sin password_hash, con email ya verificado
 	// (el provider externo nos garantiza la propiedad del email).
 	CreateUserWithoutPassword(ctx context.Context, arg CreateUserWithoutPasswordParams) (User, error)
+	CreateWaitlistEntry(ctx context.Context, arg CreateWaitlistEntryParams) (WaitlistEntry, error)
 	DeleteAuditEventsForUser(ctx context.Context, userID *uuid.UUID) error
 	DeleteBudgetGoal(ctx context.Context, id uuid.UUID) error
 	DeleteCategory(ctx context.Context, id uuid.UUID) error
@@ -143,6 +145,10 @@ type Querier interface {
 	// Housekeeping on each sign-in: drops this user's sessions that expired or
 	// were revoked more than a day ago.
 	DeleteStaleUserSessions(ctx context.Context, userID uuid.UUID) error
+	// Unconfirmed sign-ups older than 30 days (contract section 5).
+	DeleteStaleWaitlistEntries(ctx context.Context) (int64, error)
+	DeleteWaitlistEntry(ctx context.Context, id uuid.UUID) (int64, error)
+	DeleteWaitlistEntryByEmail(ctx context.Context, email string) (int64, error)
 	GetBankByID(ctx context.Context, id uuid.UUID) (Bank, error)
 	// Usada por CreateBank para detectar un match inactivo y "revivirlo" en
 	// vez de fallar por conflicto. El índice parcial (is_active=true) no
@@ -197,6 +203,9 @@ type Querier interface {
 	GetUserIdentity(ctx context.Context, arg GetUserIdentityParams) (UserIdentity, error)
 	GetUserSessionByPrevRefreshHash(ctx context.Context, prevRefreshHash []byte) (UserSession, error)
 	GetUserSessionByRefreshHash(ctx context.Context, refreshHash []byte) (UserSession, error)
+	GetWaitlistEntryByConfirmHash(ctx context.Context, confirmTokenHash []byte) (WaitlistEntry, error)
+	// ===================== waitlist_entries (plan B.5) =====================
+	GetWaitlistEntryByEmail(ctx context.Context, email string) (WaitlistEntry, error)
 	// Al emitir un nuevo token, invalidamos los anteriores del user.
 	InvalidateActiveEmailVerificationsForUser(ctx context.Context, userID uuid.UUID) error
 	// Al emitir un nuevo token, invalidamos los anteriores del user (los
@@ -231,6 +240,7 @@ type Querier interface {
 	// Filtros opcionales: scope, user_id (cuando scope='user'), is_active.
 	ListBudgetGoalsByHousehold(ctx context.Context, arg ListBudgetGoalsByHouseholdParams) ([]BudgetGoal, error)
 	ListCategoriesByHousehold(ctx context.Context, householdID uuid.UUID) ([]Category, error)
+	ListConfirmedWaitlistEntries(ctx context.Context) ([]WaitlistEntry, error)
 	ListCreditCardPeriods(ctx context.Context, creditCardID uuid.UUID) ([]CreditCardPeriod, error)
 	// Lista las tarjetas activas del user con el payment_method embebido,
 	// para evitar N+1 en el frontend (una sola llamada devuelve todo).
@@ -308,6 +318,10 @@ type Querier interface {
 	// (el hash previo ya no existe) y extiende la ventana. Solo matchea si la
 	// invitación sigue pendiente (ni aceptada ni revocada).
 	RefreshInviteToken(ctx context.Context, arg RefreshInviteTokenParams) (HouseholdInvite, error)
+	// A new sign-up for an unconfirmed address: new confirmation token, latest
+	// notice version; the interest flag only turns on; first-touch attribution
+	// is kept.
+	RefreshWaitlistEntry(ctx context.Context, arg RefreshWaitlistEntryParams) error
 	// Usado en DELETE /me: desvincula al user de todos los hogares. El caller
 	// ya validó que no es owner de ninguno (sino rechazamos la baja).
 	RemoveAllMembershipsForUser(ctx context.Context, userID uuid.UUID) error

@@ -17,6 +17,7 @@ type Mail struct {
 	To      []string
 	Subject string
 	HTML    string
+	Headers map[string]string
 }
 
 // FakeMailer records outgoing email instead of calling Resend.
@@ -36,13 +37,17 @@ type mailerFrom struct {
 
 func (s *mailerFrom) Configured() bool { return true }
 
-func (s *mailerFrom) Send(_ context.Context, to []string, subject, html string) error {
+func (s *mailerFrom) Send(ctx context.Context, to []string, subject, html string) error {
+	return s.SendWithHeaders(ctx, to, subject, html, nil)
+}
+
+func (s *mailerFrom) SendWithHeaders(_ context.Context, to []string, subject, html string, headers map[string]string) error {
 	s.m.mu.Lock()
 	defer s.m.mu.Unlock()
 	if s.m.Fail != nil {
 		return s.m.Fail
 	}
-	s.m.sent = append(s.m.sent, Mail{From: s.from, To: append([]string(nil), to...), Subject: subject, HTML: html})
+	s.m.sent = append(s.m.sent, Mail{From: s.from, To: append([]string(nil), to...), Subject: subject, HTML: html, Headers: headers})
 	return nil
 }
 
@@ -105,4 +110,29 @@ func (g *FakeGoogle) Verify(_ context.Context, idToken string) (*google.Claims, 
 		return nil, domain.NewAuthError("token de Google inválido")
 	}
 	return &c, nil
+}
+
+// FakeTurnstile stands in for Cloudflare's siteverify: tokens added with Add
+// pass once (like the real service), anything else fails.
+type FakeTurnstile struct {
+	mu     sync.Mutex
+	tokens map[string]string // token -> hostname
+}
+
+// Add makes token valid once, as if the widget ran on hostname.
+func (f *FakeTurnstile) Add(token, hostname string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.tokens == nil {
+		f.tokens = map[string]string{}
+	}
+	f.tokens[token] = hostname
+}
+
+func (f *FakeTurnstile) Verify(_ context.Context, token, _ string) (string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	host, ok := f.tokens[token]
+	delete(f.tokens, token)
+	return host, ok, nil
 }
