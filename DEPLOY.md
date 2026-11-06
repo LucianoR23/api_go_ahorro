@@ -326,3 +326,78 @@ gitleaks in CI). Rotation, one at a time:
 | `API_DEPLOY_KEY` (ahorra_app CI) | new read-only deploy key on api_go_ahorro, update the secret, delete the old key | none |
 
 Staging never receives copies of production data.
+
+## 7. Backups (plan 0.18)
+
+**Found 2026-11-05:** Coolify's schedule for `postgres-main` backed up only the
+empty `postgres` database (1 KB a day), so `ahorra` (the current production data)
+and `rentar_fliamor` had no backup; `valuo_next`, `recoleccion` and agenda had no
+schedule; retention was unlimited; the files were not encrypted; no restore had
+been tested.
+
+### 7.1 Valuo data: encrypted, off-site, 30 days
+
+Scripts in `scripts/backup/`. Every day at 04:15 UTC a systemd timer runs
+`valuo-backup` as root: `pg_dump -Fc` inside each database container, encrypted
+with [age](https://age-encryption.org) to a public key, uploaded with `curl`
+(SigV4) to the R2 bucket `valuo-backups` as `postgres/<db>/<db>-<UTC>.dump.age`.
+The plaintext dump never touches the disk, and the **private key is not on the
+server**: it lives only in the owner's password manager. A leaked R2 token or a
+copy of the bucket gives nothing readable.
+
+Targets (`BACKUP_TARGETS` in `/etc/valuo-backup/env`): `ahorra` (production
+today, on `postgres-main`) and `valuo_next` (staging). The v2 production database
+is added here when it exists.
+
+One-time setup:
+
+1. Cloudflare → R2 → **Create bucket** `valuo-backups` (separate from Coolify's).
+2. Bucket → Settings → **Object lifecycle rules** → delete objects after **30 days**
+   (whole bucket). This is the retention; the server never deletes. Deleted
+   accounts leave the backups when their last copy expires.
+3. R2 → **Manage API tokens** → Create → permission **Object Read & Write**,
+   **only** bucket `valuo-backups`. Keep the Access Key ID and Secret for step 4.
+4. From the repo root:
+   ```bash
+   scp -r scripts/backup ubuntu@<server-ip>:valuo-backup
+   ssh ubuntu@<server-ip>
+   sudo bash valuo-backup/install.sh
+   ```
+   It installs `age` (Ubuntu archive), generates the key pair and shows the
+   private key **once** (save it, type `SAVED`), asks for the R2 settings, checks
+   it can write and read the bucket, installs the timer and runs the first backup.
+
+Check: `systemctl list-timers valuo-backup.timer`;
+`journalctl -u valuo-backup.service --since -2d -o cat` (one `ok <db>` line per
+target and day; `FAIL` lines mean the run failed and the unit shows as failed in
+`systemctl --failed`).
+
+### 7.2 Restore test (monthly, and after any change)
+
+```bash
+ssh ubuntu@<server-ip>
+sudo valuo-backup-restore-test
+```
+
+Paste the private key when asked (it stays in RAM and is checked against the
+public key). For every target it takes the newest backup, fails if it is older
+than 26 hours, restores it into a throwaway Postgres with no network, and prints
+the row count of every table next to the live database's. Only names and counts
+are printed. Some `pg_restore` errors are normal for `ahorra` (roles and
+extensions of the Supabase image that a plain Postgres lacks); the table counts
+are what matter.
+
+Full restore, if a database is lost: download the object, then
+`age -d -i key.txt <file> | docker exec -i <container> pg_restore -U <user> -d <db> --clean --if-exists`
+(on a new or emptied database; take a fresh backup first if the old one still runs).
+
+### 7.3 Coolify schedules (other projects)
+
+Coolify's own backups stay for the non-Valuo databases (none in production), to
+the bucket `coolify-backups`, unencrypted: `rentar_fliamor` (`postgres-main`),
+`lemydev`, `recoleccion`, agenda. Each schedule: S3 retention **30 days**, local
+retention **7 days**. `ahorra` must not be in a Coolify schedule (it would leave an
+unencrypted copy in R2).
+
+Also keep Coolify's `APP_KEY` (`/data/coolify/source/.env`) in the password
+manager: restoring Coolify itself on a new server needs it.

@@ -4,6 +4,10 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.18: encrypted backups
+- `scripts/backup/`: daily `pg_dump` of the Valuo databases (`ahorra`, `valuo_next`), encrypted with age to a public key and uploaded to a separate R2 bucket with `curl`; the private key is not on the server. Retention is an R2 lifecycle rule (30 days). `install.sh` sets it up (key pair, R2 check, systemd timer); `restore-test.sh` restores the newest backup into a throwaway Postgres and compares row counts with the live database.
+- Found while checking: Coolify's schedule backed up only the empty `postgres` database of the production server, so `ahorra` had no backup; retention was unlimited. `DEPLOY.md` section 7 covers the new setup and the Coolify schedules kept for the other projects.
+
 ### 0.20: server hardening (Coolify server, staging)
 - `DEPLOY.md` section 6: checklist, findings and the exact steps; the server scripts live in `valuo_workspace/server-ops/`.
 - Security updates were blocked for about 7 months by an `apt-get update` hung since April; unblocked and applied, plus the remaining updates (Docker 29.9.3) and a reboot into kernel 7.0.
