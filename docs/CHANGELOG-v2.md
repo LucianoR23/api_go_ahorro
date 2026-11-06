@@ -4,6 +4,11 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.1 (part 4): goal currency
+- A goal in USD or EUR is measured against its target converted to the household's base currency with today's rate (the blue rate expenses use). Before, ARS spending was compared with the raw USD number (USD 100 against ARS 90,000 showed 90,000%, exceeded, and fired the alert).
+- Goal progress adds `targetAmountBase`, `baseCurrency` and `fxRate` (null when no conversion is needed); `targetAmount` stays in the goal's currency and `currentAmount` in the base currency. Goal alerts use the converted target.
+- `goals.NewService` takes the FX service.
+
 ### 0.1 (part 3): totalCount on insights and settlements
 - **Breaking:** `GET /insights` answers a page `{items, totalCount, limit, offset}` (same shape as `/expenses` and `/incomes`) instead of a bare array. The app changes in the same release (`ahorra_app` 0.1 part 3).
 - `GET /settlements` adds `totalCount`, `limit` and `offset` to its `{items}` (additive).

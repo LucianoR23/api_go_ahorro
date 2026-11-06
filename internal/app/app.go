@@ -301,7 +301,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// scope household o user. El progreso se calcula vivo contra expense_installments
 	// e incomes — no cachea nada.
 	goalsRepo := goals.NewRepository(pool)
-	goalsSvc := goals.NewService(goalsRepo, householdsRepo)
+	goalsSvc := goals.NewService(goalsRepo, householdsRepo, fxSvc)
 	goalsHandler := goals.NewHandler(goalsSvc, authMW, householdsMW, logger)
 
 	// insights: genera daily_summary, alerts (goals >=80%) y weekly_review

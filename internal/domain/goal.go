@@ -39,8 +39,13 @@ type BudgetGoalProgress struct {
 	Goal          BudgetGoal
 	PeriodStart   time.Time
 	PeriodEnd     time.Time
-	CurrentAmount float64
-	TargetAmount  float64
-	Percent       float64
-	Status        string // ok | warning | exceeded
+	CurrentAmount float64 // in BaseCurrency
+	TargetAmount  float64 // in the goal's own currency
+	// TargetAmountBase: the target in BaseCurrency (today's rate when the goal
+	// is in another currency). Percent and Status are measured against it.
+	TargetAmountBase float64
+	BaseCurrency     string
+	FxRate           *float64 // nil when no conversion was needed
+	Percent          float64
+	Status           string // ok | warning | exceeded
 }

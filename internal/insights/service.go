@@ -345,7 +345,7 @@ func (s *Service) genGoalAlerts(ctx context.Context, householdID uuid.UUID, at t
 				"goal_type": p.Goal.GoalType,
 				"percent":   p.Percent,
 				"current":   p.CurrentAmount,
-				"target":    p.TargetAmount,
+				"target":    p.TargetAmountBase,
 			},
 		})
 		if err != nil {
@@ -584,10 +584,10 @@ func (s *Service) genInstallmentsDueSoon(ctx context.Context, householdID uuid.U
 func alertText(p domain.BudgetGoalProgress, at time.Time) (string, string, string, bool) {
 	switch p.Goal.GoalType {
 	case domain.GoalTypeCategoryLimit, domain.GoalTypeTotalLimit:
-		if p.TargetAmount <= 0 {
+		if p.TargetAmountBase <= 0 {
 			return "", "", "", false
 		}
-		ratio := p.CurrentAmount / p.TargetAmount
+		ratio := p.CurrentAmount / p.TargetAmountBase
 		if ratio < 0.8 {
 			return "", "", "", false
 		}
@@ -597,21 +597,21 @@ func alertText(p domain.BudgetGoalProgress, at time.Time) (string, string, strin
 		}
 		title := fmt.Sprintf("Objetivo al %.0f%%", ratio*100)
 		body := fmt.Sprintf("Llevás %s gastados de %s (%s).",
-			formatMoney(p.CurrentAmount), formatMoney(p.TargetAmount), p.Goal.GoalType)
+			formatMoney(p.CurrentAmount), formatMoney(p.TargetAmountBase), p.Goal.GoalType)
 		return title, body, sev, true
 
 	case domain.GoalTypeSavings:
 		// Solo alertamos savings después del día 20 si vamos <50%.
-		if at.Day() < 20 || p.TargetAmount <= 0 {
+		if at.Day() < 20 || p.TargetAmountBase <= 0 {
 			return "", "", "", false
 		}
-		ratio := p.CurrentAmount / p.TargetAmount
+		ratio := p.CurrentAmount / p.TargetAmountBase
 		if ratio >= 0.5 {
 			return "", "", "", false
 		}
 		title := "Vas atrasado con tu ahorro"
 		body := fmt.Sprintf("Llevás %s ahorrados de %s objetivo este mes.",
-			formatMoney(p.CurrentAmount), formatMoney(p.TargetAmount))
+			formatMoney(p.CurrentAmount), formatMoney(p.TargetAmountBase))
 		return title, body, domain.InsightSeverityWarning, true
 	}
 	return "", "", "", false
