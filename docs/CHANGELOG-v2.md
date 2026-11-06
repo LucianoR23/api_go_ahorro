@@ -4,6 +4,11 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.7 (part 1): money package, exact splits
+- New dependency `github.com/shopspring/decimal` v1.6.0 (approved by the user; it was already an indirect v1.2.0). `internal/money`: NUMERIC conversions, JSON as a number (the contract with the app does not change), and `Allocate`/`Even`.
+- Splitting rule for installments and shares (`buildShares`, `buildInstallments`, draft confirmation): every part but the last is rounded down to cents and the last takes the rest. Sums are exact and no part is negative (before, rounding up could leave the last share or installment below zero, failing the `CHECK >= 0`). Some splits move a cent: 200.00 in 3 installments is now 66.66 / 66.66 / 66.68 (was 66.67 / 66.67 / 66.66).
+- Confirming a draft keeps each installment's share proportions; a draft whose shares were all zero now splits evenly instead of giving everything to the last member.
+
 ### 0.16 (API part): security headers and CSRF
 - Every response carries HSTS (2 years, preload), `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, COOP, CORP and a CSP that allows nothing (`default-src 'none'`). The waitlist unsubscribe pages set their own CSP (inline styles, form posts to itself).
 - `/auth/refresh` and `/auth/logout`, the endpoints that use the refresh cookie, reject a browser request from an origin outside `ALLOWED_ORIGINS` (or a cross-site one with no `Origin`) with 403 `forbidden`. Requests without browser headers still pass.

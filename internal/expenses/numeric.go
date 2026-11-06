@@ -47,14 +47,3 @@ func floatFromNumeric(n pgtype.Numeric) float64 {
 	}
 	return f
 }
-
-// roundTo redondea a `scale` decimales (half away from zero).
-// Lo usamos para splits de shares: si hay 3 miembros y total=100.01,
-// cada uno recibe 33.34 / 33.34 / 33.33 (el último absorbe el residuo).
-func roundTo(v float64, scale int) float64 {
-	mult := math.Pow10(scale)
-	if v >= 0 {
-		return math.Floor(v*mult+0.5) / mult
-	}
-	return math.Ceil(v*mult-0.5) / mult
-}

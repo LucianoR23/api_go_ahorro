@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
 	"github.com/LucianoR23/api_go_ahorra/internal/ownership"
 )
 
@@ -346,10 +348,10 @@ func (s *Service) buildInstallments(
 	weights []weightedUser,
 ) ([]InstallmentWithShares, error) {
 	n := in.Installments
-	// amount por cuota en currency original y en base, con redondeo a 2
-	// decimales y el último absorbe el residuo (no perdemos centavos).
-	per := roundTo(in.Amount/float64(n), 2)
-	perBase := roundTo(amountBase/float64(n), 2)
+	// Per-installment amounts, original and base currency: every installment
+	// but the last rounds down to cents and the last takes the rest (plan 0.7).
+	perOriginal := money.Even(money.FromFloat(in.Amount).Round(money.AmountScale), n)
+	perBase := money.Even(money.FromFloat(amountBase).Round(money.AmountScale), n)
 
 	out := make([]InstallmentWithShares, 0, n)
 
@@ -383,8 +385,6 @@ func (s *Service) buildInstallments(
 		return nil, err
 	}
 
-	runningOriginal := 0.0
-	runningBase := 0.0
 	for k := 0; k < n; k++ {
 		monthBase := addMonths(firstMonth, k)
 		period, err := resolveForClosingMonth(ctx, s.periodsReader, cc, monthBase)
@@ -392,16 +392,8 @@ func (s *Service) buildInstallments(
 			return nil, err
 		}
 
-		amt := per
-		amtBase := perBase
-		if k == n-1 {
-			// Última cuota absorbe diferencias de redondeo.
-			amt = roundTo(in.Amount-runningOriginal, 2)
-			amtBase = roundTo(amountBase-runningBase, 2)
-		} else {
-			runningOriginal += per
-			runningBase += perBase
-		}
+		amt := perOriginal[k].InexactFloat64()
+		amtBase := perBase[k].InexactFloat64()
 
 		due := period.DueDate
 		inst := domain.ExpenseInstallment{
@@ -455,44 +447,23 @@ func (s *Service) autoBillingDate(ctx context.Context, e domain.Expense, n int) 
 	return p.BillingDate, err
 }
 
-// buildShares divide el amount de una cuota (en base currency) entre los
-// miembros según los pesos normalizados. El último miembro absorbe el
-// residuo de redondeo para que la suma sea exacta.
-// weights=nil → gasto personal, no hay shares.
+// buildShares splits an installment's base amount among the members by
+// weight (money.Allocate: every share but the last rounds down to cents, the
+// last takes the rest, so the sum is exact and no share is negative; plan
+// 0.7). All weights zero splits evenly. weights=nil: personal expense, no
+// shares.
 func buildShares(installmentBase float64, weights []weightedUser) []domain.InstallmentShare {
 	if len(weights) == 0 {
 		return nil
 	}
-	totalW := 0.0
-	for _, w := range weights {
-		totalW += w.Weight
+	w := make([]decimal.Decimal, len(weights))
+	for i, x := range weights {
+		w[i] = money.FromFloat(x.Weight)
 	}
-	if totalW <= 0 {
-		// Edge case: todos weight=0. Caemos a equitativo defensivamente.
-		per := roundTo(installmentBase/float64(len(weights)), 2)
-		out := make([]domain.InstallmentShare, len(weights))
-		running := 0.0
-		for i, w := range weights {
-			owed := per
-			if i == len(weights)-1 {
-				owed = roundTo(installmentBase-running, 2)
-			} else {
-				running += per
-			}
-			out[i] = domain.InstallmentShare{UserID: w.UserID, AmountBaseOwed: owed}
-		}
-		return out
-	}
+	parts := money.Allocate(money.FromFloat(installmentBase).Round(money.AmountScale), w)
 	out := make([]domain.InstallmentShare, len(weights))
-	running := 0.0
-	for i, w := range weights {
-		owed := roundTo(installmentBase*w.Weight/totalW, 2)
-		if i == len(weights)-1 {
-			owed = roundTo(installmentBase-running, 2)
-		} else {
-			running += owed
-		}
-		out[i] = domain.InstallmentShare{UserID: w.UserID, AmountBaseOwed: owed}
+	for i, x := range weights {
+		out[i] = domain.InstallmentShare{UserID: x.UserID, AmountBaseOwed: parts[i].InexactFloat64()}
 	}
 	return out
 }
