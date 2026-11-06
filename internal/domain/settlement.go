@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"github.com/shopspring/decimal"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,7 +14,7 @@ type SettlementPayment struct {
 	HouseholdID  uuid.UUID
 	FromUser     uuid.UUID
 	ToUser       uuid.UUID
-	AmountBase   float64
+	AmountBase   decimal.Decimal
 	BaseCurrency string
 	Note         *string
 	PaidAt       time.Time
@@ -24,9 +25,9 @@ type SettlementPayment struct {
 // Amount > 0 → From debe a To. Amount = 0 nunca se devuelve (el service
 // filtra los saldados).
 type BalanceRow struct {
-	From   uuid.UUID `json:"from"`
-	To     uuid.UUID `json:"to"`
-	Amount float64   `json:"amount"`
+	From   uuid.UUID       `json:"from"`
+	To     uuid.UUID       `json:"to"`
+	Amount decimal.Decimal `json:"amount"`
 }
 
 // PairBalance: balance neto entre dos miembros, firmado.
@@ -34,5 +35,5 @@ type BalanceRow struct {
 type PairBalance struct {
 	From   uuid.UUID
 	To     uuid.UUID
-	Amount float64
+	Amount decimal.Decimal
 }

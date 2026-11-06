@@ -2,6 +2,8 @@ package settlements
 
 import (
 	"errors"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -52,15 +54,15 @@ type createReq struct {
 }
 
 type settlementDTO struct {
-	ID           string    `json:"id"`
-	HouseholdID  string    `json:"householdId"`
-	FromUser     string    `json:"fromUser"`
-	ToUser       string    `json:"toUser"`
-	Amount       float64   `json:"amount"`
-	BaseCurrency string    `json:"baseCurrency"`
-	Note         *string   `json:"note,omitempty"`
-	PaidAt       string    `json:"paidAt"`
-	CreatedAt    time.Time `json:"createdAt"`
+	ID           string          `json:"id"`
+	HouseholdID  string          `json:"householdId"`
+	FromUser     string          `json:"fromUser"`
+	ToUser       string          `json:"toUser"`
+	Amount       decimal.Decimal `json:"amount"`
+	BaseCurrency string          `json:"baseCurrency"`
+	Note         *string         `json:"note,omitempty"`
+	PaidAt       string          `json:"paidAt"`
+	CreatedAt    time.Time       `json:"createdAt"`
 }
 
 type listResponseDTO struct {
@@ -87,7 +89,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		HouseholdID: householdID,
 		FromUser:    req.FromUser,
 		ToUser:      req.ToUser,
-		Amount:      req.Amount,
+		Amount:      money.FromFloat(req.Amount),
 		Note:        req.Note,
 	}
 	if req.PaidAt != nil {

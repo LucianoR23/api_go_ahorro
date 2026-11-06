@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"github.com/shopspring/decimal"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,7 +26,7 @@ type BudgetGoal struct {
 	UserID       *uuid.UUID
 	CategoryID   *uuid.UUID
 	GoalType     string
-	TargetAmount float64
+	TargetAmount decimal.Decimal
 	Currency     string
 	Period       string
 	IsActive     bool
@@ -39,13 +40,13 @@ type BudgetGoalProgress struct {
 	Goal          BudgetGoal
 	PeriodStart   time.Time
 	PeriodEnd     time.Time
-	CurrentAmount float64 // in BaseCurrency
-	TargetAmount  float64 // in the goal's own currency
+	CurrentAmount decimal.Decimal // in BaseCurrency
+	TargetAmount  decimal.Decimal // in the goal's own currency
 	// TargetAmountBase: the target in BaseCurrency (today's rate when the goal
 	// is in another currency). Percent and Status are measured against it.
-	TargetAmountBase float64
+	TargetAmountBase decimal.Decimal
 	BaseCurrency     string
-	FxRate           *float64 // nil when no conversion was needed
+	FxRate           *decimal.Decimal // nil when no conversion was needed
 	Percent          float64
 	Status           string // ok | warning | exceeded
 }

@@ -2,6 +2,8 @@ package goals
 
 import (
 	"errors"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -72,31 +74,31 @@ type setActiveReq struct {
 }
 
 type goalDTO struct {
-	ID           string    `json:"id"`
-	HouseholdID  string    `json:"householdId"`
-	Scope        string    `json:"scope"`
-	UserID       *string   `json:"userId,omitempty"`
-	CategoryID   *string   `json:"categoryId,omitempty"`
-	GoalType     string    `json:"goalType"`
-	TargetAmount float64   `json:"targetAmount"`
-	Currency     string    `json:"currency"`
-	Period       string    `json:"period"`
-	IsActive     bool      `json:"isActive"`
-	CreatedAt    time.Time `json:"createdAt"`
+	ID           string          `json:"id"`
+	HouseholdID  string          `json:"householdId"`
+	Scope        string          `json:"scope"`
+	UserID       *string         `json:"userId,omitempty"`
+	CategoryID   *string         `json:"categoryId,omitempty"`
+	GoalType     string          `json:"goalType"`
+	TargetAmount decimal.Decimal `json:"targetAmount"`
+	Currency     string          `json:"currency"`
+	Period       string          `json:"period"`
+	IsActive     bool            `json:"isActive"`
+	CreatedAt    time.Time       `json:"createdAt"`
 }
 
 type progressDTO struct {
-	Goal          goalDTO `json:"goal"`
-	PeriodStart   string  `json:"periodStart"`
-	PeriodEnd     string  `json:"periodEnd"`
-	CurrentAmount float64 `json:"currentAmount"` // in baseCurrency
-	TargetAmount  float64 `json:"targetAmount"`  // in the goal's currency
+	Goal          goalDTO         `json:"goal"`
+	PeriodStart   string          `json:"periodStart"`
+	PeriodEnd     string          `json:"periodEnd"`
+	CurrentAmount decimal.Decimal `json:"currentAmount"` // in baseCurrency
+	TargetAmount  decimal.Decimal `json:"targetAmount"`  // in the goal's currency
 	// TargetAmountBase: the target in baseCurrency; percent and status use it.
-	TargetAmountBase float64  `json:"targetAmountBase"`
-	BaseCurrency     string   `json:"baseCurrency"`
-	FxRate           *float64 `json:"fxRate"` // today's rate used, null if none
-	Percent          float64  `json:"percent"`
-	Status           string   `json:"status"`
+	TargetAmountBase decimal.Decimal  `json:"targetAmountBase"`
+	BaseCurrency     string           `json:"baseCurrency"`
+	FxRate           *decimal.Decimal `json:"fxRate"` // today's rate used, null if none
+	Percent          float64          `json:"percent"`
+	Status           string           `json:"status"`
 }
 
 // ===================== handlers =====================
@@ -119,7 +121,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		UserID:       req.UserID,
 		CategoryID:   req.CategoryID,
 		GoalType:     req.GoalType,
-		TargetAmount: req.TargetAmount,
+		TargetAmount: money.FromFloat(req.TargetAmount),
 		Currency:     req.Currency,
 		Period:       req.Period,
 	})
@@ -186,7 +188,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	g, err := h.svc.Update(r.Context(), householdID, id, UpdateInput{
 		CategoryID:   req.CategoryID,
-		TargetAmount: req.TargetAmount,
+		TargetAmount: money.FromFloat(req.TargetAmount),
 		Currency:     req.Currency,
 		Period:       req.Period,
 	})

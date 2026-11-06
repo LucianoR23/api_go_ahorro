@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 	"strings"
 	"time"
 
@@ -15,7 +17,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/db"
 	sqlcgen "github.com/LucianoR23/api_go_ahorra/internal/db/sqlc"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 )
@@ -35,14 +36,14 @@ type CreateParams struct {
 	HouseholdID  uuid.UUID
 	FromUser     uuid.UUID
 	ToUser       uuid.UUID
-	AmountBase   float64
+	AmountBase   decimal.Decimal
 	BaseCurrency string
 	Note         *string
 	PaidAt       time.Time
 }
 
 func (r *Repository) Create(ctx context.Context, p CreateParams) (domain.SettlementPayment, error) {
-	amountN, err := db.NumericFromFloat(p.AmountBase, 2)
+	amountN, err := money.ToNumeric(p.AmountBase, money.AmountScale), error(nil)
 	if err != nil {
 		return domain.SettlementPayment{}, fmt.Errorf("settlements.Create/amount: %w", err)
 	}
@@ -169,7 +170,7 @@ func toDomain(row sqlcgen.SettlementPayment) domain.SettlementPayment {
 		HouseholdID:  row.HouseholdID,
 		FromUser:     row.FromUser,
 		ToUser:       row.ToUser,
-		AmountBase:   db.FloatFromNumeric(row.AmountBase),
+		AmountBase:   money.FromNumeric(row.AmountBase),
 		BaseCurrency: row.BaseCurrency,
 		Note:         note,
 		PaidAt:       row.PaidAt.Time,

@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/db"
 	sqlcgen "github.com/LucianoR23/api_go_ahorra/internal/db/sqlc"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 )
@@ -34,14 +35,14 @@ type CreateParams struct {
 	UserID       *uuid.UUID
 	CategoryID   *uuid.UUID
 	GoalType     string
-	TargetAmount float64
+	TargetAmount decimal.Decimal
 	Currency     string
 	Period       string
 	IsActive     bool
 }
 
 func (r *Repository) Create(ctx context.Context, p CreateParams) (domain.BudgetGoal, error) {
-	target, err := db.NumericFromFloat(p.TargetAmount, 2)
+	target, err := money.ToNumeric(p.TargetAmount, money.AmountScale), error(nil)
 	if err != nil {
 		return domain.BudgetGoal{}, err
 	}
@@ -98,13 +99,13 @@ func (r *Repository) ListByHousehold(ctx context.Context, householdID uuid.UUID,
 
 type UpdateParams struct {
 	CategoryID   *uuid.UUID
-	TargetAmount float64
+	TargetAmount decimal.Decimal
 	Currency     string
 	Period       string
 }
 
 func (r *Repository) Update(ctx context.Context, id uuid.UUID, p UpdateParams) (domain.BudgetGoal, error) {
-	target, err := db.NumericFromFloat(p.TargetAmount, 2)
+	target, err := money.ToNumeric(p.TargetAmount, money.AmountScale), error(nil)
 	if err != nil {
 		return domain.BudgetGoal{}, err
 	}
@@ -140,7 +141,7 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 
 // ===================== progress queries =====================
 
-func (r *Repository) SumHouseholdInstallments(ctx context.Context, householdID uuid.UUID, categoryID *uuid.UUID, from, to time.Time) (float64, error) {
+func (r *Repository) SumHouseholdInstallments(ctx context.Context, householdID uuid.UUID, categoryID *uuid.UUID, from, to time.Time) (decimal.Decimal, error) {
 	n, err := r.q.SumInstallmentsForHouseholdGoal(ctx, sqlcgen.SumInstallmentsForHouseholdGoalParams{
 		HouseholdID: householdID,
 		Column2:     pgtype.Date{Time: from, Valid: true},
@@ -148,12 +149,12 @@ func (r *Repository) SumHouseholdInstallments(ctx context.Context, householdID u
 		CategoryID:  categoryID,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("goals.SumHouseholdInstallments: %w", err)
+		return decimal.Zero, fmt.Errorf("goals.SumHouseholdInstallments: %w", err)
 	}
-	return db.FloatFromNumeric(n), nil
+	return money.FromNumeric(n), nil
 }
 
-func (r *Repository) SumUserInstallments(ctx context.Context, householdID, userID uuid.UUID, categoryID *uuid.UUID, from, to time.Time) (float64, error) {
+func (r *Repository) SumUserInstallments(ctx context.Context, householdID, userID uuid.UUID, categoryID *uuid.UUID, from, to time.Time) (decimal.Decimal, error) {
 	n, err := r.q.SumInstallmentsForUserGoal(ctx, sqlcgen.SumInstallmentsForUserGoalParams{
 		HouseholdID: householdID,
 		UserID:      userID,
@@ -162,24 +163,24 @@ func (r *Repository) SumUserInstallments(ctx context.Context, householdID, userI
 		CategoryID:  categoryID,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("goals.SumUserInstallments: %w", err)
+		return decimal.Zero, fmt.Errorf("goals.SumUserInstallments: %w", err)
 	}
-	return db.FloatFromNumeric(n), nil
+	return money.FromNumeric(n), nil
 }
 
-func (r *Repository) SumHouseholdIncomes(ctx context.Context, householdID uuid.UUID, from, to time.Time) (float64, error) {
+func (r *Repository) SumHouseholdIncomes(ctx context.Context, householdID uuid.UUID, from, to time.Time) (decimal.Decimal, error) {
 	n, err := r.q.SumIncomesByHouseholdInRange(ctx, sqlcgen.SumIncomesByHouseholdInRangeParams{
 		HouseholdID: householdID,
 		Column2:     pgtype.Date{Time: from, Valid: true},
 		Column3:     pgtype.Date{Time: to, Valid: true},
 	})
 	if err != nil {
-		return 0, fmt.Errorf("goals.SumHouseholdIncomes: %w", err)
+		return decimal.Zero, fmt.Errorf("goals.SumHouseholdIncomes: %w", err)
 	}
-	return db.FloatFromNumeric(n), nil
+	return money.FromNumeric(n), nil
 }
 
-func (r *Repository) SumUserIncomes(ctx context.Context, householdID, userID uuid.UUID, from, to time.Time) (float64, error) {
+func (r *Repository) SumUserIncomes(ctx context.Context, householdID, userID uuid.UUID, from, to time.Time) (decimal.Decimal, error) {
 	n, err := r.q.SumIncomesByUserInRange(ctx, sqlcgen.SumIncomesByUserInRangeParams{
 		HouseholdID: householdID,
 		ReceivedBy:  userID,
@@ -187,9 +188,9 @@ func (r *Repository) SumUserIncomes(ctx context.Context, householdID, userID uui
 		Column4:     pgtype.Date{Time: to, Valid: true},
 	})
 	if err != nil {
-		return 0, fmt.Errorf("goals.SumUserIncomes: %w", err)
+		return decimal.Zero, fmt.Errorf("goals.SumUserIncomes: %w", err)
 	}
-	return db.FloatFromNumeric(n), nil
+	return money.FromNumeric(n), nil
 }
 
 // ===================== mappers =====================
@@ -202,7 +203,7 @@ func toDomain(row sqlcgen.BudgetGoal) domain.BudgetGoal {
 		UserID:       row.UserID,
 		CategoryID:   row.CategoryID,
 		GoalType:     row.GoalType,
-		TargetAmount: db.FloatFromNumeric(row.TargetAmount),
+		TargetAmount: money.FromNumeric(row.TargetAmount),
 		Currency:     row.Currency,
 		Period:       row.Period,
 		IsActive:     row.IsActive,

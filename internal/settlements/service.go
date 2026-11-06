@@ -3,6 +3,8 @@ package settlements
 import (
 	"context"
 	"fmt"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 	"strings"
 	"time"
 
@@ -25,7 +27,7 @@ type householdLookup interface {
 // entre from y to para validar que el pago no exceda la deuda.
 // Positivo = from debe a to; negativo = to debe a from.
 type balanceReader interface {
-	PairNet(ctx context.Context, householdID, from, to uuid.UUID) (float64, error)
+	PairNet(ctx context.Context, householdID, from, to uuid.UUID) (decimal.Decimal, error)
 }
 
 // pushNotifier: opcional, nil-safe. Se dispara cuando un miembro registra
@@ -77,7 +79,7 @@ type CreateInput struct {
 	HouseholdID uuid.UUID
 	FromUser    uuid.UUID
 	ToUser      uuid.UUID
-	Amount      float64
+	Amount      decimal.Decimal
 	Note        *string
 	PaidAt      time.Time
 }
@@ -86,7 +88,7 @@ type CreateInput struct {
 //   - from != to
 //   - amount > 0
 //   - from y to deben ser miembros del hogar
-//   - amount <= deuda_actual(from → to) + epsilon (no sobre-pagar)
+//   - amount <= deuda_actual(from → to), exact to the cent (no sobre-pagar)
 //
 // La moneda queda fijada a household.base_currency — no se acepta override.
 // Si el frontend quiere registrar un pago en otra moneda, debe convertirlo
@@ -95,7 +97,11 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Settlement
 	if in.FromUser == in.ToUser {
 		return domain.SettlementPayment{}, domain.NewValidationError("toUser", "from y to no pueden ser el mismo user")
 	}
-	if in.Amount <= 0 {
+	if !money.InRange(in.Amount) {
+		return domain.SettlementPayment{}, domain.NewValidationError("amount", "monto fuera de rango")
+	}
+	in.Amount = in.Amount.Round(money.AmountScale)
+	if in.Amount.Sign() <= 0 {
 		return domain.SettlementPayment{}, domain.NewValidationError("amount", "debe ser mayor a cero")
 	}
 	if in.PaidAt.IsZero() {
@@ -132,17 +138,17 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Settlement
 		return domain.SettlementPayment{}, err
 	}
 
-	// Validación clave: no se puede pagar más de lo que se debe.
-	// Tolerancia 1¢ para evitar rebotes por redondeo.
+	// Validación clave: no se puede pagar más de lo que se debe. Amounts are
+	// exact decimals (plan 0.7), so no rounding tolerance is needed.
 	balance, err := s.balances.PairNet(ctx, in.HouseholdID, in.FromUser, in.ToUser)
 	if err != nil {
 		return domain.SettlementPayment{}, err
 	}
-	if balance <= 0 {
+	if balance.Sign() <= 0 {
 		return domain.SettlementPayment{}, domain.NewValidationError("amount", "from no tiene deuda con to")
 	}
-	if in.Amount > balance+0.01 {
-		return domain.SettlementPayment{}, domain.NewValidationError("amount", fmt.Sprintf("excede la deuda actual (%.2f %s)", balance, h.BaseCurrency))
+	if in.Amount.GreaterThan(balance) {
+		return domain.SettlementPayment{}, domain.NewValidationError("amount", fmt.Sprintf("excede la deuda actual (%s %s)", balance.StringFixed(2), h.BaseCurrency))
 	}
 
 	sp, err := s.repo.Create(ctx, CreateParams{

@@ -9,15 +9,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 )
 
 func progress(goalType string, current, target float64) domain.BudgetGoalProgress {
 	return domain.BudgetGoalProgress{
 		Goal:             domain.BudgetGoal{GoalType: goalType},
-		CurrentAmount:    current,
-		TargetAmount:     target,
-		TargetAmountBase: target,
+		CurrentAmount:    decimal.NewFromFloat(current),
+		TargetAmount:     decimal.NewFromFloat(target),
+		TargetAmountBase: decimal.NewFromFloat(target),
 	}
 }
 

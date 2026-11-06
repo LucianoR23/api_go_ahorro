@@ -200,8 +200,10 @@ func TestSettlements(t *testing.T) {
 		h.settle(t, h.ana, stranger, h.owner, 10, nil).WantError(t, http.StatusUnprocessableEntity, "validation", "fromUser")
 		h.settle(t, h.ana, h.ana, stranger, 10, nil).WantError(t, http.StatusUnprocessableEntity, "validation", "toUser")
 		h.settle(t, h.ana, h.ana, h.owner, 10, map[string]any{"paidAt": "15/01/2026"}).WantError(t, http.StatusUnprocessableEntity, "validation", "paidAt")
-		// One cent over is tolerated.
-		h.settle(t, h.ana, h.ana, h.owner, 300.01, nil).Status(t, http.StatusCreated)
+		// Amounts are exact (plan 0.7): one cent over is rejected (it used to be
+		// tolerated for float noise), the exact debt is accepted.
+		h.settle(t, h.ana, h.ana, h.owner, 300.01, nil).WantError(t, http.StatusUnprocessableEntity, "validation", "amount")
+		h.settle(t, h.ana, h.ana, h.owner, 300, nil).Status(t, http.StatusCreated)
 	})
 
 	t.Run("list and filters", func(t *testing.T) {

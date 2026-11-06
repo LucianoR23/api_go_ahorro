@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.7 (part 3): balances, settlements, goals, insights and reports in decimal
+- Balances, settlements, goal progress, insight texts and monthly reports (totals, trends, AI export, email) add and subtract money as exact decimals. Percentages are computed from the exact values and stay floats.
+- Settlements: paying more than the current debt is rejected exactly. The old 1-cent tolerance (there for float noise) is gone, so 300.01 against a 300.00 debt is now a 422 instead of leaving a 1-cent debt the other way.
+- Goals: an out-of-range target is a 422.
+- Still floats on purpose: exchange rates and split weights (4-decimal rates converted exactly when used), percentages and alert thresholds.
+
 ### 0.7 (part 2): expenses, incomes, recurring expenses and FX in decimal
 - Expenses, installments, shares, incomes, recurring incomes and recurring expenses keep money as `decimal.Decimal` end to end (database, arithmetic, JSON). Percentages stay floats.
 - `fxrates.Convert` works in decimal; callers round the converted amount to cents when storing it. 0.10 USD at 1200 is exactly 120 ARS.
