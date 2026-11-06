@@ -20,6 +20,9 @@ type Querier interface {
 	// pending one is cleared. A collision with another account hits the UNIQUE
 	// constraint (the repo maps it to ErrConflict).
 	ApplyUserEmailChange(ctx context.Context, arg ApplyUserEmailChangeParams) (User, error)
+	// Whether the user signed in from this device label in the window (new-device
+	// alert), and whether they ever signed in at all (no alert on the first one).
+	AuditDeviceSeenRecently(ctx context.Context, arg AuditDeviceSeenRecentlyParams) (AuditDeviceSeenRecentlyRow, error)
 	// Para la vista de matriz completa del hogar. Devuelve una fila por cada
 	// par (debtor, creditor) con shares billed y settlements ya agregados.
 	// El service combina las direcciones y netea.
@@ -38,6 +41,7 @@ type Querier interface {
 	// > 0 → from_user debe ese monto a to_user
 	// < 0 → to_user debe a from_user (el signo lo resuelve el service)
 	BalanceOwedBetween(ctx context.Context, arg BalanceOwedBetweenParams) (BalanceOwedBetweenRow, error)
+	ClearOldAuditIPs(ctx context.Context) (int64, error)
 	// Confirma un draft con el monto real. Actualiza amount + amount_base + rate
 	// (recalculados por el service antes de llamar) y pasa el status a confirmed.
 	// Devuelve la fila completa para que el service compare con last_amount y
@@ -56,6 +60,8 @@ type Querier interface {
 	CountHouseholdsOwnedByUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountIncomesByHousehold(ctx context.Context, arg CountIncomesByHouseholdParams) (int64, error)
 	CountUnreadInsightsByHousehold(ctx context.Context, arg CountUnreadInsightsByHouseholdParams) (int64, error)
+	// ===================== audit_events (plan 0.17) =====================
+	CreateAuditEvent(ctx context.Context, arg CreateAuditEventParams) error
 	// Queries de banks. Los bancos son del user (owner_user_id),
 	// nunca se borran: toggle de is_active.
 	CreateBank(ctx context.Context, arg CreateBankParams) (Bank, error)
@@ -116,12 +122,14 @@ type Querier interface {
 	// Registro vía OAuth (Google): sin password_hash, con email ya verificado
 	// (el provider externo nos garantiza la propiedad del email).
 	CreateUserWithoutPassword(ctx context.Context, arg CreateUserWithoutPasswordParams) (User, error)
+	DeleteAuditEventsForUser(ctx context.Context, userID *uuid.UUID) error
 	DeleteBudgetGoal(ctx context.Context, id uuid.UUID) error
 	DeleteCategory(ctx context.Context, id uuid.UUID) error
 	DeleteCreditCardPeriod(ctx context.Context, arg DeleteCreditCardPeriodParams) error
 	DeleteDailyInsight(ctx context.Context, id uuid.UUID) error
 	DeleteExpense(ctx context.Context, id uuid.UUID) error
 	DeleteIncome(ctx context.Context, id uuid.UUID) error
+	DeleteOldAuditEvents(ctx context.Context) (int64, error)
 	DeleteRecurringExpense(ctx context.Context, id uuid.UUID) error
 	DeleteRecurringIncome(ctx context.Context, id uuid.UUID) error
 	DeleteSettlement(ctx context.Context, id uuid.UUID) error
@@ -212,6 +220,7 @@ type Querier interface {
 	// que la pantalla de configuración muestre los vigentes arriba y los
 	// "borrados" debajo, con opción de revivirlos.
 	ListAllPaymentMethodsByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]PaymentMethod, error)
+	ListAuditEventsForUser(ctx context.Context, arg ListAuditEventsForUserParams) ([]AuditEvent, error)
 	// Lista los bancos activos del user, orden estable por nombre.
 	// Si algún día hace falta mostrar los desactivados, se agrega otra query.
 	ListBanksByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]Bank, error)

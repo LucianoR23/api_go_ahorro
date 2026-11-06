@@ -80,13 +80,13 @@ func TestSessionStore(t *testing.T) {
 		if err != nil {
 			t.Fatalf("RevokeOthers revoked the kept session: %v", err)
 		}
-		if err := s.RevokeByToken(ctx, kept.RefreshToken); err != nil {
+		if _, err := s.RevokeByToken(ctx, kept.RefreshToken); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.Rotate(ctx, kept.RefreshToken); err == nil {
 			t.Error("RevokeByToken left the session alive")
 		}
-		if err := s.RevokeByToken(ctx, "unknown"); err != nil {
+		if _, err := s.RevokeByToken(ctx, "unknown"); err != nil {
 			t.Errorf("revoking an unknown token = %v, want nil", err)
 		}
 

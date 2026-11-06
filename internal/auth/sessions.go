@@ -134,17 +134,18 @@ func (s *SessionStore) handleReuse(ctx context.Context, hash []byte) error {
 	return domain.NewAuthError("sesión vencida")
 }
 
-// RevokeByToken ends the session that owns the refresh token (sign-out).
-// Unknown tokens are ignored: signing out always succeeds.
-func (s *SessionStore) RevokeByToken(ctx context.Context, presented string) error {
+// RevokeByToken ends the session that owns the refresh token (sign-out) and
+// returns its user (uuid.Nil for unknown tokens, which are ignored: signing
+// out always succeeds).
+func (s *SessionStore) RevokeByToken(ctx context.Context, presented string) (uuid.UUID, error) {
 	row, err := s.q.GetUserSessionByRefreshHash(ctx, hashRefreshToken(presented))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		return uuid.Nil, nil
 	}
 	if err != nil {
-		return fmt.Errorf("auth.SessionStore.RevokeByToken: %w", err)
+		return uuid.Nil, fmt.Errorf("auth.SessionStore.RevokeByToken: %w", err)
 	}
-	return s.q.RevokeUserSession(ctx, row.ID)
+	return row.UserID, s.q.RevokeUserSession(ctx, row.ID)
 }
 
 // RevokeAll ends every session of the user (password reset, account deletion,

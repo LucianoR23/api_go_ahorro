@@ -9,6 +9,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AuditEvent struct {
+	ID        uuid.UUID          `json:"id"`
+	UserID    *uuid.UUID         `json:"user_id"`
+	ActorID   *uuid.UUID         `json:"actor_id"`
+	Action    string             `json:"action"`
+	Target    string             `json:"target"`
+	Ip        pgtype.Text        `json:"ip"`
+	UserAgent string             `json:"user_agent"`
+	Device    string             `json:"device"`
+	Metadata  []byte             `json:"metadata"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type Bank struct {
 	ID          uuid.UUID          `json:"id"`
 	OwnerUserID uuid.UUID          `json:"owner_user_id"`

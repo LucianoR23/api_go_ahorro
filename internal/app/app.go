@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/LucianoR23/api_go_ahorra/internal/audit"
 	"github.com/LucianoR23/api_go_ahorra/internal/auth"
 	"github.com/LucianoR23/api_go_ahorra/internal/auth/google"
 	"github.com/LucianoR23/api_go_ahorra/internal/balances"
@@ -210,6 +211,17 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	invitesRepo := households.NewInvitesRepository(pool)
 	invitesSvc := households.NewInvitesService(invitesRepo, householdsRepo, userRepo, splitRulesSvc, inviteSender, logger, cfg.AppBaseURL, cfg.BrandName)
 	invitesHandler := households.NewInvitesHandler(invitesSvc, authMW, logger)
+
+	// Security audit log (plan 0.17): sign-ins, password/email, sessions,
+	// household membership and superadmin actions; new-device e-mail; daily
+	// retention (IP 7 days, events 12 months).
+	auditRec := audit.NewRecorder(pool, logger)
+	auditRec.SetNewDeviceAlerts(audit.NewNewDeviceAlerts(verificationSender, userRepo, cfg.BrandName, cfg.AppBaseURL, logger))
+	authHandler.SetAudit(auditRec)
+	householdsHandler.SetAudit(auditRec)
+	householdsAdminHandler.SetAudit(auditRec)
+	invitesHandler.SetAudit(auditRec)
+	a.starters = append(a.starters, audit.NewWorker(pool, 3, 30, logger).Start)
 	// Permite que /auth/register consuma el inviteToken del body.
 	authSvc.SetInviteAccepter(invitesSvc)
 
