@@ -4,6 +4,14 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.17: security audit log
+- Migration `000027`: `audit_events` (account, actor, action, target, IP, user agent, device label, metadata without amounts).
+- Recorded: sign-in (password, Google, register), failed sign-in on an existing account (in that account's activity), logout, logout-all, password change and reset, email change requested and confirmed, account deletion, household joined, member removed, ownership transfer, and every superadmin action (household restore and purge today).
+- A sign-in from a device (browser and OS) not used in 90 days, other than the first sign-in ever, records `login.new_device` and e-mails "Nuevo inicio de sesión" with a link to Seguridad.
+- `GET /me/activity`: the user's latest 50 events (the app's "Actividad reciente").
+- Retention (decided 2026-11-06, privacy policy): a daily job clears IPs older than 7 days and deletes events older than 12 months; deleting the account deletes its events (one event without a user records that an account was deleted).
+- Recording never fails a request; errors are logged.
+
 ### 0.5 (part 4): verified-email gate
 - `auth.Middleware.RequireVerifiedEmail`: after `RequireAuth`, lets through only users with a verified email; others get 403 `{"code":"email_unverified","message":"Verificá tu email para usar esta función."}`; fails closed if not wired. No route uses it yet: AI features, bots and paid checkout (later phases) go behind it.
 - The app side of 0.5 (sign out everywhere, pending email notice) ships in `ahorra_app`.
