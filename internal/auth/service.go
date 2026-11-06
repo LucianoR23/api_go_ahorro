@@ -405,23 +405,21 @@ func (s *Service) LoginWithGoogle(ctx context.Context, idToken string) (AuthResu
 		return AuthResult{}, false, err
 	}
 
-	// 2) Email ya existe sin identidad → auto-vincular.
+	// 2) The email already has an account without this identity: link it,
+	// but only if that account proved it owns the mailbox. Otherwise anyone
+	// could register the victim's email first, wait, and own the account the
+	// day the victim signs in with Google (pre-hijacking, plan 0.5). The owner
+	// signs in with the password (or resets it, which verifies the email) and
+	// Google works from then on.
 	existing, err := s.repo.GetCredentialsByEmail(ctx, email)
 	if err == nil {
+		if existing.User.EmailVerifiedAt == nil {
+			return AuthResult{}, false, domain.NewConflictError(
+				"Ya existe una cuenta con este email sin verificar. Ingresá con tu contraseña " +
+					"(o recuperala con \"Olvidé mi contraseña\") y verificá tu email; después vas a poder entrar con Google.")
+		}
 		if err := s.identities.Create(ctx, "google", claims.Subject, existing.User.ID, claims.Email); err != nil {
 			return AuthResult{}, false, err
-		}
-		// Si el email todavía no estaba verificado, ahora sí lo está
-		// (Google nos lo confirma). Si el UPDATE falla, no abortamos: la
-		// vinculación ya quedó hecha y el user puede entrar.
-		if existing.User.EmailVerifiedAt == nil {
-			if err := s.repo.MarkEmailVerified(ctx, existing.User.ID); err != nil {
-				s.logger.Warn("no se pudo marcar email verificado tras vincular Google",
-					"user_id", existing.User.ID, "error", err)
-			} else {
-				now := time.Now()
-				existing.User.EmailVerifiedAt = &now
-			}
 		}
 		tokens, err := s.issueTokens(ctx, existing.User.ID)
 		if err != nil {
