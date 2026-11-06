@@ -4,6 +4,15 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.20: server hardening (Coolify server, staging)
+- `DEPLOY.md` section 6: checklist, findings and the exact steps; the server scripts live in `valuo_workspace/server-ops/`.
+- Security updates were blocked for about 7 months by an `apt-get update` hung since April; unblocked and applied, plus the remaining updates (Docker 29.9.3) and a reboot into kernel 7.0.
+- fail2ban for SSH; SSH `MaxAuthTries 3`, `X11Forwarding no`, root by key only.
+- Logs kept 7 days for every project on the server: Docker logs to journald with a 7-day limit, system logs rotate daily and keep 7. Traefik access logs stay off.
+- Traefik 3.6 (end of life) to `traefik:v3.7.17`, pinned.
+- Oracle firewall down to 22, 80 and 443 (3000, 8000 and 6001 closed); Coolify 2FA on.
+- Pending outside 0.20: production database users get the staging split with the first v2 deploy (6.9).
+
 ### 0.15b: brand config and dead code (API)
 - `BRAND_NAME` (default `Ahorro`, the name users see today) is the single source for the product name: verification, password reset, invite and monthly summary emails (subject and body), the `*_FROM_EMAIL` defaults (`<BRAND_NAME> <onboarding@resend.dev>`) and the startup banner. The emails used to say "Ahorra" while the app says "Ahorro"; they now follow the config. 1.1 sets `Valuo`. Tests run with `BrandName: "TestBrand"` and check every email uses it.
 - Unchanged on purpose: the refresh cookie name (renamed in 0.5), the JWT issuer, the logger name and the deleted-account email domain (internal), the Go module path (renamed with the repos).
