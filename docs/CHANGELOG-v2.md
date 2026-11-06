@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.6 (part 1): client IP, body cap, insight generation
+- `httpx.RealIP`: `X-Forwarded-For` is read only from `TRUSTED_PROXIES` (Traefik's network) and `CF-Connecting-IP` only when the connection came from a Cloudflare edge (`CLOUDFLARE_RANGES`, defaults to Cloudflare's published list). Before, any client could claim any IP, getting around the sign-in rate limits and writing a fake IP into the audit log. Staging needs `TRUSTED_PROXIES=10.0.0.0/8`.
+- Every JSON route caps the request body at 1 MB ("el pedido es demasiado grande"); support uploads keep their own limits.
+- `POST /insights/generate` is for superadmins only, and honors `?at=` only with `ENV=dev`.
+- Decided with the user: rate limits stay in memory while the API runs a single instance (same as stream tickets).
+
 ### 0.17: security audit log
 - Migration `000027`: `audit_events` (account, actor, action, target, IP, user agent, device label, metadata without amounts).
 - Recorded: sign-in (password, Google, register), failed sign-in on an existing account (in that account's activity), logout, logout-all, password change and reset, email change requested and confirmed, account deletion, household joined, member removed, ownership transfer, and every superadmin action (household restore and purge today).
