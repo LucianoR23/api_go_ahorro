@@ -4,6 +4,14 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.9: insights stream
+- **Breaking (paired with `ahorra_app` 0.9):** the stream opens with a single-use ticket. `POST /insights/stream-ticket` (auth + household) returns `{ticket, expiresIn: 60}`; `GET /insights/stream?ticket=` redeems it. `?access_token=` is no longer accepted: the access token in the URL ended up in any log that records URLs.
+- The stream is no longer cut every 30 seconds: it is mounted outside the timeout group and pushes the server's write deadline forward on each write. Ping every 25 s stays.
+- The stream answered 500 in dev (the dev logger's writer is not an `http.Flusher`); it flushes through `http.ResponseController` now.
+- Query strings no longer reach the request logs (`httpx.RedactQueryInLogs`).
+- Tickets are kept in memory, which is fine with one API instance; with more, they move to the database.
+- `DEPLOY.md`: `DATABASE_URL` must be a direct connection (no transaction pooler) for `LISTEN/NOTIFY`. Staging connects to the Coolify Postgres directly.
+
 ### 0.4: drafts are not spending
 - Unconfirmed drafts (variable recurring bills waiting for the real amount) no longer count anywhere: monthly report and trends, goal progress, insight sums and due-soon alerts, and balances between members all filter `status = 'confirmed'`.
 - `GET /expenses` lists confirmed expenses by default, exposes `status` (it was always empty in the list) and takes `?status=confirmed|draft|all`. The app keeps showing drafts in its "Pendientes de confirmar" card (`/expenses/drafts`), so it needs no change.
