@@ -402,7 +402,18 @@ func (s *Service) GenerateDue(ctx context.Context, date time.Time) (int, error) 
 // `date`: convierte FX contra la base_currency actual del hogar, crea el income
 // y marca last_generated. Lo comparten el worker (GenerateDue) y CreateRecurring
 // (primera ocurrencia "cuenta este mes").
+//
+// Idempotent: the income and last_generated are separate writes, so if a run
+// booked the income and failed to mark the series, the next run finds it and
+// only marks the series (plan 0.3b).
 func (s *Service) generateOneRecurring(ctx context.Context, t domain.RecurringIncome, date time.Time) error {
+	exists, err := s.repo.HasRecurringOccurrence(ctx, t.ID, date)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return s.repo.MarkRecurringGenerated(ctx, t.ID, date)
+	}
 	hh, err := s.households.GetByID(ctx, t.HouseholdID)
 	if err != nil {
 		return err
@@ -420,18 +431,19 @@ func (s *Service) generateOneRecurring(ctx context.Context, t domain.RecurringIn
 		rateAt = &now
 	}
 	if _, err := s.repo.Create(ctx, CreateParams{
-		HouseholdID:     t.HouseholdID,
-		ReceivedBy:      t.ReceivedBy,
-		PaymentMethodID: t.PaymentMethodID,
-		Amount:          t.Amount,
-		Currency:        t.Currency,
-		AmountBase:      amountBase,
-		BaseCurrency:    hh.BaseCurrency,
-		RateUsed:        rateUsed,
-		RateAt:          rateAt,
-		Source:          t.Source,
-		Description:     t.Description,
-		ReceivedAt:      date,
+		HouseholdID:       t.HouseholdID,
+		ReceivedBy:        t.ReceivedBy,
+		PaymentMethodID:   t.PaymentMethodID,
+		Amount:            t.Amount,
+		Currency:          t.Currency,
+		AmountBase:        amountBase,
+		BaseCurrency:      hh.BaseCurrency,
+		RateUsed:          rateUsed,
+		RateAt:            rateAt,
+		Source:            t.Source,
+		Description:       t.Description,
+		ReceivedAt:        date,
+		RecurringIncomeID: &t.ID,
 	}); err != nil {
 		return err
 	}

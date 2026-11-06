@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.3b: recurring incomes linked to their series
+- Migration `000024`: `incomes.recurring_income_id` (nullable, `ON DELETE SET NULL`, partial index), like `expenses.recurring_expense_id`. Incomes generated before it stay `NULL` (no reliable match to their series).
+- Recurring income generation records the series and checks for an income on that date first: a run that booked the income but failed to mark the series no longer books it twice on the retry.
+- The income JSON carries `recurringIncomeId` (additive).
+- Verified: `000024` up, down and up again on a scratch Postgres 18.
+
 ### 0.3: insight dedupe
 - Migration `000023`: the `daily_insights` unique indexes use `NULLS NOT DISTINCT` and split refs by kind. No ref: one per household, user, day and type. Scheduled insights with a ref (goal alerts, installment due-soon alerts, card closing reminders): one per ref and day. Event insights (shared expense, invite, settlement, spike): one per ref. Existing duplicates under the new keys are deleted first, keeping the oldest row; the down migration restores the 000020 indexes.
 - Fixed: household-level insights were duplicated when the job ran twice a day; a second goal over its limit the same day got no alert (goal alerts now carry the goal id as `ref_id`); only the first installment of an expense got a due-soon alert; a card got its closing reminder only once in its life.

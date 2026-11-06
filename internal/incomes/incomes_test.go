@@ -19,18 +19,19 @@ import (
 func TestMain(m *testing.M) { os.Exit(testdb.Main(m)) }
 
 type incomeJSON struct {
-	ID              string   `json:"id"`
-	HouseholdID     string   `json:"householdId"`
-	ReceivedBy      string   `json:"receivedBy"`
-	PaymentMethodID *string  `json:"paymentMethodId"`
-	Amount          float64  `json:"amount"`
-	Currency        string   `json:"currency"`
-	AmountBase      float64  `json:"amountBase"`
-	BaseCurrency    string   `json:"baseCurrency"`
-	RateUsed        *float64 `json:"rateUsed"`
-	Source          string   `json:"source"`
-	Description     string   `json:"description"`
-	ReceivedAt      string   `json:"receivedAt"`
+	ID                string   `json:"id"`
+	HouseholdID       string   `json:"householdId"`
+	ReceivedBy        string   `json:"receivedBy"`
+	PaymentMethodID   *string  `json:"paymentMethodId"`
+	Amount            float64  `json:"amount"`
+	Currency          string   `json:"currency"`
+	AmountBase        float64  `json:"amountBase"`
+	BaseCurrency      string   `json:"baseCurrency"`
+	RateUsed          *float64 `json:"rateUsed"`
+	Source            string   `json:"source"`
+	Description       string   `json:"description"`
+	ReceivedAt        string   `json:"receivedAt"`
+	RecurringIncomeID *string  `json:"recurringIncomeId"`
 }
 
 type recurringJSON struct {
@@ -379,9 +380,35 @@ func TestRecurringIncomes(t *testing.T) {
 			t.Errorf("incomes after Feb 28 twice = %d, want 1", mine())
 		}
 
+		// The generated income points at its series; a manual one does not.
+		var list struct {
+			Items []incomeJSON `json:"items"`
+		}
+		h.do(t, h.owner, http.MethodGet, "/incomes?from=2026-02-01&to=2026-02-28", nil).Status(t, http.StatusOK).JSON(t, &list)
+		if len(list.Items) != 1 || list.Items[0].RecurringIncomeID == nil || *list.Items[0].RecurringIncomeID != r.ID {
+			t.Errorf("generated income = %+v, want recurringIncomeId %s", list.Items, r.ID)
+		}
+		if manual := h.create(t, h.owner, nil); manual.RecurringIncomeID != nil {
+			t.Errorf("manual income has recurringIncomeId %s", *manual.RecurringIncomeID)
+		}
+
+		// A run that booked the income but did not mark the series: the retry
+		// marks it and books nothing (plan 0.3b).
+		if _, err := s.Pool.Exec(ctx, `UPDATE recurring_incomes SET last_generated = '2026-01-31' WHERE id = $1`, r.ID); err != nil {
+			t.Fatal(err)
+		}
+		run("2026-02-28")
+		var last string
+		if err := s.Pool.QueryRow(ctx, `SELECT last_generated::text FROM recurring_incomes WHERE id = $1`, r.ID).Scan(&last); err != nil {
+			t.Fatal(err)
+		}
+		if mine() != 2 || last != "2026-02-28" { // 2 = the generated one + the manual one
+			t.Errorf("after the retried run: %d incomes, last_generated %s", mine(), last)
+		}
+
 		h.do(t, h.owner, http.MethodPatch, "/recurring-incomes/"+r.ID+"/active", map[string]any{"isActive": false}).Status(t, http.StatusNoContent)
 		run("2026-03-31")
-		if mine() != 1 {
+		if mine() != 2 {
 			t.Errorf("an inactive template generated an income")
 		}
 	})

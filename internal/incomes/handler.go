@@ -92,6 +92,8 @@ type incomeDTO struct {
 	Description     string     `json:"description"`
 	ReceivedAt      string     `json:"receivedAt"`
 	CreatedAt       time.Time  `json:"createdAt"`
+	// RecurringIncomeID: the series that generated it; null for manual incomes.
+	RecurringIncomeID *string `json:"recurringIncomeId"`
 }
 
 type listIncomesResponseDTO struct {
@@ -599,21 +601,27 @@ func toIncomeDTO(i domain.Income) incomeDTO {
 		s := i.PaymentMethodID.String()
 		pmID = &s
 	}
+	var recurringID *string
+	if i.RecurringIncomeID != nil {
+		s := i.RecurringIncomeID.String()
+		recurringID = &s
+	}
 	return incomeDTO{
-		ID:              i.ID.String(),
-		HouseholdID:     i.HouseholdID.String(),
-		ReceivedBy:      i.ReceivedBy.String(),
-		PaymentMethodID: pmID,
-		Amount:          i.Amount,
-		Currency:        i.Currency,
-		AmountBase:      i.AmountBase,
-		BaseCurrency:    i.BaseCurrency,
-		RateUsed:        i.RateUsed,
-		RateAt:          i.RateAt,
-		Source:          i.Source,
-		Description:     i.Description,
-		ReceivedAt:      i.ReceivedAt.Format("2006-01-02"),
-		CreatedAt:       i.CreatedAt,
+		RecurringIncomeID: recurringID,
+		ID:                i.ID.String(),
+		HouseholdID:       i.HouseholdID.String(),
+		ReceivedBy:        i.ReceivedBy.String(),
+		PaymentMethodID:   pmID,
+		Amount:            i.Amount,
+		Currency:          i.Currency,
+		AmountBase:        i.AmountBase,
+		BaseCurrency:      i.BaseCurrency,
+		RateUsed:          i.RateUsed,
+		RateAt:            i.RateAt,
+		Source:            i.Source,
+		Description:       i.Description,
+		ReceivedAt:        i.ReceivedAt.Format("2006-01-02"),
+		CreatedAt:         i.CreatedAt,
 	}
 }
 

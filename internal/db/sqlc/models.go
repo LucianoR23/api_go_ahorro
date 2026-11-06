@@ -175,20 +175,21 @@ type HouseholdSplitRule struct {
 }
 
 type Income struct {
-	ID              uuid.UUID          `json:"id"`
-	HouseholdID     uuid.UUID          `json:"household_id"`
-	ReceivedBy      uuid.UUID          `json:"received_by"`
-	PaymentMethodID *uuid.UUID         `json:"payment_method_id"`
-	Amount          pgtype.Numeric     `json:"amount"`
-	Currency        string             `json:"currency"`
-	AmountBase      pgtype.Numeric     `json:"amount_base"`
-	BaseCurrency    string             `json:"base_currency"`
-	RateUsed        pgtype.Numeric     `json:"rate_used"`
-	RateAt          pgtype.Timestamptz `json:"rate_at"`
-	Source          string             `json:"source"`
-	Description     string             `json:"description"`
-	ReceivedAt      pgtype.Date        `json:"received_at"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	ID                uuid.UUID          `json:"id"`
+	HouseholdID       uuid.UUID          `json:"household_id"`
+	ReceivedBy        uuid.UUID          `json:"received_by"`
+	PaymentMethodID   *uuid.UUID         `json:"payment_method_id"`
+	Amount            pgtype.Numeric     `json:"amount"`
+	Currency          string             `json:"currency"`
+	AmountBase        pgtype.Numeric     `json:"amount_base"`
+	BaseCurrency      string             `json:"base_currency"`
+	RateUsed          pgtype.Numeric     `json:"rate_used"`
+	RateAt            pgtype.Timestamptz `json:"rate_at"`
+	Source            string             `json:"source"`
+	Description       string             `json:"description"`
+	ReceivedAt        pgtype.Date        `json:"received_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	RecurringIncomeID *uuid.UUID         `json:"recurring_income_id"`
 }
 
 type PasswordReset struct {

@@ -4,10 +4,14 @@
 INSERT INTO incomes (
     household_id, received_by, payment_method_id,
     amount, currency, amount_base, base_currency, rate_used, rate_at,
-    source, description, received_at
+    source, description, received_at, recurring_income_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING *;
+
+-- name: RecurringIncomeHasOccurrence :one
+-- Whether the series already booked an income on that date (idempotent generation).
+SELECT EXISTS (SELECT 1 FROM incomes WHERE recurring_income_id = $1 AND received_at = $2)::bool;
 
 -- name: GetIncomeByID :one
 SELECT * FROM incomes WHERE id = $1;

@@ -272,6 +272,8 @@ type Querier interface {
 	// un kind distinto al del registro inactivo, el service rechaza antes
 	// de llamar acá, así que este UPDATE asume kind ya válido.
 	ReactivatePaymentMethod(ctx context.Context, arg ReactivatePaymentMethodParams) (PaymentMethod, error)
+	// Whether the series already booked an income on that date (idempotent generation).
+	RecurringIncomeHasOccurrence(ctx context.Context, arg RecurringIncomeHasOccurrenceParams) (bool, error)
 	// Pisa el token_hash y expires_at de una invitación pendiente. Se usa para
 	// "reenviar" — genera un nuevo token, invalida implícitamente el anterior
 	// (el hash previo ya no existe) y extiende la ventana. Solo matchea si la

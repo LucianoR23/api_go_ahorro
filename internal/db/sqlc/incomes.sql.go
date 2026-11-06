@@ -51,25 +51,26 @@ const createIncome = `-- name: CreateIncome :one
 INSERT INTO incomes (
     household_id, received_by, payment_method_id,
     amount, currency, amount_base, base_currency, rate_used, rate_at,
-    source, description, received_at
+    source, description, received_at, recurring_income_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-RETURNING id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+RETURNING id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at, recurring_income_id
 `
 
 type CreateIncomeParams struct {
-	HouseholdID     uuid.UUID          `json:"household_id"`
-	ReceivedBy      uuid.UUID          `json:"received_by"`
-	PaymentMethodID *uuid.UUID         `json:"payment_method_id"`
-	Amount          pgtype.Numeric     `json:"amount"`
-	Currency        string             `json:"currency"`
-	AmountBase      pgtype.Numeric     `json:"amount_base"`
-	BaseCurrency    string             `json:"base_currency"`
-	RateUsed        pgtype.Numeric     `json:"rate_used"`
-	RateAt          pgtype.Timestamptz `json:"rate_at"`
-	Source          string             `json:"source"`
-	Description     string             `json:"description"`
-	ReceivedAt      pgtype.Date        `json:"received_at"`
+	HouseholdID       uuid.UUID          `json:"household_id"`
+	ReceivedBy        uuid.UUID          `json:"received_by"`
+	PaymentMethodID   *uuid.UUID         `json:"payment_method_id"`
+	Amount            pgtype.Numeric     `json:"amount"`
+	Currency          string             `json:"currency"`
+	AmountBase        pgtype.Numeric     `json:"amount_base"`
+	BaseCurrency      string             `json:"base_currency"`
+	RateUsed          pgtype.Numeric     `json:"rate_used"`
+	RateAt            pgtype.Timestamptz `json:"rate_at"`
+	Source            string             `json:"source"`
+	Description       string             `json:"description"`
+	ReceivedAt        pgtype.Date        `json:"received_at"`
+	RecurringIncomeID *uuid.UUID         `json:"recurring_income_id"`
 }
 
 // ===================== incomes =====================
@@ -87,6 +88,7 @@ func (q *Queries) CreateIncome(ctx context.Context, arg CreateIncomeParams) (Inc
 		arg.Source,
 		arg.Description,
 		arg.ReceivedAt,
+		arg.RecurringIncomeID,
 	)
 	var i Income
 	err := row.Scan(
@@ -104,6 +106,7 @@ func (q *Queries) CreateIncome(ctx context.Context, arg CreateIncomeParams) (Inc
 		&i.Description,
 		&i.ReceivedAt,
 		&i.CreatedAt,
+		&i.RecurringIncomeID,
 	)
 	return i, err
 }
@@ -197,7 +200,7 @@ func (q *Queries) DeleteRecurringIncome(ctx context.Context, id uuid.UUID) error
 }
 
 const getIncomeByID = `-- name: GetIncomeByID :one
-SELECT id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at FROM incomes WHERE id = $1
+SELECT id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at, recurring_income_id FROM incomes WHERE id = $1
 `
 
 func (q *Queries) GetIncomeByID(ctx context.Context, id uuid.UUID) (Income, error) {
@@ -218,6 +221,7 @@ func (q *Queries) GetIncomeByID(ctx context.Context, id uuid.UUID) (Income, erro
 		&i.Description,
 		&i.ReceivedAt,
 		&i.CreatedAt,
+		&i.RecurringIncomeID,
 	)
 	return i, err
 }
@@ -300,7 +304,7 @@ func (q *Queries) ListActiveRecurringIncomes(ctx context.Context, dollar_1 pgtyp
 }
 
 const listIncomesByHousehold = `-- name: ListIncomesByHousehold :many
-SELECT id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at
+SELECT id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at, recurring_income_id
 FROM incomes
 WHERE household_id = $1
   AND ($4::uuid IS NULL OR received_by = $4::uuid)
@@ -357,6 +361,7 @@ func (q *Queries) ListIncomesByHousehold(ctx context.Context, arg ListIncomesByH
 			&i.Description,
 			&i.ReceivedAt,
 			&i.CreatedAt,
+			&i.RecurringIncomeID,
 		); err != nil {
 			return nil, err
 		}
@@ -428,6 +433,23 @@ func (q *Queries) MarkRecurringIncomeGenerated(ctx context.Context, arg MarkRecu
 	return err
 }
 
+const recurringIncomeHasOccurrence = `-- name: RecurringIncomeHasOccurrence :one
+SELECT EXISTS (SELECT 1 FROM incomes WHERE recurring_income_id = $1 AND received_at = $2)::bool
+`
+
+type RecurringIncomeHasOccurrenceParams struct {
+	RecurringIncomeID *uuid.UUID  `json:"recurring_income_id"`
+	ReceivedAt        pgtype.Date `json:"received_at"`
+}
+
+// Whether the series already booked an income on that date (idempotent generation).
+func (q *Queries) RecurringIncomeHasOccurrence(ctx context.Context, arg RecurringIncomeHasOccurrenceParams) (bool, error) {
+	row := q.db.QueryRow(ctx, recurringIncomeHasOccurrence, arg.RecurringIncomeID, arg.ReceivedAt)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const setRecurringIncomeActive = `-- name: SetRecurringIncomeActive :exec
 UPDATE recurring_incomes SET is_active = $2 WHERE id = $1
 `
@@ -472,7 +494,7 @@ SET source      = $2,
     description = $3,
     received_at = $4
 WHERE id = $1
-RETURNING id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at
+RETURNING id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at, recurring_income_id
 `
 
 type UpdateIncomeParams struct {
@@ -507,6 +529,7 @@ func (q *Queries) UpdateIncome(ctx context.Context, arg UpdateIncomeParams) (Inc
 		&i.Description,
 		&i.ReceivedAt,
 		&i.CreatedAt,
+		&i.RecurringIncomeID,
 	)
 	return i, err
 }

@@ -31,6 +31,10 @@ type Income struct {
 	Description string
 	ReceivedAt  time.Time
 	CreatedAt   time.Time
+
+	// RecurringIncomeID: the series that generated it; nil for manual incomes
+	// and for those generated before migration 000024.
+	RecurringIncomeID *uuid.UUID
 }
 
 // RecurringIncome: plantilla que el worker de incomes reproduce según
