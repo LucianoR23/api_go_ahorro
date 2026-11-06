@@ -4,6 +4,11 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.5 (part 3): email change with verification
+- Migration `000026`: `users.pending_email` and `email_verifications.new_email`.
+- `PATCH /me` with a new email keeps the current one: the new address waits as `pendingEmail` (in the user JSON) and a "Confirmá tu nuevo email" link goes to the new mailbox. The verify link applies it, verified. Before, the email changed at once and stayed marked verified, so anyone with a session could move the account to an address nobody had proven.
+- An address taken by another account is a 409 when requested, and again at confirmation if someone took it meanwhile (`domain.ConflictError`, Spanish message).
+
 ### 0.5 (part 2): Google sign-in and verified emails
 - `POST /auth/google` links to an existing account only if its email is verified. Before, anyone could register someone else's email, never verify it, and own the account the day the real owner signed in with Google. Now it answers 409: "Ya existe una cuenta con este email sin verificar. Ingresá con tu contraseña (o recuperala con "Olvidé mi contraseña") y verificá tu email; después vas a poder entrar con Google." The app shows that message as is.
 - A password reset marks the email verified (the link reached the mailbox). The real owner recovers such an account with "Olvidé mi contraseña": the intruder's sessions end and Google links.
