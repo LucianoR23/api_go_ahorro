@@ -337,6 +337,10 @@ been tested.
 
 ### 7.1 Valuo data: encrypted, off-site, 30 days
 
+**Installed 2026-11-06.** First backup: `ahorra` 436 KB, `valuo_next` 90 KB.
+First restore test the same day: 0 `pg_restore` errors, every table count equal
+to the live database. Next restore test: early December 2026.
+
 Scripts in `scripts/backup/`. Every day at 04:15 UTC a systemd timer runs
 `valuo-backup` as root: `pg_dump -Fc` inside each database container, encrypted
 with [age](https://age-encryption.org) to a public key, uploaded with `curl`
