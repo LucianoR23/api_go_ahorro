@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 )
 
 var (
@@ -193,18 +192,16 @@ func TestBuildShares(t *testing.T) {
 }
 
 func TestBuildSharesNegativeRemainder(t *testing.T) {
-	testutil.KnownBug(t, "0.7", "rounding each share up can leave the last member with a negative amount", func(t testing.TB) {
-		weights := make([]weightedUser, 6)
-		for i := range weights {
-			weights[i] = weightedUser{UserID: uuid.New(), Weight: 1}
+	weights := make([]weightedUser, 6)
+	for i := range weights {
+		weights[i] = weightedUser{UserID: uuid.New(), Weight: 1}
+	}
+	// 0.04 / 6 = 0.0067 → each rounds to 0.01, so the last one gets -0.01.
+	for i, s := range buildShares(0.04, weights) {
+		if s.AmountBaseOwed < 0 {
+			t.Errorf("share %d is negative: %v", i, s.AmountBaseOwed)
 		}
-		// 0.04 / 6 = 0.0067 → each rounds to 0.01, so the last one gets -0.01.
-		for i, s := range buildShares(0.04, weights) {
-			if s.AmountBaseOwed < 0 {
-				t.Errorf("share %d is negative: %v", i, s.AmountBaseOwed)
-			}
-		}
-	})
+	}
 }
 
 func newCreditService(c domain.CreditCard, periods fakePeriods) *Service {
@@ -325,18 +322,16 @@ func TestBuildInstallmentsCredit(t *testing.T) {
 }
 
 func TestBuildInstallmentsNegativeLastInstallment(t *testing.T) {
-	testutil.KnownBug(t, "0.7", "rounding each installment up can make the last installment negative", func(t testing.TB) {
-		s := newCreditService(card(25, 5), fakePeriods{})
-		in := CreateInput{Amount: 0.5, Installments: 60, SpentAt: date(2026, 3, 20)}
-		got, err := s.buildInstallments(context.Background(), in, domain.PaymentMethod{ID: pmID, Kind: domain.KindCredit}, 0.5, nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+	s := newCreditService(card(25, 5), fakePeriods{})
+	in := CreateInput{Amount: 0.5, Installments: 60, SpentAt: date(2026, 3, 20)}
+	got, err := s.buildInstallments(context.Background(), in, domain.PaymentMethod{ID: pmID, Kind: domain.KindCredit}, 0.5, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// 0.50 / 60 = 0.0083 → 0.01 each; the 60th gets 0.50 - 0.59 = -0.09.
+	for _, g := range got {
+		if g.Installment.InstallmentAmount < 0 {
+			t.Errorf("installment %d is negative: %v", g.Installment.InstallmentNumber, g.Installment.InstallmentAmount)
 		}
-		// 0.50 / 60 = 0.0083 → 0.01 each; the 60th gets 0.50 - 0.59 = -0.09.
-		for _, g := range got {
-			if g.Installment.InstallmentAmount < 0 {
-				t.Errorf("installment %d is negative: %v", g.Installment.InstallmentNumber, g.Installment.InstallmentAmount)
-			}
-		}
-	})
+	}
 }

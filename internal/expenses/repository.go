@@ -14,9 +14,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/db/sqlc"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
 )
 
 type Repository struct {
@@ -414,36 +416,28 @@ func (r *Repository) ConfirmDraft(ctx context.Context, id uuid.UUID, p ConfirmDr
 			byInst[sh.InstallmentID] = append(byInst[sh.InstallmentID], sh)
 		}
 
+		// Re-split with money.Allocate (plan 0.7): exact sums, nothing negative.
+		// Installments split evenly; each installment's shares keep the old
+		// proportions.
 		n := len(insts)
-		per, perBase := roundTo(p.Amount/float64(n), 2), roundTo(p.AmountBase/float64(n), 2)
-		runAmt, runBase := 0.0, 0.0
+		amts := money.Even(money.FromFloat(p.Amount).Round(money.AmountScale), n)
+		bases := money.Even(money.FromFloat(p.AmountBase).Round(money.AmountScale), n)
 		for k, inst := range insts {
-			amt, base := per, perBase
-			if k == n-1 {
-				amt, base = roundTo(p.Amount-runAmt, 2), roundTo(p.AmountBase-runBase, 2)
-			}
-			runAmt += amt
-			runBase += base
 			if _, err := tx.Exec(ctx,
 				`UPDATE expense_installments SET installment_amount = $2, installment_amount_base = $3 WHERE id = $1`,
-				inst.ID, amt, base); err != nil {
+				inst.ID, money.ToNumeric(amts[k], money.AmountScale), money.ToNumeric(bases[k], money.AmountScale)); err != nil {
 				return err
 			}
-			oldBase := floatFromNumeric(inst.InstallmentAmountBase)
 			instShares := byInst[inst.ID]
-			assigned := 0.0
+			weights := make([]decimal.Decimal, len(instShares))
 			for m, sh := range instShares {
-				owed := 0.0
-				if oldBase != 0 {
-					owed = roundTo(floatFromNumeric(sh.AmountBaseOwed)*base/oldBase, 2)
-				}
-				if m == len(instShares)-1 {
-					owed = roundTo(base-assigned, 2)
-				}
-				assigned += owed
+				weights[m] = money.FromNumeric(sh.AmountBaseOwed)
+			}
+			for m, owed := range money.Allocate(bases[k], weights) {
+				sh := instShares[m]
 				if _, err := tx.Exec(ctx,
 					`UPDATE expense_installment_shares SET amount_base_owed = $3 WHERE installment_id = $1 AND user_id = $2`,
-					sh.InstallmentID, sh.UserID, owed); err != nil {
+					sh.InstallmentID, sh.UserID, money.ToNumeric(owed, money.AmountScale)); err != nil {
 					return err
 				}
 			}
