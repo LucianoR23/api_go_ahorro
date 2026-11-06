@@ -4,6 +4,9 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.1 (part 5): Spanish decoder errors
+- One shared `httpx.DecodeJSON` replaces 11 copies of `decodeJSON`. Its errors are Spanish and safe to show: "falta el cuerpo del pedido", "JSON inválido", "tipo de dato incorrecto" (with the field), "campo desconocido: <name>", "el pedido es demasiado grande", "algún campo tiene un valor inválido". The raw Go text (`json: unknown field ...`) no longer reaches the client; the push endpoints stop appending it too.
+
 ### 0.1 (part 4): goal currency
 - A goal in USD or EUR is measured against its target converted to the household's base currency with today's rate (the blue rate expenses use). Before, ARS spending was compared with the raw USD number (USD 100 against ARS 90,000 showed 90,000%, exceeded, and fired the alert).
 - Goal progress adds `targetAmountBase`, `baseCurrency` and `fxRate` (null when no conversion is needed); `targetAmount` stays in the goal's currency and `currentAmount` in the base currency. Goal alerts use the converted target.
