@@ -144,12 +144,14 @@ type updatePaymentMethodReq struct {
 	AllowsInstallments *bool      `json:"allowsInstallments,omitempty"`
 }
 
+// updateCreditCardReq: partial update. An absent field is left as is;
+// lastFour: null and debitPaymentMethodId: null clear them.
 type updateCreditCardReq struct {
-	Alias                string     `json:"alias"`
-	LastFour             *string    `json:"lastFour,omitempty"`
-	DefaultClosingDay    int        `json:"defaultClosingDay"`
-	DefaultDueDay        int        `json:"defaultDueDay"`
-	DebitPaymentMethodID *uuid.UUID `json:"debitPaymentMethodId,omitempty"`
+	Alias                *string                   `json:"alias"`
+	LastFour             httpx.Optional[string]    `json:"lastFour"`
+	DefaultClosingDay    *int                      `json:"defaultClosingDay"`
+	DefaultDueDay        *int                      `json:"defaultDueDay"`
+	DebitPaymentMethodID httpx.Optional[uuid.UUID] `json:"debitPaymentMethodId"`
 }
 
 // ===================== handlers: banks =====================
@@ -414,13 +416,20 @@ func (h *Handler) UpdateCreditCard(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	cc, err := h.svc.UpdateCreditCard(r.Context(), userID, pmID, UpdateCreditCardInput{
-		Alias:                req.Alias,
-		LastFour:             req.LastFour,
-		DefaultClosingDay:    req.DefaultClosingDay,
-		DefaultDueDay:        req.DefaultDueDay,
-		DebitPaymentMethodID: req.DebitPaymentMethodID,
-	})
+	in := UpdateCreditCardInput{
+		Alias:             req.Alias,
+		DefaultClosingDay: req.DefaultClosingDay,
+		DefaultDueDay:     req.DefaultDueDay,
+		SetLastFour:       req.LastFour.Set,
+		SetDebit:          req.DebitPaymentMethodID.Set,
+	}
+	if req.LastFour.Set && !req.LastFour.Null {
+		in.LastFour = &req.LastFour.Value
+	}
+	if req.DebitPaymentMethodID.Set && !req.DebitPaymentMethodID.Null {
+		in.DebitPaymentMethodID = &req.DebitPaymentMethodID.Value
+	}
+	cc, err := h.svc.UpdateCreditCard(r.Context(), userID, pmID, in)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return

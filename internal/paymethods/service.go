@@ -330,12 +330,16 @@ func (s *Service) ListCreditCards(ctx context.Context, ownerID uuid.UUID) ([]dom
 }
 
 // UpdateCreditCardInput: campos editables de una tarjeta.
+// UpdateCreditCardInput: partial update; nil leaves the field as is.
+// SetLastFour / SetDebit with a nil value clear lastFour / the debit account.
 type UpdateCreditCardInput struct {
-	Alias                string
+	Alias                *string
 	LastFour             *string
-	DefaultClosingDay    int
-	DefaultDueDay        int
+	SetLastFour          bool
+	DefaultClosingDay    *int
+	DefaultDueDay        *int
 	DebitPaymentMethodID *uuid.UUID
+	SetDebit             bool
 }
 
 func (s *Service) UpdateCreditCard(ctx context.Context, ownerID, pmID uuid.UUID, in UpdateCreditCardInput) (domain.CreditCard, error) {
@@ -347,16 +351,36 @@ func (s *Service) UpdateCreditCard(ctx context.Context, ownerID, pmID uuid.UUID,
 		return domain.CreditCard{}, err
 	}
 
+	if in.Alias == nil && !in.SetLastFour && in.DefaultClosingDay == nil && in.DefaultDueDay == nil && !in.SetDebit {
+		return domain.CreditCard{}, domain.NewValidationError("body", "debe enviar al menos un campo")
+	}
+	merged := existing
+	if in.Alias != nil {
+		merged.Alias = strings.TrimSpace(*in.Alias)
+	}
+	if in.SetLastFour {
+		merged.LastFour = in.LastFour
+	}
+	if in.DefaultClosingDay != nil {
+		merged.DefaultClosingDay = *in.DefaultClosingDay
+	}
+	if in.DefaultDueDay != nil {
+		merged.DefaultDueDay = *in.DefaultDueDay
+	}
+	if in.SetDebit {
+		merged.DebitPaymentMethodID = in.DebitPaymentMethodID
+	}
+
 	if err := validateCardInput(CreateCreditCardInput{
-		Alias:             in.Alias,
-		LastFour:          in.LastFour,
-		DefaultClosingDay: in.DefaultClosingDay,
-		DefaultDueDay:     in.DefaultDueDay,
+		Alias:             merged.Alias,
+		LastFour:          merged.LastFour,
+		DefaultClosingDay: merged.DefaultClosingDay,
+		DefaultDueDay:     merged.DefaultDueDay,
 	}); err != nil {
 		return domain.CreditCard{}, err
 	}
 
-	if in.DebitPaymentMethodID != nil {
+	if in.SetDebit && in.DebitPaymentMethodID != nil {
 		if *in.DebitPaymentMethodID == pmID {
 			return domain.CreditCard{}, domain.NewValidationError("debitPaymentMethodId", "la tarjeta no puede debitarse de sí misma")
 		}
@@ -365,15 +389,14 @@ func (s *Service) UpdateCreditCard(ctx context.Context, ownerID, pmID uuid.UUID,
 		}
 	}
 
-	updated := domain.CreditCard{
+	return s.repo.UpdateCreditCard(ctx, domain.CreditCard{
 		ID:                   existing.ID,
-		Alias:                strings.TrimSpace(in.Alias),
-		LastFour:             in.LastFour,
-		DefaultClosingDay:    in.DefaultClosingDay,
-		DefaultDueDay:        in.DefaultDueDay,
-		DebitPaymentMethodID: in.DebitPaymentMethodID,
-	}
-	return s.repo.UpdateCreditCard(ctx, updated)
+		Alias:                merged.Alias,
+		LastFour:             merged.LastFour,
+		DefaultClosingDay:    merged.DefaultClosingDay,
+		DefaultDueDay:        merged.DefaultDueDay,
+		DebitPaymentMethodID: merged.DebitPaymentMethodID,
+	})
 }
 
 // ===================== bootstrap (usado por auth.Register) =====================
