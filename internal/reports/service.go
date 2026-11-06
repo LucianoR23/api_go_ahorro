@@ -3,6 +3,8 @@ package reports
 import (
 	"context"
 	"fmt"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 	"log/slog"
 	"time"
 
@@ -29,20 +31,20 @@ func NewService(repo *Repository, households householdLookup, logger *slog.Logge
 // ===================== monthly =====================
 
 type CategoryBreakdownItem struct {
-	CategoryID   *uuid.UUID `json:"categoryId,omitempty"`
-	CategoryName string     `json:"categoryName"`
-	Total        float64    `json:"total"`
-	Pct          float64    `json:"pct"` // % sobre spent_this_month
-	TxCount      int64      `json:"txCount"`
+	CategoryID   *uuid.UUID      `json:"categoryId,omitempty"`
+	CategoryName string          `json:"categoryName"`
+	Total        decimal.Decimal `json:"total"`
+	Pct          float64         `json:"pct"` // % sobre spent_this_month
+	TxCount      int64           `json:"txCount"`
 }
 
 type FixedVariableItem struct {
-	FixedTotal    float64 `json:"fixedTotal"`
-	VariableTotal float64 `json:"variableTotal"`
-	FixedPct      float64 `json:"fixedPct"`
-	VariablePct   float64 `json:"variablePct"`
-	FixedCount    int64   `json:"fixedCount"`
-	VariableCount int64   `json:"variableCount"`
+	FixedTotal    decimal.Decimal `json:"fixedTotal"`
+	VariableTotal decimal.Decimal `json:"variableTotal"`
+	FixedPct      float64         `json:"fixedPct"`
+	VariablePct   float64         `json:"variablePct"`
+	FixedCount    int64           `json:"fixedCount"`
+	VariableCount int64           `json:"variableCount"`
 }
 
 type MonthlyReport struct {
@@ -51,9 +53,9 @@ type MonthlyReport struct {
 	Month         string                  `json:"month"` // YYYY-MM
 	From          string                  `json:"from"`  // YYYY-MM-DD
 	To            string                  `json:"to"`
-	Spent         float64                 `json:"spentThisMonth"`
-	Billed        float64                 `json:"billedThisMonth"`
-	Due           float64                 `json:"dueThisMonth"`
+	Spent         decimal.Decimal         `json:"spentThisMonth"`
+	Billed        decimal.Decimal         `json:"billedThisMonth"`
+	Due           decimal.Decimal         `json:"dueThisMonth"`
 	ByCategory    []CategoryBreakdownItem `json:"byCategory"`
 	FixedVariable FixedVariableItem       `json:"fixedVariable"`
 }
@@ -94,29 +96,25 @@ func (s *Service) Monthly(ctx context.Context, householdID uuid.UUID, month time
 		if name == "" {
 			name = "Sin categoría"
 		}
-		pct := 0.0
-		if spent > 0 {
-			pct = roundTo(c.Total/spent*100, 2)
-		}
+		pct := pctOf(c.Total, spent)
 		byCat[i] = CategoryBreakdownItem{
 			CategoryID:   c.CategoryID,
 			CategoryName: name,
-			Total:        roundTo(c.Total, 2),
+			Total:        c.Total.Round(money.AmountScale),
 			Pct:          pct,
 			TxCount:      c.TxCount,
 		}
 	}
 
 	fvItem := FixedVariableItem{
-		FixedTotal:    roundTo(fv.FixedTotal, 2),
-		VariableTotal: roundTo(fv.VariableTotal, 2),
+		FixedTotal:    fv.FixedTotal.Round(money.AmountScale),
+		VariableTotal: fv.VariableTotal.Round(money.AmountScale),
 		FixedCount:    fv.FixedCount,
 		VariableCount: fv.VariableCount,
 	}
-	if total := fv.FixedTotal + fv.VariableTotal; total > 0 {
-		fvItem.FixedPct = roundTo(fv.FixedTotal/total*100, 2)
-		fvItem.VariablePct = roundTo(fv.VariableTotal/total*100, 2)
-	}
+	total := fv.FixedTotal.Add(fv.VariableTotal)
+	fvItem.FixedPct = pctOf(fv.FixedTotal, total)
+	fvItem.VariablePct = pctOf(fv.VariableTotal, total)
 
 	return MonthlyReport{
 		HouseholdID:   householdID,
@@ -124,9 +122,9 @@ func (s *Service) Monthly(ctx context.Context, householdID uuid.UUID, month time
 		Month:         month.Format("2006-01"),
 		From:          from.Format("2006-01-02"),
 		To:            to.Format("2006-01-02"),
-		Spent:         roundTo(spent, 2),
-		Billed:        roundTo(billed, 2),
-		Due:           roundTo(due, 2),
+		Spent:         spent.Round(money.AmountScale),
+		Billed:        billed.Round(money.AmountScale),
+		Due:           due.Round(money.AmountScale),
 		ByCategory:    byCat,
 		FixedVariable: fvItem,
 	}, nil
@@ -135,11 +133,11 @@ func (s *Service) Monthly(ctx context.Context, householdID uuid.UUID, month time
 // ===================== trends =====================
 
 type TrendsPoint struct {
-	Month      string  `json:"month"` // YYYY-MM
-	SpentTotal float64 `json:"spentTotal"`
-	DueTotal   float64 `json:"dueTotal"`
-	Income     float64 `json:"income"`
-	Net        float64 `json:"net"` // income - dueTotal
+	Month      string          `json:"month"` // YYYY-MM
+	SpentTotal decimal.Decimal `json:"spentTotal"`
+	DueTotal   decimal.Decimal `json:"dueTotal"`
+	Income     decimal.Decimal `json:"income"`
+	Net        decimal.Decimal `json:"net"` // income - dueTotal
 }
 
 type Trends struct {
@@ -192,10 +190,10 @@ func (s *Service) TrendsByMonth(ctx context.Context, householdID uuid.UUID, mont
 		income := incomeMap[key]
 		points = append(points, TrendsPoint{
 			Month:      key,
-			SpentTotal: roundTo(spent, 2),
-			DueTotal:   roundTo(due, 2),
-			Income:     roundTo(income, 2),
-			Net:        roundTo(income-due, 2),
+			SpentTotal: spent.Round(money.AmountScale),
+			DueTotal:   due.Round(money.AmountScale),
+			Income:     income.Round(money.AmountScale),
+			Net:        income.Sub(due).Round(money.AmountScale),
 		})
 		cursor = cursor.AddDate(0, 1, 0)
 	}
@@ -217,11 +215,11 @@ type AIExport struct {
 	HouseholdName string           `json:"householdName"`
 	BaseCurrency  string           `json:"baseCurrency"`
 	Month         string           `json:"month"`
-	Spent         float64          `json:"spent"`
-	Billed        float64          `json:"billed"`
-	Due           float64          `json:"due"`
-	FixedTotal    float64          `json:"fixedTotal"`
-	VariableTotal float64          `json:"variableTotal"`
+	Spent         decimal.Decimal  `json:"spent"`
+	Billed        decimal.Decimal  `json:"billed"`
+	Due           decimal.Decimal  `json:"due"`
+	FixedTotal    decimal.Decimal  `json:"fixedTotal"`
+	VariableTotal decimal.Decimal  `json:"variableTotal"`
 	FixedPct      float64          `json:"fixedPct"`
 	TopCategories []AICategoryLine `json:"topCategories"`
 	TrendsLast6   []TrendsPoint    `json:"trendsLast6"`
@@ -229,10 +227,10 @@ type AIExport struct {
 }
 
 type AICategoryLine struct {
-	Name    string  `json:"name"`
-	Total   float64 `json:"total"`
-	Pct     float64 `json:"pct"`
-	TxCount int64   `json:"txCount"`
+	Name    string          `json:"name"`
+	Total   decimal.Decimal `json:"total"`
+	Pct     float64         `json:"pct"`
+	TxCount int64           `json:"txCount"`
 }
 
 func (s *Service) AIExport(ctx context.Context, householdID uuid.UUID, month time.Time) (AIExport, error) {
@@ -281,28 +279,28 @@ func buildPrompt(hhName string, rep MonthlyReport, trends []TrendsPoint) string 
 	p := fmt.Sprintf(
 		"Analizá los gastos del hogar %q correspondientes al mes %s (moneda base %s).\n\n"+
 			"Resumen del mes:\n"+
-			"- Gastado (spent_at): %.2f %s\n"+
-			"- Resumido en tarjetas (billing_date): %.2f %s\n"+
-			"- A pagar (due_date): %.2f %s\n"+
-			"- Fijos (recurrentes): %.2f %s (%.1f%%)\n"+
-			"- Variables (manuales): %.2f %s (%.1f%%)\n\n"+
+			"- Gastado (spent_at): %s %s\n"+
+			"- Resumido en tarjetas (billing_date): %s %s\n"+
+			"- A pagar (due_date): %s %s\n"+
+			"- Fijos (recurrentes): %s %s (%.1f%%)\n"+
+			"- Variables (manuales): %s %s (%.1f%%)\n\n"+
 			"Top categorías:\n",
 		hhName, rep.Month, cur,
-		rep.Spent, cur,
-		rep.Billed, cur,
-		rep.Due, cur,
-		rep.FixedVariable.FixedTotal, cur, rep.FixedVariable.FixedPct,
-		rep.FixedVariable.VariableTotal, cur, rep.FixedVariable.VariablePct,
+		rep.Spent.StringFixed(2), cur,
+		rep.Billed.StringFixed(2), cur,
+		rep.Due.StringFixed(2), cur,
+		rep.FixedVariable.FixedTotal.StringFixed(2), cur, rep.FixedVariable.FixedPct,
+		rep.FixedVariable.VariableTotal.StringFixed(2), cur, rep.FixedVariable.VariablePct,
 	)
 	for i, c := range rep.ByCategory {
 		if i >= 10 {
 			break
 		}
-		p += fmt.Sprintf("- %s: %.2f %s (%.1f%%, %d tx)\n", c.CategoryName, c.Total, cur, c.Pct, c.TxCount)
+		p += fmt.Sprintf("- %s: %s %s (%.1f%%, %d tx)\n", c.CategoryName, c.Total.StringFixed(2), cur, c.Pct, c.TxCount)
 	}
 	p += "\nTrends últimos 6 meses (gasto / a pagar / ingreso / neto):\n"
 	for _, t := range trends {
-		p += fmt.Sprintf("- %s: %.2f / %.2f / %.2f / %.2f\n", t.Month, t.SpentTotal, t.DueTotal, t.Income, t.Net)
+		p += fmt.Sprintf("- %s: %s / %s / %s / %s\n", t.Month, t.SpentTotal.StringFixed(2), t.DueTotal.StringFixed(2), t.Income.StringFixed(2), t.Net.StringFixed(2))
 	}
 	p += "\nDame: 1) diagnóstico breve, 2) 3 recomendaciones accionables priorizadas, 3) categorías con mayor potencial de ahorro."
 	return p
@@ -334,21 +332,20 @@ func lastOfMonth(t time.Time) time.Time {
 	return firstOfMonth(t).AddDate(0, 1, -1)
 }
 
-func indexByMonth(rows []MonthRow) map[string]float64 {
-	out := make(map[string]float64, len(rows))
+func indexByMonth(rows []MonthRow) map[string]decimal.Decimal {
+	out := make(map[string]decimal.Decimal, len(rows))
 	for _, r := range rows {
 		out[r.Month.Format("2006-01")] = r.Total
 	}
 	return out
 }
 
-func roundTo(v float64, decimals int) float64 {
-	pow := 1.0
-	for i := 0; i < decimals; i++ {
-		pow *= 10
+// pctOf: part as a percentage of total, rounded to 2 decimals; 0 when total
+// is not positive. Computed in decimal, returned as float64 (percentages are
+// not money).
+func pctOf(part, total decimal.Decimal) float64 {
+	if total.Sign() <= 0 {
+		return 0
 	}
-	if v >= 0 {
-		return float64(int64(v*pow+0.5)) / pow
-	}
-	return float64(int64(v*pow-0.5)) / pow
+	return part.Div(total).Mul(decimal.NewFromInt(100)).Round(2).InexactFloat64()
 }

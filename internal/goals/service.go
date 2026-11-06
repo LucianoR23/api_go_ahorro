@@ -50,7 +50,7 @@ type CreateInput struct {
 	UserID       *uuid.UUID
 	CategoryID   *uuid.UUID
 	GoalType     string
-	TargetAmount float64
+	TargetAmount decimal.Decimal
 	Currency     string
 	Period       string
 }
@@ -123,7 +123,7 @@ func (s *Service) List(ctx context.Context, householdID uuid.UUID, f ListFilters
 
 type UpdateInput struct {
 	CategoryID   *uuid.UUID
-	TargetAmount float64
+	TargetAmount decimal.Decimal
 	Currency     string
 	Period       string
 }
@@ -230,9 +230,9 @@ func (s *Service) ProgressList(ctx context.Context, householdID uuid.UUID, f Lis
 // converted with today's rate (decided in 0.1: simple, and the app says the
 // percentage uses today's rate).
 type baseTarget struct {
-	Amount   float64
+	Amount   decimal.Decimal
 	Currency string
-	Rate     *float64 // nil when the goal is already in the base currency
+	Rate     *decimal.Decimal // nil when the goal is already in the base currency
 }
 
 func (s *Service) targetInBase(ctx context.Context, g domain.BudgetGoal) (baseTarget, error) {
@@ -243,15 +243,14 @@ func (s *Service) targetInBase(ctx context.Context, g domain.BudgetGoal) (baseTa
 	if g.Currency == hh.BaseCurrency {
 		return baseTarget{Amount: g.TargetAmount, Currency: hh.BaseCurrency}, nil
 	}
-	amountD, rateD, err := s.fx.Convert(ctx, money.FromFloat(g.TargetAmount), g.Currency, hh.BaseCurrency)
-	amount, rate := amountD.InexactFloat64(), rateD.InexactFloat64()
+	amount, rate, err := s.fx.Convert(ctx, g.TargetAmount, g.Currency, hh.BaseCurrency)
 	if err != nil {
 		return baseTarget{}, err
 	}
-	return baseTarget{Amount: amount, Currency: hh.BaseCurrency, Rate: &rate}, nil
+	return baseTarget{Amount: amount.Round(money.AmountScale), Currency: hh.BaseCurrency, Rate: &rate}, nil
 }
 
-func (s *Service) computeCurrent(ctx context.Context, g domain.BudgetGoal, from, to time.Time) (float64, error) {
+func (s *Service) computeCurrent(ctx context.Context, g domain.BudgetGoal, from, to time.Time) (decimal.Decimal, error) {
 	switch g.GoalType {
 	case domain.GoalTypeCategoryLimit, domain.GoalTypeTotalLimit:
 		var catFilter *uuid.UUID
@@ -267,30 +266,30 @@ func (s *Service) computeCurrent(ctx context.Context, g domain.BudgetGoal, from,
 		if g.Scope == domain.GoalScopeUser && g.UserID != nil {
 			inc, err := s.repo.SumUserIncomes(ctx, g.HouseholdID, *g.UserID, from, to)
 			if err != nil {
-				return 0, err
+				return decimal.Zero, err
 			}
 			exp, err := s.repo.SumUserInstallments(ctx, g.HouseholdID, *g.UserID, nil, from, to)
 			if err != nil {
-				return 0, err
+				return decimal.Zero, err
 			}
-			return inc - exp, nil
+			return inc.Sub(exp), nil
 		}
 		inc, err := s.repo.SumHouseholdIncomes(ctx, g.HouseholdID, from, to)
 		if err != nil {
-			return 0, err
+			return decimal.Zero, err
 		}
 		exp, err := s.repo.SumHouseholdInstallments(ctx, g.HouseholdID, nil, from, to)
 		if err != nil {
-			return 0, err
+			return decimal.Zero, err
 		}
-		return inc - exp, nil
+		return inc.Sub(exp), nil
 	}
-	return 0, nil
+	return decimal.Zero, nil
 }
 
 // ===================== helpers =====================
 
-func validateGoal(scope, goalType, period, currency string, categoryID, userID *uuid.UUID, target float64) error {
+func validateGoal(scope, goalType, period, currency string, categoryID, userID *uuid.UUID, target decimal.Decimal) error {
 	switch scope {
 	case domain.GoalScopeHousehold:
 		if userID != nil {
@@ -316,7 +315,10 @@ func validateGoal(scope, goalType, period, currency string, categoryID, userID *
 	if period != domain.GoalPeriodMonthly && period != domain.GoalPeriodWeekly {
 		return domain.NewValidationError("period", "debe ser monthly o weekly")
 	}
-	if target <= 0 {
+	if !money.InRange(target) {
+		return domain.NewValidationError("targetAmount", "monto fuera de rango")
+	}
+	if target.Sign() <= 0 {
 		return domain.NewValidationError("targetAmount", "debe ser mayor a cero")
 	}
 	if currency != "ARS" && currency != "USD" && currency != "EUR" {
@@ -350,10 +352,10 @@ func periodRange(period string, at time.Time) (time.Time, time.Time) {
 // buildProgress: current is in the base currency, so percent and status use
 // the target converted to it. For savings, percent is how much of the target
 // is already saved.
-func buildProgress(g domain.BudgetGoal, start, end time.Time, current float64, target baseTarget) domain.BudgetGoalProgress {
+func buildProgress(g domain.BudgetGoal, start, end time.Time, current decimal.Decimal, target baseTarget) domain.BudgetGoalProgress {
 	percent := 0.0
-	if target.Amount > 0 {
-		percent = (current / target.Amount) * 100
+	if target.Amount.Sign() > 0 {
+		percent = current.Div(target.Amount).Mul(decimal.NewFromInt(100)).InexactFloat64()
 	}
 	return domain.BudgetGoalProgress{
 		Goal:             g,
@@ -369,31 +371,23 @@ func buildProgress(g domain.BudgetGoal, start, end time.Time, current float64, t
 	}
 }
 
-func statusFor(goalType string, current, target float64) string {
+func statusFor(goalType string, current, target decimal.Decimal) string {
+	if target.Sign() <= 0 {
+		return "ok"
+	}
 	switch goalType {
 	case domain.GoalTypeSavings:
-		// Warning si vamos <50% del target a cualquier altura; exceeded nunca
-		// aplica (ahorrar más que el target es bueno).
-		if target <= 0 {
+		// Below the target is a warning at any point; exceeded never applies
+		// (saving more than the target is good).
+		if current.GreaterThanOrEqual(target) {
 			return "ok"
-		}
-		ratio := current / target
-		if ratio >= 1 {
-			return "ok"
-		}
-		if ratio >= 0.5 {
-			return "warning"
 		}
 		return "warning"
 	default:
-		if target <= 0 {
-			return "ok"
-		}
-		ratio := current / target
-		if ratio > 1 {
+		if current.GreaterThan(target) {
 			return "exceeded"
 		}
-		if ratio >= 0.8 {
+		if current.GreaterThanOrEqual(target.Mul(decimal.New(8, -1))) {
 			return "warning"
 		}
 		return "ok"

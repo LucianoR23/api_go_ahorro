@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 	"strings"
 	"time"
 
@@ -16,7 +18,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/db"
 	sqlcgen "github.com/LucianoR23/api_go_ahorra/internal/db/sqlc"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 )
@@ -232,16 +233,16 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 
 // ===================== agregaciones =====================
 
-func (r *Repository) SumSpentAt(ctx context.Context, householdID uuid.UUID, from, to time.Time) (float64, error) {
+func (r *Repository) SumSpentAt(ctx context.Context, householdID uuid.UUID, from, to time.Time) (decimal.Decimal, error) {
 	n, err := r.q.SumExpensesSpentAtRange(ctx, sqlcgen.SumExpensesSpentAtRangeParams{
 		HouseholdID: householdID,
 		Column2:     pgtype.Date{Time: from, Valid: true},
 		Column3:     pgtype.Date{Time: to, Valid: true},
 	})
 	if err != nil {
-		return 0, fmt.Errorf("insights.SumSpentAt: %w", err)
+		return decimal.Zero, fmt.Errorf("insights.SumSpentAt: %w", err)
 	}
-	return db.FloatFromNumeric(n), nil
+	return money.FromNumeric(n), nil
 }
 
 type SpentCounts struct {
@@ -261,21 +262,21 @@ func (r *Repository) CountSpentAt(ctx context.Context, householdID uuid.UUID, fr
 	return SpentCounts{Total: row.TotalCount, DistinctCategories: row.DistinctCategories}, nil
 }
 
-func (r *Repository) SumDue(ctx context.Context, householdID uuid.UUID, from, to time.Time) (float64, error) {
+func (r *Repository) SumDue(ctx context.Context, householdID uuid.UUID, from, to time.Time) (decimal.Decimal, error) {
 	n, err := r.q.SumInstallmentsDueInRange(ctx, sqlcgen.SumInstallmentsDueInRangeParams{
 		HouseholdID: householdID,
 		Column2:     pgtype.Date{Time: from, Valid: true},
 		Column3:     pgtype.Date{Time: to, Valid: true},
 	})
 	if err != nil {
-		return 0, fmt.Errorf("insights.SumDue: %w", err)
+		return decimal.Zero, fmt.Errorf("insights.SumDue: %w", err)
 	}
-	return db.FloatFromNumeric(n), nil
+	return money.FromNumeric(n), nil
 }
 
 type TopCategory struct {
 	CategoryID *uuid.UUID
-	Total      float64
+	Total      decimal.Decimal
 	Found      bool
 }
 
@@ -291,7 +292,7 @@ func (r *Repository) TopCategory(ctx context.Context, householdID uuid.UUID, fro
 	if err != nil {
 		return TopCategory{}, fmt.Errorf("insights.TopCategory: %w", err)
 	}
-	return TopCategory{CategoryID: row.CategoryID, Total: db.FloatFromNumeric(row.TotalBase), Found: true}, nil
+	return TopCategory{CategoryID: row.CategoryID, Total: money.FromNumeric(row.TotalBase), Found: true}, nil
 }
 
 // ===================== mappers =====================

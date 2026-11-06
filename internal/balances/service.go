@@ -2,18 +2,18 @@ package balances
 
 import (
 	"context"
-	"math"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 	"sort"
 
 	"github.com/google/uuid"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/db"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 )
 
-// epsilon: balances por debajo de 1 centavo se consideran saldados.
+// Amounts are exact decimals (plan 0.7): a pair is settled when its net is
+// zero at cents.
 // Evita ruido por redondeos acumulados en muchas expenses.
-const epsilon = 0.005
 
 type Service struct {
 	repo *Repository
@@ -40,17 +40,17 @@ func (s *Service) HouseholdNet(ctx context.Context, householdID uuid.UUID) ([]do
 	//   +X = a debe X a b
 	//   -X = b debe X a a
 	type canonKey struct{ a, b uuid.UUID }
-	net := make(map[canonKey]float64)
+	net := make(map[canonKey]decimal.Decimal)
 
-	addDirectional := func(from, to uuid.UUID, amount float64) {
+	addDirectional := func(from, to uuid.UUID, amount decimal.Decimal) {
 		if from == to {
 			return
 		}
 		a, b := canonical(from, to)
 		if from == a {
-			net[canonKey{a, b}] += amount
+			net[canonKey{a, b}] = net[canonKey{a, b}].Add(amount)
 		} else {
-			net[canonKey{a, b}] -= amount
+			net[canonKey{a, b}] = net[canonKey{a, b}].Sub(amount)
 		}
 	}
 
@@ -60,19 +60,19 @@ func (s *Service) HouseholdNet(ctx context.Context, householdID uuid.UUID) ([]do
 	}
 	// Settlements: from ya le pagó paid_total a to → reduce lo que from debe a to.
 	for _, s := range settlements {
-		addDirectional(s.From, s.To, -s.PaidTotal)
+		addDirectional(s.From, s.To, s.PaidTotal.Neg())
 	}
 
 	out := make([]domain.BalanceRow, 0, len(net))
 	for k, v := range net {
-		v = db.RoundTo(v, 2)
-		if math.Abs(v) < epsilon {
+		v = v.Round(money.AmountScale)
+		switch v.Sign() {
+		case 0:
 			continue
-		}
-		if v > 0 {
+		case 1:
 			out = append(out, domain.BalanceRow{From: k.a, To: k.b, Amount: v})
-		} else {
-			out = append(out, domain.BalanceRow{From: k.b, To: k.a, Amount: -v})
+		default:
+			out = append(out, domain.BalanceRow{From: k.b, To: k.a, Amount: v.Neg()})
 		}
 	}
 
@@ -97,7 +97,7 @@ type MyView struct {
 	UserID   uuid.UUID
 	Owe      []domain.BalanceRow // from=me, to=creditor
 	OwedToMe []domain.BalanceRow // from=debtor, to=me
-	Net      float64
+	Net      decimal.Decimal
 }
 
 func (s *Service) MyView(ctx context.Context, householdID, userID uuid.UUID) (MyView, error) {
@@ -110,30 +110,30 @@ func (s *Service) MyView(ctx context.Context, householdID, userID uuid.UUID) (My
 		switch userID {
 		case b.From:
 			view.Owe = append(view.Owe, b)
-			view.Net -= b.Amount
+			view.Net = view.Net.Sub(b.Amount)
 		case b.To:
 			view.OwedToMe = append(view.OwedToMe, b)
-			view.Net += b.Amount
+			view.Net = view.Net.Add(b.Amount)
 		}
 	}
-	view.Net = db.RoundTo(view.Net, 2)
+	view.Net = view.Net.Round(money.AmountScale)
 	return view, nil
 }
 
 // PairNet: balance firmado entre from y to. Positivo → from debe a to;
 // Negativo → to debe a from. Lo usa settlements.Service para validar
 // que un pago no exceda la deuda actual.
-func (s *Service) PairNet(ctx context.Context, householdID, from, to uuid.UUID) (float64, error) {
+func (s *Service) PairNet(ctx context.Context, householdID, from, to uuid.UUID) (decimal.Decimal, error) {
 	if from == to {
-		return 0, domain.NewValidationError("users", "from y to no pueden ser el mismo user")
+		return decimal.Zero, domain.NewValidationError("users", "from y to no pueden ser el mismo user")
 	}
 	raw, err := s.repo.PairBalance(ctx, householdID, from, to)
 	if err != nil {
-		return 0, err
+		return decimal.Zero, err
 	}
 	// Fórmula del plan: balance = owed_by_from - owed_by_to - settled_fwd + settled_bwd
-	balance := raw.OwedByFrom - raw.OwedByTo - raw.SettledFwd + raw.SettledBwd
-	return db.RoundTo(balance, 2), nil
+	balance := raw.OwedByFrom.Sub(raw.OwedByTo).Sub(raw.SettledFwd).Add(raw.SettledBwd)
+	return balance.Round(money.AmountScale), nil
 }
 
 // canonical ordena dos UUIDs alfabéticamente. Sirve para unificar claves

@@ -3,6 +3,7 @@ package reports
 import (
 	"bytes"
 	"fmt"
+	"github.com/shopspring/decimal"
 	"html/template"
 )
 
@@ -86,7 +87,7 @@ type emailData struct {
 // que el template sea agnóstico.
 func RenderMonthlyHTML(brand, hhName string, rep MonthlyReport) (string, error) {
 	cur := rep.BaseCurrency
-	fmtMoney := func(v float64) string { return fmt.Sprintf("%.2f %s", v, cur) }
+	fmtMoney := func(v decimal.Decimal) string { return v.StringFixed(2) + " " + cur }
 	fmtPct := func(v float64) string { return fmt.Sprintf("%.1f", v) }
 
 	cats := make([]emailCategory, 0, len(rep.ByCategory))

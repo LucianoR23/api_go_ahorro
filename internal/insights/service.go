@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/shopspring/decimal"
 	"log/slog"
 	"time"
 
@@ -393,7 +394,7 @@ func (s *Service) genWeeklyReview(ctx context.Context, householdID uuid.UUID, at
 	title := fmt.Sprintf("Semana cerrada: %s", formatMoney(thisTotal))
 	body := weeklyBody(thisTotal, prevTotal, counts, monthDue)
 	severity := domain.InsightSeverityInfo
-	if prevTotal > 0 && thisTotal > prevTotal*1.2 {
+	if prevTotal.Sign() > 0 && thisTotal.GreaterThan(prevTotal.Mul(decimal.New(12, -1))) {
 		severity = domain.InsightSeverityWarning
 	}
 
@@ -589,10 +590,10 @@ func (s *Service) genInstallmentsDueSoon(ctx context.Context, householdID uuid.U
 func alertText(p domain.BudgetGoalProgress, at time.Time) (string, string, string, bool) {
 	switch p.Goal.GoalType {
 	case domain.GoalTypeCategoryLimit, domain.GoalTypeTotalLimit:
-		if p.TargetAmountBase <= 0 {
+		if p.TargetAmountBase.Sign() <= 0 {
 			return "", "", "", false
 		}
-		ratio := p.CurrentAmount / p.TargetAmountBase
+		ratio := p.CurrentAmount.Div(p.TargetAmountBase).InexactFloat64()
 		if ratio < 0.8 {
 			return "", "", "", false
 		}
@@ -607,10 +608,10 @@ func alertText(p domain.BudgetGoalProgress, at time.Time) (string, string, strin
 
 	case domain.GoalTypeSavings:
 		// Solo alertamos savings después del día 20 si vamos <50%.
-		if at.Day() < 20 || p.TargetAmountBase <= 0 {
+		if at.Day() < 20 || p.TargetAmountBase.Sign() <= 0 {
 			return "", "", "", false
 		}
-		ratio := p.CurrentAmount / p.TargetAmountBase
+		ratio := p.CurrentAmount.Div(p.TargetAmountBase).InexactFloat64()
 		if ratio >= 0.5 {
 			return "", "", "", false
 		}
@@ -622,7 +623,7 @@ func alertText(p domain.BudgetGoalProgress, at time.Time) (string, string, strin
 	return "", "", "", false
 }
 
-func weeklyBody(thisWeek, prev float64, counts SpentCounts, monthDue float64) string {
+func weeklyBody(thisWeek, prev decimal.Decimal, counts SpentCounts, monthDue decimal.Decimal) string {
 	var summary string
 	if counts.Total == 0 {
 		summary = "Esta semana no registraste gastos."
@@ -633,13 +634,13 @@ func weeklyBody(thisWeek, prev float64, counts SpentCounts, monthDue float64) st
 
 	var compare string
 	switch {
-	case prev == 0 && counts.Total > 0:
+	case prev.IsZero() && counts.Total > 0:
 		compare = "No hay semana previa comparable."
-	case prev > 0:
-		delta := thisWeek - prev
-		pct := (delta / prev) * 100
+	case prev.Sign() > 0:
+		delta := thisWeek.Sub(prev)
+		pct := delta.Div(prev).Mul(decimal.NewFromInt(100)).InexactFloat64()
 		dir := "más"
-		if delta < 0 {
+		if delta.Sign() < 0 {
 			dir = "menos"
 			pct = -pct
 		}
@@ -655,8 +656,8 @@ func weeklyBody(thisWeek, prev float64, counts SpentCounts, monthDue float64) st
 	return parts + " " + tail
 }
 
-func formatMoney(v float64) string {
-	return fmt.Sprintf("$%.2f", v)
+func formatMoney(v decimal.Decimal) string {
+	return "$" + v.StringFixed(2)
 }
 
 func dayStart(t time.Time) time.Time {

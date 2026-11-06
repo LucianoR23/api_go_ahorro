@@ -7,12 +7,13 @@ package balances
 import (
 	"context"
 	"fmt"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/dates"
-	"github.com/LucianoR23/api_go_ahorra/internal/db"
 	sqlcgen "github.com/LucianoR23/api_go_ahorra/internal/db/sqlc"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -31,7 +32,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 type MatrixRow struct {
 	Debtor     uuid.UUID
 	Creditor   uuid.UUID
-	BilledOwed float64
+	BilledOwed decimal.Decimal
 }
 
 // SettlementRow: total pagado por from → to en el hogar. Tambien en
@@ -39,7 +40,7 @@ type MatrixRow struct {
 type SettlementRow struct {
 	From      uuid.UUID
 	To        uuid.UUID
-	PaidTotal float64
+	PaidTotal decimal.Decimal
 }
 
 // HouseholdMatrix devuelve las dos fuentes que alimentan el cálculo de
@@ -58,7 +59,7 @@ func (r *Repository) HouseholdMatrix(ctx context.Context, householdID uuid.UUID)
 		matrix[i] = MatrixRow{
 			Debtor:     row.DebtorID,
 			Creditor:   row.CreditorID,
-			BilledOwed: db.FloatFromNumeric(row.BilledOwed),
+			BilledOwed: money.FromNumeric(row.BilledOwed),
 		}
 	}
 
@@ -71,7 +72,7 @@ func (r *Repository) HouseholdMatrix(ctx context.Context, householdID uuid.UUID)
 		settle[i] = SettlementRow{
 			From:      row.FromUser,
 			To:        row.ToUser,
-			PaidTotal: db.FloatFromNumeric(row.PaidTotal),
+			PaidTotal: money.FromNumeric(row.PaidTotal),
 		}
 	}
 	return matrix, settle, nil
@@ -81,10 +82,10 @@ func (r *Repository) HouseholdMatrix(ctx context.Context, householdID uuid.UUID)
 // balance entre dos miembros (owed en cada dirección + settled en cada
 // dirección). El service los combina con la fórmula del plan.
 type PairRaw struct {
-	OwedByFrom float64
-	OwedByTo   float64
-	SettledFwd float64
-	SettledBwd float64
+	OwedByFrom decimal.Decimal
+	OwedByTo   decimal.Decimal
+	SettledFwd decimal.Decimal
+	SettledBwd decimal.Decimal
 }
 
 // PairBalance pide la fila agregada entre dos usuarios. sqlc espera los
@@ -100,9 +101,9 @@ func (r *Repository) PairBalance(ctx context.Context, householdID, from, to uuid
 		return PairRaw{}, fmt.Errorf("balances.PairBalance: %w", err)
 	}
 	return PairRaw{
-		OwedByFrom: db.FloatFromNumeric(row.OwedByFrom),
-		OwedByTo:   db.FloatFromNumeric(row.OwedByTo),
-		SettledFwd: db.FloatFromNumeric(row.SettledFwd),
-		SettledBwd: db.FloatFromNumeric(row.SettledBwd),
+		OwedByFrom: money.FromNumeric(row.OwedByFrom),
+		OwedByTo:   money.FromNumeric(row.OwedByTo),
+		SettledFwd: money.FromNumeric(row.SettledFwd),
+		SettledBwd: money.FromNumeric(row.SettledBwd),
 	}, nil
 }

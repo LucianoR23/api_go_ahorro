@@ -2,6 +2,7 @@ package balances
 
 import (
 	"errors"
+	"github.com/shopspring/decimal"
 	"log/slog"
 	"net/http"
 
@@ -44,9 +45,9 @@ func (h *Handler) Mount(r chi.Router) {
 // ===================== DTOs =====================
 
 type balanceRowDTO struct {
-	From   string  `json:"from"`
-	To     string  `json:"to"`
-	Amount float64 `json:"amount"`
+	From   string          `json:"from"`
+	To     string          `json:"to"`
+	Amount decimal.Decimal `json:"amount"`
 }
 
 type householdNetDTO struct {
@@ -58,7 +59,7 @@ type myViewDTO struct {
 	UserID   string          `json:"userId"`
 	Owe      []balanceRowDTO `json:"owe"`
 	OwedToMe []balanceRowDTO `json:"owedToMe"`
-	Net      float64         `json:"net"`
+	Net      decimal.Decimal `json:"net"`
 }
 
 // ===================== handlers =====================
