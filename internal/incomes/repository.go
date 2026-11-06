@@ -44,6 +44,21 @@ type CreateParams struct {
 	Source          string
 	Description     string
 	ReceivedAt      time.Time
+	// RecurringIncomeID: set only by recurring generation.
+	RecurringIncomeID *uuid.UUID
+}
+
+// HasRecurringOccurrence: whether the series already booked an income on
+// date, so a retried run does not book it twice (plan 0.3b).
+func (r *Repository) HasRecurringOccurrence(ctx context.Context, seriesID uuid.UUID, date time.Time) (bool, error) {
+	ok, err := r.q.RecurringIncomeHasOccurrence(ctx, sqlcgen.RecurringIncomeHasOccurrenceParams{
+		RecurringIncomeID: &seriesID,
+		ReceivedAt:        pgtype.Date{Time: date, Valid: true},
+	})
+	if err != nil {
+		return false, fmt.Errorf("incomes.HasRecurringOccurrence: %w", err)
+	}
+	return ok, nil
 }
 
 func (r *Repository) Create(ctx context.Context, p CreateParams) (domain.Income, error) {
@@ -68,18 +83,19 @@ func (r *Repository) Create(ctx context.Context, p CreateParams) (domain.Income,
 	}
 
 	row, err := r.q.CreateIncome(ctx, sqlcgen.CreateIncomeParams{
-		HouseholdID:     p.HouseholdID,
-		ReceivedBy:      p.ReceivedBy,
-		PaymentMethodID: p.PaymentMethodID,
-		Amount:          amountN,
-		Currency:        p.Currency,
-		AmountBase:      amountBaseN,
-		BaseCurrency:    p.BaseCurrency,
-		RateUsed:        rateN,
-		RateAt:          rateAtTS,
-		Source:          p.Source,
-		Description:     p.Description,
-		ReceivedAt:      pgtype.Date{Time: p.ReceivedAt, Valid: true},
+		HouseholdID:       p.HouseholdID,
+		ReceivedBy:        p.ReceivedBy,
+		PaymentMethodID:   p.PaymentMethodID,
+		Amount:            amountN,
+		Currency:          p.Currency,
+		AmountBase:        amountBaseN,
+		BaseCurrency:      p.BaseCurrency,
+		RateUsed:          rateN,
+		RateAt:            rateAtTS,
+		Source:            p.Source,
+		Description:       p.Description,
+		ReceivedAt:        pgtype.Date{Time: p.ReceivedAt, Valid: true},
+		RecurringIncomeID: p.RecurringIncomeID,
 	})
 	if err != nil {
 		return domain.Income{}, fmt.Errorf("incomes.Create: %w", err)
@@ -361,20 +377,21 @@ func toIncome(row sqlcgen.Income) domain.Income {
 		rateAt = &t
 	}
 	return domain.Income{
-		ID:              row.ID,
-		HouseholdID:     row.HouseholdID,
-		ReceivedBy:      row.ReceivedBy,
-		PaymentMethodID: row.PaymentMethodID,
-		Amount:          db.FloatFromNumeric(row.Amount),
-		Currency:        row.Currency,
-		AmountBase:      db.FloatFromNumeric(row.AmountBase),
-		BaseCurrency:    row.BaseCurrency,
-		RateUsed:        rateUsed,
-		RateAt:          rateAt,
-		Source:          row.Source,
-		Description:     row.Description,
-		ReceivedAt:      row.ReceivedAt.Time,
-		CreatedAt:       row.CreatedAt.Time,
+		ID:                row.ID,
+		HouseholdID:       row.HouseholdID,
+		ReceivedBy:        row.ReceivedBy,
+		PaymentMethodID:   row.PaymentMethodID,
+		Amount:            db.FloatFromNumeric(row.Amount),
+		Currency:          row.Currency,
+		AmountBase:        db.FloatFromNumeric(row.AmountBase),
+		BaseCurrency:      row.BaseCurrency,
+		RateUsed:          rateUsed,
+		RateAt:            rateAt,
+		Source:            row.Source,
+		Description:       row.Description,
+		ReceivedAt:        row.ReceivedAt.Time,
+		CreatedAt:         row.CreatedAt.Time,
+		RecurringIncomeID: row.RecurringIncomeID,
 	}
 }
 
