@@ -60,9 +60,8 @@ migrations/           golang-migrate up/down
 # 1. Copiar env y ajustar valores
 cp .env.example .env
 
-# 2. Generar secretos JWT (mínimo 32 chars cada uno)
+# 2. Generar el secreto JWT (mínimo 32 chars)
 openssl rand -hex 32   # → pegar en JWT_SECRET
-openssl rand -hex 32   # → pegar en JWT_REFRESH_SECRET
 
 # 3. Migrar la DB
 migrate -path migrations -database "$DATABASE_URL" up
@@ -96,7 +95,6 @@ Ver [`.env.example`](./.env.example). Resumen:
 | `MIGRATE_ON_START` | no (false) | `true` = aplica las migraciones embebidas al arrancar, con advisory lock; si fallan o la DB está dirty, el proceso sale con 1 |
 | `MIGRATE_DATABASE_URL` | si `MIGRATE_ON_START=true` | URL del rol dueño del schema (DDL). Sin fallback a `DATABASE_URL` |
 | `JWT_SECRET` | sí | mínimo 32 chars |
-| `JWT_REFRESH_SECRET` | sí | mínimo 32 chars, distinto del anterior |
 | `ALLOWED_ORIGINS` | no (localhost:3005) | CORS, separado por coma |
 | `RESEND_API_KEY` | no | si falta, el worker de reports loguea skip y no envía |
 | `REPORT_FROM_EMAIL` | no | remitente de reportes (dominio verificado en Resend) |

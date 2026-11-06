@@ -150,9 +150,7 @@ func TestDeleteMe(t *testing.T) {
 			t.Errorf("re-registration reused the deleted id")
 		}
 
-		testutil.KnownBug(t, "0.5", "refresh does not check that the user still exists", func(t testing.TB) {
-			s.Refresh(t, session).Status(t, http.StatusUnauthorized)
-		})
+		s.Refresh(t, session).Status(t, http.StatusUnauthorized)
 	})
 
 	t.Run("household owner must transfer first", func(t *testing.T) {

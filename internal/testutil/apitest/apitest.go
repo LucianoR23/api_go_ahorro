@@ -86,7 +86,6 @@ func New(t testing.TB, opts ...Option) *Server {
 		Env:                    "dev",
 		LogLevel:               "error",
 		JWTSecret:              strings.Repeat("a", 32) + "-test-access",
-		JWTRefreshSecret:       strings.Repeat("b", 32) + "-test-refresh",
 		AllowedOrigins:         []string{"http://localhost:3005"},
 		ReportFromEmail:        "Test <reports@example.test>",
 		InviteFromEmail:        "Test <invites@example.test>",

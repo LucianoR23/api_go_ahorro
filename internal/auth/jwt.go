@@ -11,14 +11,11 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 )
 
-// TTLs: tokens cortos + refresh rotativo.
-// Access token: 15 min — suficiente para que la PWA opere sin llamar a
-// refresh en cada request, pero corto como para que si se filtra dure poco.
-// Refresh token: 7 días — balancea UX (no re-loguear diario) con seguridad.
-const (
-	AccessTokenTTL  = 15 * time.Minute
-	RefreshTokenTTL = 7 * 24 * time.Hour
-)
+// AccessTokenTTL: 15 min. Long enough for the PWA not to refresh on every
+// request, short enough that a leaked access token is useful only briefly.
+// The refresh token is not a JWT: it is an opaque server-side session (see
+// sessions.go, plan 0.5).
+const AccessTokenTTL = 15 * time.Minute
 
 // TokenType distingue access de refresh en el claim "typ" del JWT.
 // Así un refresh firmado nunca sirve como access token ni viceversa,
@@ -39,51 +36,33 @@ const (
 // token), y esos datos los resuelve el handler desde DB si los necesita.
 type Claims struct {
 	Typ TokenType `json:"typ"`
+	// Sid: the server-side session this access token belongs to (plan 0.5),
+	// so "sign out the other devices" can keep the current one.
+	Sid string `json:"sid,omitempty"`
 	jwt.RegisteredClaims
 }
 
-// TokenIssuer emite y valida tokens. Se construye una sola vez en arranque
-// con los secrets del Config y se comparte (thread-safe: los secrets son
-// []byte inmutables).
+// TokenIssuer signs and checks access tokens. Built once at startup and
+// shared (the secret is immutable).
 type TokenIssuer struct {
-	accessSecret  []byte
-	refreshSecret []byte
-	issuer        string
+	accessSecret []byte
+	issuer       string
 }
 
-// NewTokenIssuer valida que los secrets no estén vacíos y devuelve un
-// issuer listo para usar. Los secrets ya fueron validados en config
-// (longitud mínima 32), acá solo chequeamos no-vacío por defensa.
-func NewTokenIssuer(accessSecret, refreshSecret string) (*TokenIssuer, error) {
-	if accessSecret == "" || refreshSecret == "" {
-		return nil, errors.New("auth: secrets no pueden estar vacíos")
+func NewTokenIssuer(accessSecret string) (*TokenIssuer, error) {
+	if accessSecret == "" {
+		return nil, errors.New("auth: JWT_SECRET no puede estar vacío")
 	}
-	if accessSecret == refreshSecret {
-		return nil, errors.New("auth: JWT_SECRET y JWT_REFRESH_SECRET deben ser distintos")
-	}
-	return &TokenIssuer{
-		accessSecret:  []byte(accessSecret),
-		refreshSecret: []byte(refreshSecret),
-		issuer:        "ahorra-api",
-	}, nil
+	return &TokenIssuer{accessSecret: []byte(accessSecret), issuer: "ahorra-api"}, nil
 }
 
-// IssueAccessToken firma un access token con el secret correspondiente.
-func (ti *TokenIssuer) IssueAccessToken(userID uuid.UUID) (string, time.Time, error) {
-	return ti.issue(userID, TokenTypeAccess, AccessTokenTTL, ti.accessSecret)
-}
-
-// IssueRefreshToken firma un refresh token con su secret separado.
-func (ti *TokenIssuer) IssueRefreshToken(userID uuid.UUID) (string, time.Time, error) {
-	return ti.issue(userID, TokenTypeRefresh, RefreshTokenTTL, ti.refreshSecret)
-}
-
-func (ti *TokenIssuer) issue(userID uuid.UUID, typ TokenType, ttl time.Duration, secret []byte) (string, time.Time, error) {
+// IssueAccessToken signs an access token for the user and session.
+func (ti *TokenIssuer) IssueAccessToken(userID, sessionID uuid.UUID) (string, time.Time, error) {
 	now := time.Now()
-	expiresAt := now.Add(ttl)
-
+	expiresAt := now.Add(AccessTokenTTL)
 	claims := Claims{
-		Typ: typ,
+		Typ: TokenTypeAccess,
+		Sid: sessionID.String(),
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID.String(),
 			Issuer:    ti.issuer,
@@ -92,34 +71,34 @@ func (ti *TokenIssuer) issue(userID uuid.UUID, typ TokenType, ttl time.Duration,
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 		},
 	}
-
-	// HS256: HMAC-SHA256 con secret simétrico. Para un monolito con 1-2
-	// instancias es lo correcto: no necesitamos keypair. Si alguna vez
-	// hay que verificar tokens desde un servicio que no debería tener
-	// el secret de emisión, migramos a RS256 (asimétrico).
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, err := token.SignedString(secret)
+	// HS256 with a symmetric secret: right for a monolith that both issues
+	// and checks its tokens.
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(ti.accessSecret)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("auth: firmar token: %w", err)
 	}
 	return signed, expiresAt, nil
 }
 
-// ParseAccessToken valida firma + expiración + tipo y devuelve el user_id.
-// Usa el secret de access. Si el token es de tipo refresh, falla.
-func (ti *TokenIssuer) ParseAccessToken(tokenStr string) (uuid.UUID, error) {
-	return ti.parse(tokenStr, TokenTypeAccess, ti.accessSecret)
+// ParseAccessToken checks signature, expiry and type and returns the user
+// and the session (uuid.Nil for tokens issued before sessions existed).
+func (ti *TokenIssuer) ParseAccessToken(tokenStr string) (userID, sessionID uuid.UUID, err error) {
+	claims, err := ti.parse(tokenStr, TokenTypeAccess, ti.accessSecret)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+	userID, err = uuid.Parse(claims.Subject)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, fmt.Errorf("%w: subject inválido", domain.ErrUnauthorized)
+	}
+	sessionID, _ = uuid.Parse(claims.Sid)
+	return userID, sessionID, nil
 }
 
-// ParseRefreshToken es el espejo para el flujo de rotación del refresh.
-func (ti *TokenIssuer) ParseRefreshToken(tokenStr string) (uuid.UUID, error) {
-	return ti.parse(tokenStr, TokenTypeRefresh, ti.refreshSecret)
-}
-
-func (ti *TokenIssuer) parse(tokenStr string, expectedType TokenType, secret []byte) (uuid.UUID, error) {
+func (ti *TokenIssuer) parse(tokenStr string, expectedType TokenType, secret []byte) (*Claims, error) {
 	claims := &Claims{}
-	// El keyFunc valida también el algoritmo — rechazamos cualquier cosa
-	// que no sea HMAC (evita el famoso ataque "alg: none" y RS/HS confusion).
+	// The keyFunc also checks the algorithm: anything but HMAC is refused
+	// (no "alg: none", no RS/HS confusion).
 	token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("algoritmo inesperado: %v", t.Header["alg"])
@@ -127,20 +106,14 @@ func (ti *TokenIssuer) parse(tokenStr string, expectedType TokenType, secret []b
 		return secret, nil
 	})
 	if err != nil {
-		// Cualquier error de parse/verify → Unauthorized a nivel dominio.
-		// El detalle se puede loggear pero no exponer al cliente.
-		return uuid.Nil, fmt.Errorf("%w: %v", domain.ErrUnauthorized, err)
+		// Details go to logs, never to the client.
+		return nil, fmt.Errorf("%w: %v", domain.ErrUnauthorized, err)
 	}
 	if !token.Valid {
-		return uuid.Nil, domain.ErrUnauthorized
+		return nil, domain.ErrUnauthorized
 	}
 	if claims.Typ != expectedType {
-		return uuid.Nil, fmt.Errorf("%w: tipo de token incorrecto", domain.ErrUnauthorized)
+		return nil, fmt.Errorf("%w: tipo de token incorrecto", domain.ErrUnauthorized)
 	}
-
-	userID, err := uuid.Parse(claims.Subject)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("%w: subject inválido", domain.ErrUnauthorized)
-	}
-	return userID, nil
+	return claims, nil
 }

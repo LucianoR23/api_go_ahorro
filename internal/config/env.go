@@ -27,9 +27,10 @@ type Config struct {
 	MigrateOnStart     bool
 	MigrateDatabaseURL string
 
-	JWTSecret        string
-	JWTRefreshSecret string
-	AllowedOrigins   []string
+	// JWTSecret signs access tokens. Refresh tokens are server-side sessions
+	// since plan 0.5 (JWT_REFRESH_SECRET is gone; ignored if still set).
+	JWTSecret      string
+	AllowedOrigins []string
 
 	// Resend: opcional. Si no hay API key, el worker de reports no manda
 	// emails (loguea warning y sigue). Útil para dev sin configurar nada.
@@ -98,7 +99,6 @@ func Load() (*Config, error) {
 		MigrateOnStart:         migrateOnStart,
 		MigrateDatabaseURL:     os.Getenv("MIGRATE_DATABASE_URL"),
 		JWTSecret:              os.Getenv("JWT_SECRET"),
-		JWTRefreshSecret:       os.Getenv("JWT_REFRESH_SECRET"),
 		AllowedOrigins:         splitAndTrim(getOrDefault("ALLOWED_ORIGINS", "http://localhost:3005"), ","),
 		ResendAPIKey:           os.Getenv("RESEND_API_KEY"),
 		BrandName:              brand,
@@ -129,9 +129,8 @@ func Load() (*Config, error) {
 
 func (c *Config) validate() error {
 	required := map[string]string{
-		"DATABASE_URL":       c.DatabaseURL,
-		"JWT_SECRET":         c.JWTSecret,
-		"JWT_REFRESH_SECRET": c.JWTRefreshSecret,
+		"DATABASE_URL": c.DatabaseURL,
+		"JWT_SECRET":   c.JWTSecret,
 	}
 	for name, value := range required {
 		if strings.TrimSpace(value) == "" {
@@ -143,9 +142,6 @@ func (c *Config) validate() error {
 	}
 	if len(c.JWTSecret) < 32 {
 		return fmt.Errorf("config: JWT_SECRET debe tener al menos 32 caracteres")
-	}
-	if len(c.JWTRefreshSecret) < 32 {
-		return fmt.Errorf("config: JWT_REFRESH_SECRET debe tener al menos 32 caracteres")
 	}
 	return nil
 }

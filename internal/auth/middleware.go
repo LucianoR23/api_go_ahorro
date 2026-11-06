@@ -56,7 +56,7 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		userID, err := m.tokens.ParseAccessToken(token)
+		userID, sessionID, err := m.tokens.ParseAccessToken(token)
 		if err != nil {
 			// ParseAccessToken ya envuelve con ErrUnauthorized.
 			// WriteError lo mapea a 401 con mensaje "autenticación requerida".
@@ -65,7 +65,7 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx := ContextWithUserID(r.Context(), userID)
+		ctx := ContextWithSessionID(ContextWithUserID(r.Context(), userID), sessionID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

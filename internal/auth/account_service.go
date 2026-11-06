@@ -28,7 +28,17 @@ type AccountService struct {
 	users      accountUserRepo
 	households accountHouseholdRepo
 	push       accountPushRepo
-	logger     *slog.Logger
+	sessions   interface {
+		RevokeAll(ctx context.Context, userID uuid.UUID) error
+	}
+	logger *slog.Logger
+}
+
+// SetSessions wires session revocation on account deletion (plan 0.5).
+func (s *AccountService) SetSessions(r interface {
+	RevokeAll(ctx context.Context, userID uuid.UUID) error
+}) {
+	s.sessions = r
 }
 
 // accountUserRepo: solo soft delete + count owners.
@@ -90,6 +100,11 @@ func (s *AccountService) SoftDelete(ctx context.Context, userID uuid.UUID) error
 
 	if err := s.users.SoftDelete(ctx, userID); err != nil {
 		return err
+	}
+	if s.sessions != nil {
+		if err := s.sessions.RevokeAll(ctx, userID); err != nil {
+			return err
+		}
 	}
 	s.logger.InfoContext(ctx, "cuenta dada de baja (soft delete)", "user_id", userID)
 	return nil

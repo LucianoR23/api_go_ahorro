@@ -301,3 +301,16 @@ type UserIdentity struct {
 	Email    string             `json:"email"`
 	LinkedAt pgtype.Timestamptz `json:"linked_at"`
 }
+
+type UserSession struct {
+	ID              uuid.UUID          `json:"id"`
+	UserID          uuid.UUID          `json:"user_id"`
+	RefreshHash     []byte             `json:"refresh_hash"`
+	PrevRefreshHash []byte             `json:"prev_refresh_hash"`
+	UserAgent       string             `json:"user_agent"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	LastUsedAt      pgtype.Timestamptz `json:"last_used_at"`
+	RotatedAt       pgtype.Timestamptz `json:"rotated_at"`
+	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt       pgtype.Timestamptz `json:"revoked_at"`
+}

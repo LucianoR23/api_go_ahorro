@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 )
 
@@ -58,9 +57,7 @@ func TestForgotAndResetPassword(t *testing.T) {
 			wantError(t, resetPassword(t, s, mail.Token(t), "Another-pass-77"), http.StatusUnauthorized, "unauthorized", "")
 		})
 
-		testutil.KnownBug(t, "0.5", "a password reset does not revoke existing sessions", func(t testing.TB) {
-			s.Refresh(t, session).Status(t, http.StatusUnauthorized)
-		})
+		s.Refresh(t, session).Status(t, http.StatusUnauthorized)
 	})
 
 	t.Run("unknown email answers 204 and sends nothing", func(t *testing.T) {
@@ -135,9 +132,22 @@ func TestChangePassword(t *testing.T) {
 			wantError(t, resetPassword(t, s, pendingReset, "Another-pass-77"), http.StatusUnauthorized, "unauthorized", "")
 		})
 
-		testutil.KnownBug(t, "0.5", "changing the password does not revoke other sessions", func(t testing.TB) {
-			s.Refresh(t, session).Status(t, http.StatusUnauthorized)
-		})
+		s.Refresh(t, session).Status(t, http.StatusUnauthorized)
+	})
+
+	t.Run("the device that changes the password keeps its session", func(t *testing.T) {
+		u := s.Register(t)
+		res := s.Login(t, u.Email, u.Password)
+		var login struct {
+			AccessToken string `json:"accessToken"`
+		}
+		res.JSON(t, &login)
+		here := res.RefreshCookieValue(t)
+		elsewhere := s.Login(t, u.Email, u.Password).RefreshCookieValue(t)
+
+		changePassword(t, s, login.AccessToken, u.Password, newPassword).Status(t, http.StatusNoContent)
+		s.Refresh(t, here).Status(t, http.StatusOK)
+		s.Refresh(t, elsewhere).Status(t, http.StatusUnauthorized)
 	})
 
 	t.Run("wrong current password", func(t *testing.T) {

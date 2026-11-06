@@ -73,6 +73,7 @@ type emailVerifier interface {
 type Service struct {
 	repo           userRepository
 	tokens         *TokenIssuer
+	sessions       *SessionStore
 	bootstrap      registerBootstrap
 	invites        inviteAccepter
 	verifier       emailVerifier
@@ -81,8 +82,8 @@ type Service struct {
 	logger         *slog.Logger
 }
 
-func NewService(repo userRepository, tokens *TokenIssuer, bootstrap registerBootstrap, logger *slog.Logger) *Service {
-	return &Service{repo: repo, tokens: tokens, bootstrap: bootstrap, logger: logger}
+func NewService(repo userRepository, tokens *TokenIssuer, sessions *SessionStore, bootstrap registerBootstrap, logger *slog.Logger) *Service {
+	return &Service{repo: repo, tokens: tokens, sessions: sessions, bootstrap: bootstrap, logger: logger}
 }
 
 // SetInviteAccepter cablea post-construcción para evitar dependencia
@@ -197,7 +198,7 @@ func (s *Service) Register(ctx context.Context, email, password, firstName, last
 		}
 	}
 
-	tokens, err := s.issueTokens(user.ID)
+	tokens, err := s.issueTokens(ctx, user.ID)
 	if err != nil {
 		return AuthResult{}, err
 	}
@@ -230,7 +231,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (AuthResult
 		return AuthResult{}, domain.NewAuthError("email o contraseña incorrectos")
 	}
 
-	tokens, err := s.issueTokens(creds.User.ID)
+	tokens, err := s.issueTokens(ctx, creds.User.ID)
 	if err != nil {
 		return AuthResult{}, err
 	}
@@ -306,36 +307,57 @@ func (s *Service) UpdateMe(ctx context.Context, userID uuid.UUID, in UpdateMeInp
 	return s.repo.UpdateProfile(ctx, userID, firstName, lastName, email)
 }
 
-// Refresh valida el refresh token viejo y emite un par nuevo.
-// Esto es la "rotación": cada refresh quema el anterior (implícitamente,
-// porque el cliente solo va a usar el último que recibió).
-//
-// Sin tabla de refresh_tokens no podemos revocar tokens emitidos si un
-// atacante roba uno: confiamos en la expiración de 7d + HTTPS + httpOnly
-// cookie. Si en producción descubrimos que hace falta revocación, se
-// agrega una tabla de "tokens revocados" (jti) — minimalista.
+// Refresh rotates the session's refresh token and issues a new access token.
+// Unknown, expired, revoked or reused tokens are refused (a reused one also
+// revokes its session; see SessionStore.Rotate). A deleted user's session
+// is revoked too.
 func (s *Service) Refresh(ctx context.Context, refreshToken string) (TokenPair, error) {
-	userID, err := s.tokens.ParseRefreshToken(refreshToken)
-	if err != nil {
-		return TokenPair{}, err // ya viene envuelto en ErrUnauthorized
-	}
-	return s.issueTokens(userID)
-}
-
-func (s *Service) issueTokens(userID uuid.UUID) (TokenPair, error) {
-	access, accessExp, err := s.tokens.IssueAccessToken(userID)
+	sess, err := s.sessions.Rotate(ctx, refreshToken)
 	if err != nil {
 		return TokenPair{}, err
 	}
-	refresh, refreshExp, err := s.tokens.IssueRefreshToken(userID)
+	if _, err := s.repo.GetByID(ctx, sess.UserID); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			_ = s.sessions.RevokeAll(ctx, sess.UserID)
+			return TokenPair{}, domain.NewAuthError("sesión inválida")
+		}
+		return TokenPair{}, err
+	}
+	return s.accessFor(sess)
+}
+
+// Logout ends the session of the refresh token (always succeeds).
+func (s *Service) Logout(ctx context.Context, refreshToken string) error {
+	if refreshToken == "" {
+		return nil
+	}
+	return s.sessions.RevokeByToken(ctx, refreshToken)
+}
+
+// LogoutAll ends every session of the user, the current one included.
+func (s *Service) LogoutAll(ctx context.Context, userID uuid.UUID) error {
+	return s.sessions.RevokeAll(ctx, userID)
+}
+
+// issueTokens opens a new session (sign-in) and returns its tokens.
+func (s *Service) issueTokens(ctx context.Context, userID uuid.UUID) (TokenPair, error) {
+	sess, err := s.sessions.Create(ctx, userID, userAgentFrom(ctx))
+	if err != nil {
+		return TokenPair{}, err
+	}
+	return s.accessFor(sess)
+}
+
+func (s *Service) accessFor(sess Session) (TokenPair, error) {
+	access, accessExp, err := s.tokens.IssueAccessToken(sess.UserID, sess.ID)
 	if err != nil {
 		return TokenPair{}, err
 	}
 	return TokenPair{
 		AccessToken:      access,
 		AccessExpiresAt:  accessExp,
-		RefreshToken:     refresh,
-		RefreshExpiresAt: refreshExp,
+		RefreshToken:     sess.RefreshToken,
+		RefreshExpiresAt: sess.ExpiresAt,
 	}, nil
 }
 
@@ -373,7 +395,7 @@ func (s *Service) LoginWithGoogle(ctx context.Context, idToken string) (AuthResu
 			}
 			return AuthResult{}, false, err
 		}
-		tokens, err := s.issueTokens(user.ID)
+		tokens, err := s.issueTokens(ctx, user.ID)
 		if err != nil {
 			return AuthResult{}, false, err
 		}
@@ -401,7 +423,7 @@ func (s *Service) LoginWithGoogle(ctx context.Context, idToken string) (AuthResu
 				existing.User.EmailVerifiedAt = &now
 			}
 		}
-		tokens, err := s.issueTokens(existing.User.ID)
+		tokens, err := s.issueTokens(ctx, existing.User.ID)
 		if err != nil {
 			return AuthResult{}, false, err
 		}
@@ -434,7 +456,7 @@ func (s *Service) LoginWithGoogle(ctx context.Context, idToken string) (AuthResu
 		}
 	}
 
-	tokens, err := s.issueTokens(user.ID)
+	tokens, err := s.issueTokens(ctx, user.ID)
 	if err != nil {
 		return AuthResult{}, false, err
 	}

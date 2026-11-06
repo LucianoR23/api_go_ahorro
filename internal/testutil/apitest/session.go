@@ -6,8 +6,8 @@ import (
 )
 
 // RefreshCookie is the refresh-token cookie name outside prod (apitest runs
-// with ENV=dev; prod uses the __Host- prefixed name).
-const RefreshCookie = "ahorra_refresh"
+// with ENV=dev; prod uses "__Host-refresh").
+const RefreshCookie = "refresh"
 
 // Cookie returns the Set-Cookie named name, or nil when the response did not
 // set it.
