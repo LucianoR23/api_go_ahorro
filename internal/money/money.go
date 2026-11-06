@@ -23,6 +23,25 @@ func init() {
 	decimal.MarshalJSONWithoutQuotes = true
 }
 
+// MaxDigits: integer digits an amount may have (NUMERIC(12,2) holds up to
+// 9999999999.99).
+const MaxDigits = 10
+
+// InRange reports whether d fits an amount column. It only looks at the
+// coefficient's digit count and the exponent, so it is cheap even for input
+// like 1e9999 (the decoder's limit), which must be rejected before any
+// arithmetic: rounding or comparing it builds a number with 10,000 digits.
+func InRange(d decimal.Decimal) bool {
+	if d.IsZero() {
+		return true
+	}
+	e := int64(d.Exponent())
+	if e < -12 || e > MaxDigits {
+		return false
+	}
+	return int64(d.NumDigits())+e <= MaxDigits
+}
+
 // Round rounds to scale decimals, half away from zero (what NUMERIC does on
 // insert).
 func Round(d decimal.Decimal, scale int32) decimal.Decimal { return d.Round(scale) }
@@ -84,8 +103,11 @@ func FromNumeric(n pgtype.Numeric) decimal.Decimal {
 	return decimal.NewFromBigInt(new(big.Int).Set(n.Int), n.Exp)
 }
 
-// FromFloat converts a float64 kept by code not migrated yet. It uses the
-// shortest decimal that round-trips, so 0.1 becomes exactly 0.1.
+// FromFloat converts a float64, such as an amount decoded from a request
+// body (kept float64 there so a wrong type still names the field in the
+// 422). It uses the shortest decimal that round-trips, so it is exact for
+// every amount a column can hold (at most 12 significant digits): 0.1 stays
+// 0.1.
 func FromFloat(f float64) decimal.Decimal { return decimal.NewFromFloat(f) }
 
 // Parse reads a decimal string; used by tests and config.

@@ -37,7 +37,7 @@ type householdLookup interface {
 
 // fxConverter: lo mínimo que precisamos de fxrates.Service.
 type fxConverter interface {
-	Convert(ctx context.Context, amount float64, from, to string) (converted, rate float64, err error)
+	Convert(ctx context.Context, amount decimal.Decimal, from, to string) (converted, rate decimal.Decimal, err error)
 }
 
 // splitRulesReader: dependencia mínima para leer pesos del hogar.
@@ -70,7 +70,7 @@ type insightCreator interface {
 // local para evitar ciclo expenses ↔ recurringexpenses.
 type recurringReader interface {
 	GetByID(ctx context.Context, id uuid.UUID) (domain.RecurringExpense, error)
-	UpdateLastAmount(ctx context.Context, id uuid.UUID, amount float64) error
+	UpdateLastAmount(ctx context.Context, id uuid.UUID, amount decimal.Decimal) error
 }
 
 // ShareOverride: monto explícito que un miembro paga en este gasto puntual,
@@ -79,7 +79,7 @@ type recurringReader interface {
 // tomé yo solo").
 type ShareOverride struct {
 	UserID uuid.UUID
-	Amount float64
+	Amount decimal.Decimal
 }
 
 // Service orquesta la creación de gastos: valida input, convierte moneda,
@@ -146,7 +146,7 @@ type CreateInput struct {
 	CreatedBy       uuid.UUID
 	CategoryID      *uuid.UUID
 	PaymentMethodID uuid.UUID
-	Amount          float64
+	Amount          decimal.Decimal
 	Currency        string // "ARS"|"USD"|"EUR"
 	Description     string
 	SpentAt         time.Time
@@ -211,12 +211,13 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.ExpenseDet
 	}
 
 	// Conversión a base currency. Guardamos amount_base, rate_used, rate_at.
-	amountBase, rate, err := s.fx.Convert(ctx, in.Amount, in.Currency, hh.BaseCurrency)
+	in.Amount = in.Amount.Round(money.AmountScale)
+	amountBase, rate, err := s.convert(ctx, in.Amount, in.Currency, hh.BaseCurrency)
 	if err != nil {
 		return domain.ExpenseDetail{}, err
 	}
 	now := time.Now().UTC()
-	var rateUsed *float64
+	var rateUsed *decimal.Decimal
 	var rateAt *time.Time
 	if in.Currency != hh.BaseCurrency {
 		r := rate
@@ -282,13 +283,13 @@ func (s *Service) notifySharedExpense(ctx context.Context, d domain.ExpenseDetai
 
 	// Destinatarios: cada userID presente en los shares != creator. Dedupe
 	// vía map (si hay N cuotas, cada miembro aparece N veces).
-	recipients := make(map[uuid.UUID]float64)
+	recipients := make(map[uuid.UUID]decimal.Decimal)
 	for _, inst := range d.Installments {
 		for _, sh := range inst.Shares {
 			if sh.UserID == creator {
 				continue
 			}
-			recipients[sh.UserID] += sh.AmountBaseOwed
+			recipients[sh.UserID] = recipients[sh.UserID].Add(sh.AmountBaseOwed)
 		}
 	}
 	if len(recipients) == 0 {
@@ -310,8 +311,8 @@ func (s *Service) notifySharedExpense(ctx context.Context, d domain.ExpenseDetai
 
 	title := "Nuevo gasto compartido"
 	for uid, owed := range recipients {
-		body := fmt.Sprintf("%s cargó \"%s\" — te toca %.2f %s",
-			creatorName, d.Expense.Description, owed, d.Expense.BaseCurrency)
+		body := fmt.Sprintf("%s cargó \"%s\" — te toca %s %s",
+			creatorName, d.Expense.Description, owed.StringFixed(2), d.Expense.BaseCurrency)
 		if s.push != nil {
 			s.push.NotifyUsers(
 				ctx,
@@ -344,14 +345,14 @@ func (s *Service) buildInstallments(
 	ctx context.Context,
 	in CreateInput,
 	pm domain.PaymentMethod,
-	amountBase float64,
+	amountBase decimal.Decimal,
 	weights []weightedUser,
 ) ([]InstallmentWithShares, error) {
 	n := in.Installments
 	// Per-installment amounts, original and base currency: every installment
 	// but the last rounds down to cents and the last takes the rest (plan 0.7).
-	perOriginal := money.Even(money.FromFloat(in.Amount).Round(money.AmountScale), n)
-	perBase := money.Even(money.FromFloat(amountBase).Round(money.AmountScale), n)
+	perOriginal := money.Even(in.Amount, n)
+	perBase := money.Even(amountBase, n)
 
 	out := make([]InstallmentWithShares, 0, n)
 
@@ -392,8 +393,8 @@ func (s *Service) buildInstallments(
 			return nil, err
 		}
 
-		amt := perOriginal[k].InexactFloat64()
-		amtBase := perBase[k].InexactFloat64()
+		amt := perOriginal[k]
+		amtBase := perBase[k]
 
 		due := period.DueDate
 		inst := domain.ExpenseInstallment{
@@ -447,12 +448,21 @@ func (s *Service) autoBillingDate(ctx context.Context, e domain.Expense, n int) 
 	return p.BillingDate, err
 }
 
+// convert converts to the household's base currency, rounded to cents.
+func (s *Service) convert(ctx context.Context, amount decimal.Decimal, from, to string) (base, rate decimal.Decimal, err error) {
+	b, r, err := s.fx.Convert(ctx, amount, from, to)
+	if err != nil {
+		return decimal.Zero, decimal.Zero, err
+	}
+	return b.Round(money.AmountScale), r, nil
+}
+
 // buildShares splits an installment's base amount among the members by
 // weight (money.Allocate: every share but the last rounds down to cents, the
 // last takes the rest, so the sum is exact and no share is negative; plan
 // 0.7). All weights zero splits evenly. weights=nil: personal expense, no
 // shares.
-func buildShares(installmentBase float64, weights []weightedUser) []domain.InstallmentShare {
+func buildShares(installmentBase decimal.Decimal, weights []weightedUser) []domain.InstallmentShare {
 	if len(weights) == 0 {
 		return nil
 	}
@@ -460,10 +470,10 @@ func buildShares(installmentBase float64, weights []weightedUser) []domain.Insta
 	for i, x := range weights {
 		w[i] = money.FromFloat(x.Weight)
 	}
-	parts := money.Allocate(money.FromFloat(installmentBase).Round(money.AmountScale), w)
+	parts := money.Allocate(installmentBase, w)
 	out := make([]domain.InstallmentShare, len(weights))
 	for i, x := range weights {
-		out[i] = domain.InstallmentShare{UserID: x.UserID, AmountBaseOwed: parts[i].InexactFloat64()}
+		out[i] = domain.InstallmentShare{UserID: x.UserID, AmountBaseOwed: parts[i]}
 	}
 	return out
 }
@@ -500,7 +510,7 @@ func (s *Service) resolveShareWeights(ctx context.Context, in CreateInput) ([]we
 	// 1. Override explícito del request.
 	if len(in.SharesOverride) > 0 {
 		seen := make(map[uuid.UUID]struct{}, len(in.SharesOverride))
-		sum := 0.0
+		sum := decimal.Zero
 		weights := make([]weightedUser, 0, len(in.SharesOverride))
 		for _, o := range in.SharesOverride {
 			if _, ok := memberSet[o.UserID]; !ok {
@@ -509,14 +519,17 @@ func (s *Service) resolveShareWeights(ctx context.Context, in CreateInput) ([]we
 			if _, dup := seen[o.UserID]; dup {
 				return nil, domain.NewValidationError("sharesOverride", "userId duplicado: "+o.UserID.String())
 			}
-			if o.Amount < 0 {
+			if !money.InRange(o.Amount) {
+				return nil, domain.NewValidationError("sharesOverride.amount", "monto fuera de rango")
+			}
+			if o.Amount.Sign() < 0 {
 				return nil, domain.NewValidationError("sharesOverride.amount", "no puede ser negativo")
 			}
 			seen[o.UserID] = struct{}{}
-			sum += o.Amount
-			weights = append(weights, weightedUser{UserID: o.UserID, Weight: o.Amount})
+			sum = sum.Add(o.Amount)
+			weights = append(weights, weightedUser{UserID: o.UserID, Weight: o.Amount.InexactFloat64()})
 		}
-		if diff := sum - in.Amount; diff > 0.01 || diff < -0.01 {
+		if sum.Sub(in.Amount).Abs().GreaterThan(decimal.New(1, -2)) {
 			return nil, domain.NewValidationError("sharesOverride", "la suma debe ser igual al amount total")
 		}
 		sortWeights(weights)
@@ -656,11 +669,15 @@ func (s *Service) ListDrafts(ctx context.Context, householdID uuid.UUID) ([]doma
 //
 // El paso 5 va siempre, incluso si el delta no superó el threshold —
 // el cache tiene que reflejar la realidad para el próximo mes.
-func (s *Service) ConfirmDraft(ctx context.Context, householdID, expenseID, actorUserID uuid.UUID, amount float64) (domain.Expense, error) {
+func (s *Service) ConfirmDraft(ctx context.Context, householdID, expenseID, actorUserID uuid.UUID, amount decimal.Decimal) (domain.Expense, error) {
 	if s.recurring == nil {
 		return domain.Expense{}, fmt.Errorf("recurring reader no configurado")
 	}
-	if amount <= 0 {
+	if !money.InRange(amount) {
+		return domain.Expense{}, domain.NewValidationError("amount", "monto fuera de rango")
+	}
+	amount = amount.Round(money.AmountScale)
+	if amount.Sign() <= 0 {
 		return domain.Expense{}, domain.NewValidationError("amount", "debe ser > 0")
 	}
 
@@ -698,11 +715,11 @@ func (s *Service) ConfirmDraft(ctx context.Context, householdID, expenseID, acto
 	// invoca al converter. Caso típico (AR): ambas en ARS → rate=nil.
 	var (
 		amountBase = amount
-		ratePtr    *float64
+		ratePtr    *decimal.Decimal
 		rateAt     *time.Time
 	)
 	if !strings.EqualFold(current.Currency, hh.BaseCurrency) {
-		converted, rate, ferr := s.fx.Convert(ctx, amount, current.Currency, hh.BaseCurrency)
+		converted, rate, ferr := s.convert(ctx, amount, current.Currency, hh.BaseCurrency)
 		if ferr != nil {
 			return domain.Expense{}, fmt.Errorf("fx convert: %w", ferr)
 		}
@@ -751,16 +768,16 @@ func (s *Service) maybeEmitRecurringSpike(ctx context.Context, series domain.Rec
 		return
 	}
 	prev := *series.LastAmount
-	if prev <= 0 {
+	if prev.Sign() <= 0 {
 		return
 	}
-	deltaPct := (confirmed.Amount - prev) / prev * 100
+	deltaPct := confirmed.Amount.Sub(prev).Div(prev).Mul(decimal.NewFromInt(100)).InexactFloat64()
 	if deltaPct < *series.AlertThresholdPct {
 		return
 	}
 	title := fmt.Sprintf("%s subió %.0f%%", series.Description, deltaPct)
-	body := fmt.Sprintf("Pasó de %.2f %s a %.2f %s (umbral %.0f%%).",
-		prev, confirmed.Currency, confirmed.Amount, confirmed.Currency, *series.AlertThresholdPct)
+	body := fmt.Sprintf("Pasó de %s %s a %s %s (umbral %.0f%%).",
+		prev.StringFixed(2), confirmed.Currency, confirmed.Amount.StringFixed(2), confirmed.Currency, *series.AlertThresholdPct)
 	s.insights.CreateRecurringSpikeInsight(ctx, confirmed.HouseholdID, confirmed.ID, series.CreatedBy, title, body)
 }
 
@@ -945,7 +962,10 @@ func (s *Service) requireAuthorOrOwner(ctx context.Context, householdID, actor, 
 // ===================== validation =====================
 
 func validateCreate(in CreateInput) error {
-	if in.Amount <= 0 {
+	if !money.InRange(in.Amount) {
+		return domain.NewValidationError("amount", "monto fuera de rango")
+	}
+	if in.Amount.Sign() <= 0 {
 		return domain.NewValidationError("amount", "debe ser > 0")
 	}
 	switch in.Currency {

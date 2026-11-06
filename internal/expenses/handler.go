@@ -3,6 +3,7 @@ package expenses
 import (
 	"encoding/json"
 	"errors"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/auth"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
@@ -80,22 +82,22 @@ type updateReq struct {
 // ===================== response DTOs =====================
 
 type expenseDTO struct {
-	ID              string     `json:"id"`
-	HouseholdID     string     `json:"householdId"`
-	CreatedBy       string     `json:"createdBy"`
-	CategoryID      *string    `json:"categoryId,omitempty"`
-	PaymentMethodID string     `json:"paymentMethodId"`
-	Amount          float64    `json:"amount"`
-	Currency        string     `json:"currency"`
-	AmountBase      float64    `json:"amountBase"`
-	BaseCurrency    string     `json:"baseCurrency"`
-	RateUsed        *float64   `json:"rateUsed,omitempty"`
-	RateAt          *time.Time `json:"rateAt,omitempty"`
-	Description     string     `json:"description"`
-	SpentAt         string     `json:"spentAt"`
-	Installments    int        `json:"installments"`
-	IsShared        bool       `json:"isShared"`
-	Status          string     `json:"status"`
+	ID              string           `json:"id"`
+	HouseholdID     string           `json:"householdId"`
+	CreatedBy       string           `json:"createdBy"`
+	CategoryID      *string          `json:"categoryId,omitempty"`
+	PaymentMethodID string           `json:"paymentMethodId"`
+	Amount          decimal.Decimal  `json:"amount"`
+	Currency        string           `json:"currency"`
+	AmountBase      decimal.Decimal  `json:"amountBase"`
+	BaseCurrency    string           `json:"baseCurrency"`
+	RateUsed        *decimal.Decimal `json:"rateUsed,omitempty"`
+	RateAt          *time.Time       `json:"rateAt,omitempty"`
+	Description     string           `json:"description"`
+	SpentAt         string           `json:"spentAt"`
+	Installments    int              `json:"installments"`
+	IsShared        bool             `json:"isShared"`
+	Status          string           `json:"status"`
 	// RecurringExpenseID: the series that generated this expense (fixed
 	// expenses and drafts); null for one-off expenses.
 	RecurringExpenseID *string   `json:"recurringExpenseId"`
@@ -104,21 +106,21 @@ type expenseDTO struct {
 }
 
 type installmentDTO struct {
-	ID                    string     `json:"id"`
-	ExpenseID             string     `json:"expenseId"`
-	InstallmentNumber     int        `json:"installmentNumber"`
-	InstallmentAmount     float64    `json:"installmentAmount"`
-	InstallmentAmountBase float64    `json:"installmentAmountBase"`
-	BillingDate           string     `json:"billingDate"`
-	DueDate               *string    `json:"dueDate,omitempty"`
-	IsPaid                bool       `json:"isPaid"`
-	PaidAt                *time.Time `json:"paidAt,omitempty"`
-	Shares                []shareDTO `json:"shares,omitempty"`
+	ID                    string          `json:"id"`
+	ExpenseID             string          `json:"expenseId"`
+	InstallmentNumber     int             `json:"installmentNumber"`
+	InstallmentAmount     decimal.Decimal `json:"installmentAmount"`
+	InstallmentAmountBase decimal.Decimal `json:"installmentAmountBase"`
+	BillingDate           string          `json:"billingDate"`
+	DueDate               *string         `json:"dueDate,omitempty"`
+	IsPaid                bool            `json:"isPaid"`
+	PaidAt                *time.Time      `json:"paidAt,omitempty"`
+	Shares                []shareDTO      `json:"shares,omitempty"`
 }
 
 type shareDTO struct {
-	UserID         string  `json:"userId"`
-	AmountBaseOwed float64 `json:"amountBaseOwed"`
+	UserID         string          `json:"userId"`
+	AmountBaseOwed decimal.Decimal `json:"amountBaseOwed"`
 }
 
 type expenseDetailDTO struct {
@@ -156,7 +158,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if len(req.SharesOverride) > 0 {
 		overrides = make([]ShareOverride, len(req.SharesOverride))
 		for i, s := range req.SharesOverride {
-			overrides[i] = ShareOverride{UserID: s.UserID, Amount: s.Amount}
+			overrides[i] = ShareOverride{UserID: s.UserID, Amount: money.FromFloat(s.Amount)}
 		}
 	}
 
@@ -165,7 +167,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		CreatedBy:       userID,
 		CategoryID:      req.CategoryID,
 		PaymentMethodID: req.PaymentMethodID,
-		Amount:          req.Amount,
+		Amount:          money.FromFloat(req.Amount),
 		Currency:        req.Currency,
 		Description:     req.Description,
 		SpentAt:         spentAt,
@@ -371,7 +373,7 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	e, err := h.svc.ConfirmDraft(r.Context(), householdID, id, userID, body.Amount)
+	e, err := h.svc.ConfirmDraft(r.Context(), householdID, id, userID, money.FromFloat(body.Amount))
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return

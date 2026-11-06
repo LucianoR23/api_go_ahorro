@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 )
@@ -142,9 +143,10 @@ func TestResolveForClosingMonth(t *testing.T) {
 }
 
 func sumShares(s []domain.InstallmentShare) float64 {
+	// float64 is fine here: test tables are written in float64.
 	total := 0.0
 	for _, x := range s {
-		total += x.AmountBaseOwed
+		total += x.AmountBaseOwed.InexactFloat64()
 	}
 	return total
 }
@@ -172,12 +174,12 @@ func TestBuildShares(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildShares(tt.base, tt.weights)
+			got := buildShares(dec(tt.base), tt.weights)
 			if len(got) != len(tt.want) {
 				t.Fatalf("got %d shares, want %d", len(got), len(tt.want))
 			}
 			for i, w := range tt.want {
-				if got[i].AmountBaseOwed != w {
+				if !got[i].AmountBaseOwed.Equal(dec(w)) {
 					t.Errorf("share %d = %v, want %v", i, got[i].AmountBaseOwed, w)
 				}
 				if got[i].UserID != tt.weights[i].UserID {
@@ -197,8 +199,8 @@ func TestBuildSharesNegativeRemainder(t *testing.T) {
 		weights[i] = weightedUser{UserID: uuid.New(), Weight: 1}
 	}
 	// 0.04 / 6 = 0.0067 → each rounds to 0.01, so the last one gets -0.01.
-	for i, s := range buildShares(0.04, weights) {
-		if s.AmountBaseOwed < 0 {
+	for i, s := range buildShares(dec(0.04), weights) {
+		if s.AmountBaseOwed.Sign() < 0 {
 			t.Errorf("share %d is negative: %v", i, s.AmountBaseOwed)
 		}
 	}
@@ -210,9 +212,9 @@ func newCreditService(c domain.CreditCard, periods fakePeriods) *Service {
 
 func TestBuildInstallmentsNonCredit(t *testing.T) {
 	s := &Service{}
-	in := CreateInput{Amount: 1500, Installments: 1, SpentAt: date(2026, 3, 20)}
+	in := CreateInput{Amount: dec(1500), Installments: 1, SpentAt: date(2026, 3, 20)}
 
-	got, err := s.buildInstallments(context.Background(), in, domain.PaymentMethod{Kind: domain.KindDebit}, 1500, nil)
+	got, err := s.buildInstallments(context.Background(), in, domain.PaymentMethod{Kind: domain.KindDebit}, dec(1500), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -220,7 +222,7 @@ func TestBuildInstallmentsNonCredit(t *testing.T) {
 		t.Fatalf("got %d installments, want 1", len(got))
 	}
 	inst := got[0].Installment
-	if inst.InstallmentNumber != 1 || inst.InstallmentAmount != 1500 || inst.InstallmentAmountBase != 1500 {
+	if inst.InstallmentNumber != 1 || !inst.InstallmentAmount.Equal(dec(1500)) || !inst.InstallmentAmountBase.Equal(dec(1500)) {
 		t.Errorf("installment = %+v", inst)
 	}
 	if !inst.BillingDate.Equal(in.SpentAt) || inst.DueDate != nil {
@@ -282,9 +284,9 @@ func TestBuildInstallmentsCredit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newCreditService(card(25, 5), tt.periods)
-			in := CreateInput{Amount: tt.amount, Installments: tt.n, SpentAt: tt.spentAt}
+			in := CreateInput{Amount: dec(tt.amount), Installments: tt.n, SpentAt: tt.spentAt}
 
-			got, err := s.buildInstallments(context.Background(), in, credit, tt.amount, nil)
+			got, err := s.buildInstallments(context.Background(), in, credit, dec(tt.amount), nil)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -293,7 +295,7 @@ func TestBuildInstallmentsCredit(t *testing.T) {
 			}
 			for i, w := range tt.want {
 				g := got[i].Installment
-				if g.InstallmentNumber != i+1 || g.InstallmentAmount != w.amount || g.InstallmentAmountBase != w.amount {
+				if g.InstallmentNumber != i+1 || !g.InstallmentAmount.Equal(dec(w.amount)) || !g.InstallmentAmountBase.Equal(dec(w.amount)) {
 					t.Errorf("installment %d: number %d amount %v base %v, want %v", i, g.InstallmentNumber, g.InstallmentAmount, g.InstallmentAmountBase, w.amount)
 				}
 				if !g.BillingDate.Equal(w.billing) || g.DueDate == nil || !g.DueDate.Equal(w.dueDate) {
@@ -308,13 +310,13 @@ func TestBuildInstallmentsCredit(t *testing.T) {
 
 	t.Run("shared expense splits every installment", func(t *testing.T) {
 		s := newCreditService(card(25, 5), fakePeriods{})
-		in := CreateInput{Amount: 100, Installments: 2, SpentAt: date(2026, 3, 20)}
-		got, err := s.buildInstallments(context.Background(), in, credit, 100, []weightedUser{{userA, 1}, {userB, 1}})
+		in := CreateInput{Amount: dec(100), Installments: 2, SpentAt: date(2026, 3, 20)}
+		got, err := s.buildInstallments(context.Background(), in, credit, dec(100), []weightedUser{{userA, 1}, {userB, 1}})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		for i, g := range got {
-			if len(g.Shares) != 2 || g.Shares[0].AmountBaseOwed != 25 || g.Shares[1].AmountBaseOwed != 25 {
+			if len(g.Shares) != 2 || !g.Shares[0].AmountBaseOwed.Equal(dec(25)) || !g.Shares[1].AmountBaseOwed.Equal(dec(25)) {
 				t.Errorf("installment %d shares = %+v, want 25/25", i, g.Shares)
 			}
 		}
@@ -323,15 +325,17 @@ func TestBuildInstallmentsCredit(t *testing.T) {
 
 func TestBuildInstallmentsNegativeLastInstallment(t *testing.T) {
 	s := newCreditService(card(25, 5), fakePeriods{})
-	in := CreateInput{Amount: 0.5, Installments: 60, SpentAt: date(2026, 3, 20)}
-	got, err := s.buildInstallments(context.Background(), in, domain.PaymentMethod{ID: pmID, Kind: domain.KindCredit}, 0.5, nil)
+	in := CreateInput{Amount: dec(0.5), Installments: 60, SpentAt: date(2026, 3, 20)}
+	got, err := s.buildInstallments(context.Background(), in, domain.PaymentMethod{ID: pmID, Kind: domain.KindCredit}, dec(0.5), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// 0.50 / 60 = 0.0083 → 0.01 each; the 60th gets 0.50 - 0.59 = -0.09.
 	for _, g := range got {
-		if g.Installment.InstallmentAmount < 0 {
+		if g.Installment.InstallmentAmount.Sign() < 0 {
 			t.Errorf("installment %d is negative: %v", g.Installment.InstallmentNumber, g.Installment.InstallmentAmount)
 		}
 	}
 }
+
+func dec(f float64) decimal.Decimal { return decimal.NewFromFloat(f) }

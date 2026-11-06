@@ -2,6 +2,8 @@ package incomes
 
 import (
 	"errors"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -78,20 +80,20 @@ type updateIncomeReq struct {
 }
 
 type incomeDTO struct {
-	ID              string     `json:"id"`
-	HouseholdID     string     `json:"householdId"`
-	ReceivedBy      string     `json:"receivedBy"`
-	PaymentMethodID *string    `json:"paymentMethodId,omitempty"`
-	Amount          float64    `json:"amount"`
-	Currency        string     `json:"currency"`
-	AmountBase      float64    `json:"amountBase"`
-	BaseCurrency    string     `json:"baseCurrency"`
-	RateUsed        *float64   `json:"rateUsed,omitempty"`
-	RateAt          *time.Time `json:"rateAt,omitempty"`
-	Source          string     `json:"source"`
-	Description     string     `json:"description"`
-	ReceivedAt      string     `json:"receivedAt"`
-	CreatedAt       time.Time  `json:"createdAt"`
+	ID              string           `json:"id"`
+	HouseholdID     string           `json:"householdId"`
+	ReceivedBy      string           `json:"receivedBy"`
+	PaymentMethodID *string          `json:"paymentMethodId,omitempty"`
+	Amount          decimal.Decimal  `json:"amount"`
+	Currency        string           `json:"currency"`
+	AmountBase      decimal.Decimal  `json:"amountBase"`
+	BaseCurrency    string           `json:"baseCurrency"`
+	RateUsed        *decimal.Decimal `json:"rateUsed,omitempty"`
+	RateAt          *time.Time       `json:"rateAt,omitempty"`
+	Source          string           `json:"source"`
+	Description     string           `json:"description"`
+	ReceivedAt      string           `json:"receivedAt"`
+	CreatedAt       time.Time        `json:"createdAt"`
 	// RecurringIncomeID: the series that generated it; null for manual incomes.
 	RecurringIncomeID *string `json:"recurringIncomeId"`
 }
@@ -136,30 +138,30 @@ type setActiveReq struct {
 }
 
 type recurringDTO struct {
-	ID              string    `json:"id"`
-	HouseholdID     string    `json:"householdId"`
-	ReceivedBy      string    `json:"receivedBy"`
-	PaymentMethodID *string   `json:"paymentMethodId,omitempty"`
-	Amount          float64   `json:"amount"`
-	Currency        string    `json:"currency"`
-	Description     string    `json:"description"`
-	Source          string    `json:"source"`
-	Frequency       string    `json:"frequency"`
-	DayOfMonth      *int      `json:"dayOfMonth,omitempty"`
-	DayOfWeek       *int      `json:"dayOfWeek,omitempty"`
-	MonthOfYear     *int      `json:"monthOfYear,omitempty"`
-	IsActive        bool      `json:"isActive"`
-	StartsAt        string    `json:"startsAt"`
-	EndsAt          *string   `json:"endsAt,omitempty"`
-	LastGenerated   *string   `json:"lastGenerated,omitempty"`
-	CreatedAt       time.Time `json:"createdAt"`
+	ID              string          `json:"id"`
+	HouseholdID     string          `json:"householdId"`
+	ReceivedBy      string          `json:"receivedBy"`
+	PaymentMethodID *string         `json:"paymentMethodId,omitempty"`
+	Amount          decimal.Decimal `json:"amount"`
+	Currency        string          `json:"currency"`
+	Description     string          `json:"description"`
+	Source          string          `json:"source"`
+	Frequency       string          `json:"frequency"`
+	DayOfMonth      *int            `json:"dayOfMonth,omitempty"`
+	DayOfWeek       *int            `json:"dayOfWeek,omitempty"`
+	MonthOfYear     *int            `json:"monthOfYear,omitempty"`
+	IsActive        bool            `json:"isActive"`
+	StartsAt        string          `json:"startsAt"`
+	EndsAt          *string         `json:"endsAt,omitempty"`
+	LastGenerated   *string         `json:"lastGenerated,omitempty"`
+	CreatedAt       time.Time       `json:"createdAt"`
 }
 
 type totalsIncomeDTO struct {
-	Total        float64 `json:"total"`
-	BaseCurrency string  `json:"baseCurrency"`
-	From         string  `json:"from"`
-	To           string  `json:"to"`
+	Total        decimal.Decimal `json:"total"`
+	BaseCurrency string          `json:"baseCurrency"`
+	From         string          `json:"from"`
+	To           string          `json:"to"`
 }
 
 // ===================== incomes handlers =====================
@@ -188,7 +190,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		HouseholdID:     householdID,
 		ReceivedBy:      receivedBy,
 		PaymentMethodID: req.PaymentMethodID,
-		Amount:          req.Amount,
+		Amount:          money.FromFloat(req.Amount),
 		Currency:        req.Currency,
 		Source:          req.Source,
 		Description:     req.Description,
@@ -334,7 +336,7 @@ func (h *Handler) CreateRecurring(w http.ResponseWriter, r *http.Request) {
 		HouseholdID:     householdID,
 		ReceivedBy:      receivedBy,
 		PaymentMethodID: req.PaymentMethodID,
-		Amount:          req.Amount,
+		Amount:          money.FromFloat(req.Amount),
 		Currency:        req.Currency,
 		Description:     req.Description,
 		Source:          req.Source,
@@ -415,7 +417,7 @@ func (h *Handler) UpdateRecurring(w http.ResponseWriter, r *http.Request) {
 		endsAt = &t
 	}
 	ri, err := h.svc.UpdateRecurring(r.Context(), householdID, id, UpdateRecurringInput{
-		Amount:          req.Amount,
+		Amount:          money.FromFloat(req.Amount),
 		Currency:        req.Currency,
 		Description:     req.Description,
 		Source:          req.Source,

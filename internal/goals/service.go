@@ -2,6 +2,8 @@ package goals
 
 import (
 	"context"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 	"strings"
 	"time"
 
@@ -21,7 +23,7 @@ type householdLookup interface {
 // fxConverter: converts a goal's target into the household's base currency,
 // with the same rates expenses use.
 type fxConverter interface {
-	Convert(ctx context.Context, amount float64, from, to string) (converted, rate float64, err error)
+	Convert(ctx context.Context, amount decimal.Decimal, from, to string) (converted, rate decimal.Decimal, err error)
 }
 
 type Service struct {
@@ -241,7 +243,8 @@ func (s *Service) targetInBase(ctx context.Context, g domain.BudgetGoal) (baseTa
 	if g.Currency == hh.BaseCurrency {
 		return baseTarget{Amount: g.TargetAmount, Currency: hh.BaseCurrency}, nil
 	}
-	amount, rate, err := s.fx.Convert(ctx, g.TargetAmount, g.Currency, hh.BaseCurrency)
+	amountD, rateD, err := s.fx.Convert(ctx, money.FromFloat(g.TargetAmount), g.Currency, hh.BaseCurrency)
+	amount, rate := amountD.InexactFloat64(), rateD.InexactFloat64()
 	if err != nil {
 		return baseTarget{}, err
 	}

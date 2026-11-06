@@ -93,3 +93,14 @@ func TestJSONIsANumber(t *testing.T) {
 		t.Errorf("unmarshal = %s %v", v.A, err)
 	}
 }
+
+func TestInRange(t *testing.T) {
+	for s, want := range map[string]bool{
+		"0": true, "0.01": true, "9999999999.99": true, "-5": true, "0.000000000001": true,
+		"10000000000": false, "1e9999": false, "1e-9999": false, "123456789012.5": false,
+	} {
+		if got := money.InRange(d(s)); got != want {
+			t.Errorf("InRange(%s) = %v, want %v", s, got, want)
+		}
+	}
+}

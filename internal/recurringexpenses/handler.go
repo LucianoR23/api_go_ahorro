@@ -2,6 +2,8 @@ package recurringexpenses
 
 import (
 	"errors"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 	"log/slog"
 	"net/http"
 	"time"
@@ -88,43 +90,43 @@ type setActiveReq struct {
 }
 
 type recurringDTO struct {
-	ID                string     `json:"id"`
-	HouseholdID       string     `json:"householdId"`
-	CreatedBy         string     `json:"createdBy"`
-	CategoryID        *string    `json:"categoryId,omitempty"`
-	PaymentMethodID   string     `json:"paymentMethodId"`
-	Amount            float64    `json:"amount"`
-	Currency          string     `json:"currency"`
-	Description       string     `json:"description"`
-	Installments      int        `json:"installments"`
-	IsShared          bool       `json:"isShared"`
-	Frequency         string     `json:"frequency"`
-	DayOfMonth        *int       `json:"dayOfMonth,omitempty"`
-	DayOfWeek         *int       `json:"dayOfWeek,omitempty"`
-	MonthOfYear       *int       `json:"monthOfYear,omitempty"`
-	IsActive          bool       `json:"isActive"`
-	StartsAt          string     `json:"startsAt"`
-	EndsAt            *string    `json:"endsAt,omitempty"`
-	LastGenerated     *string    `json:"lastGenerated,omitempty"`
-	CreatedAt         time.Time  `json:"createdAt"`
-	AmountIsVariable  bool       `json:"amountIsVariable"`
-	AlertThresholdPct *float64   `json:"alertThresholdPct,omitempty"`
-	LastAmount        *float64   `json:"lastAmount,omitempty"`
-	LastConfirmedAt   *time.Time `json:"lastConfirmedAt,omitempty"`
+	ID                string           `json:"id"`
+	HouseholdID       string           `json:"householdId"`
+	CreatedBy         string           `json:"createdBy"`
+	CategoryID        *string          `json:"categoryId,omitempty"`
+	PaymentMethodID   string           `json:"paymentMethodId"`
+	Amount            decimal.Decimal  `json:"amount"`
+	Currency          string           `json:"currency"`
+	Description       string           `json:"description"`
+	Installments      int              `json:"installments"`
+	IsShared          bool             `json:"isShared"`
+	Frequency         string           `json:"frequency"`
+	DayOfMonth        *int             `json:"dayOfMonth,omitempty"`
+	DayOfWeek         *int             `json:"dayOfWeek,omitempty"`
+	MonthOfYear       *int             `json:"monthOfYear,omitempty"`
+	IsActive          bool             `json:"isActive"`
+	StartsAt          string           `json:"startsAt"`
+	EndsAt            *string          `json:"endsAt,omitempty"`
+	LastGenerated     *string          `json:"lastGenerated,omitempty"`
+	CreatedAt         time.Time        `json:"createdAt"`
+	AmountIsVariable  bool             `json:"amountIsVariable"`
+	AlertThresholdPct *float64         `json:"alertThresholdPct,omitempty"`
+	LastAmount        *decimal.Decimal `json:"lastAmount,omitempty"`
+	LastConfirmedAt   *time.Time       `json:"lastConfirmedAt,omitempty"`
 }
 
 type seriesPointDTO struct {
-	ExpenseID    string   `json:"expenseId"`
-	Amount       float64  `json:"amount"`
-	Currency     string   `json:"currency"`
-	SpentAt      string   `json:"spentAt"`
-	VariationPct *float64 `json:"variationPct,omitempty"`
+	ExpenseID    string          `json:"expenseId"`
+	Amount       decimal.Decimal `json:"amount"`
+	Currency     string          `json:"currency"`
+	SpentAt      string          `json:"spentAt"`
+	VariationPct *float64        `json:"variationPct,omitempty"`
 }
 
 type seriesStatsDTO struct {
 	RecurringExpenseID string           `json:"recurringExpenseId"`
 	History            []seriesPointDTO `json:"history"`
-	AverageLastN       float64          `json:"averageLastN"`
+	AverageLastN       decimal.Decimal  `json:"averageLastN"`
 	LastVariationPct   *float64         `json:"lastVariationPct,omitempty"`
 }
 
@@ -164,7 +166,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		CreatedBy:         userID,
 		CategoryID:        req.CategoryID,
 		PaymentMethodID:   req.PaymentMethodID,
-		Amount:            req.Amount,
+		Amount:            money.FromFloat(req.Amount),
 		Currency:          req.Currency,
 		Description:       req.Description,
 		Installments:      installments,
@@ -252,7 +254,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		installments = 1
 	}
 	re, err := h.svc.Update(r.Context(), householdID, id, UpdateInput{
-		Amount:            req.Amount,
+		Amount:            money.FromFloat(req.Amount),
 		Currency:          req.Currency,
 		Description:       req.Description,
 		Installments:      installments,

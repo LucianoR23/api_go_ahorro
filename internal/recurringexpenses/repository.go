@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/shopspring/decimal"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,7 +35,7 @@ type CreateParams struct {
 	CreatedBy         uuid.UUID
 	CategoryID        *uuid.UUID
 	PaymentMethodID   uuid.UUID
-	Amount            float64
+	Amount            decimal.Decimal
 	Currency          string
 	Description       string
 	Installments      int
@@ -50,7 +52,7 @@ type CreateParams struct {
 }
 
 func (r *Repository) Create(ctx context.Context, p CreateParams) (domain.RecurringExpense, error) {
-	amountN, err := db.NumericFromFloat(p.Amount, 2)
+	amountN, err := money.ToNumeric(p.Amount, money.AmountScale), error(nil)
 	if err != nil {
 		return domain.RecurringExpense{}, err
 	}
@@ -120,7 +122,7 @@ func (r *Repository) ListActive(ctx context.Context, date time.Time) ([]domain.R
 }
 
 type UpdateParams struct {
-	Amount            float64
+	Amount            decimal.Decimal
 	Currency          string
 	Description       string
 	Installments      int
@@ -137,7 +139,7 @@ type UpdateParams struct {
 }
 
 func (r *Repository) Update(ctx context.Context, id uuid.UUID, p UpdateParams) (domain.RecurringExpense, error) {
-	amountN, err := db.NumericFromFloat(p.Amount, 2)
+	amountN, err := money.ToNumeric(p.Amount, money.AmountScale), error(nil)
 	if err != nil {
 		return domain.RecurringExpense{}, err
 	}
@@ -181,8 +183,8 @@ func (r *Repository) SetActive(ctx context.Context, id uuid.UUID, active bool) e
 // UpdateLastAmount cachea el último monto confirmado de la serie. Lo llama el
 // service al confirmar un draft, para que listados posteriores muestren el
 // valor sin tener que volver a leer el histórico de expenses.
-func (r *Repository) UpdateLastAmount(ctx context.Context, id uuid.UUID, amount float64) error {
-	amountN, err := db.NumericFromFloat(amount, 2)
+func (r *Repository) UpdateLastAmount(ctx context.Context, id uuid.UUID, amount decimal.Decimal) error {
+	amountN, err := money.ToNumeric(amount, money.AmountScale), error(nil)
 	if err != nil {
 		return err
 	}
@@ -242,13 +244,14 @@ func toDomain(row sqlcgen.RecurringExpense) domain.RecurringExpense {
 		t := row.LastConfirmedAt.Time
 		lastConf = &t
 	}
-	var threshold, lastAmt *float64
+	var threshold *float64
+	var lastAmt *decimal.Decimal
 	if row.AlertThresholdPct.Valid {
 		v := db.FloatFromNumeric(row.AlertThresholdPct)
 		threshold = &v
 	}
 	if row.LastAmount.Valid {
-		v := db.FloatFromNumeric(row.LastAmount)
+		v := money.FromNumeric(row.LastAmount)
 		lastAmt = &v
 	}
 	return domain.RecurringExpense{
@@ -257,7 +260,7 @@ func toDomain(row sqlcgen.RecurringExpense) domain.RecurringExpense {
 		CreatedBy:         row.CreatedBy,
 		CategoryID:        row.CategoryID,
 		PaymentMethodID:   row.PaymentMethodID,
-		Amount:            db.FloatFromNumeric(row.Amount),
+		Amount:            money.FromNumeric(row.Amount),
 		Currency:          row.Currency,
 		Description:       row.Description,
 		Installments:      int(row.Installments),

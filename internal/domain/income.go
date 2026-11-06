@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"github.com/shopspring/decimal"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,11 +21,11 @@ type Income struct {
 	ReceivedBy      uuid.UUID
 	PaymentMethodID *uuid.UUID // nullable: no siempre hay medio (ej: gift en mano)
 
-	Amount       float64
+	Amount       decimal.Decimal
 	Currency     string
-	AmountBase   float64
+	AmountBase   decimal.Decimal
 	BaseCurrency string
-	RateUsed     *float64
+	RateUsed     *decimal.Decimal
 	RateAt       *time.Time
 
 	Source      string
@@ -51,7 +52,7 @@ type RecurringIncome struct {
 	ReceivedBy      uuid.UUID
 	PaymentMethodID *uuid.UUID
 
-	Amount      float64
+	Amount      decimal.Decimal
 	Currency    string
 	Description string
 	Source      string
