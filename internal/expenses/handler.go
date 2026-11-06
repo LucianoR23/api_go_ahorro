@@ -94,8 +94,11 @@ type expenseDTO struct {
 	Installments    int        `json:"installments"`
 	IsShared        bool       `json:"isShared"`
 	Status          string     `json:"status"`
-	CreatedAt       time.Time  `json:"createdAt"`
-	UpdatedAt       time.Time  `json:"updatedAt"`
+	// RecurringExpenseID: the series that generated this expense (fixed
+	// expenses and drafts); null for one-off expenses.
+	RecurringExpenseID *string   `json:"recurringExpenseId"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
 }
 
 type installmentDTO struct {
@@ -278,7 +281,8 @@ func (h *Handler) UpdateInstallment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	nStr := chi.URLParam(r, "n")
-	n, err := strconv.Atoi(nStr)
+	n64, err := strconv.ParseInt(nStr, 10, 32)
+	n := int(n64)
 	if err != nil || n < 1 {
 		httpx.WriteError(w, r, h.logger, domain.NewValidationError("n", "debe ser entero >= 1"))
 		return
@@ -415,7 +419,7 @@ func parseUUIDParam(r *http.Request, name string) (uuid.UUID, error) {
 	return id, nil
 }
 
-// parseListFilter lee ?categoryId=...&paymentMethodId=...&from=YYYY-MM-DD&to=...&limit=&offset=
+// parseListFilter lee ?categoryId=...&paymentMethodId=...&from=YYYY-MM-DD&to=...&kind=fixed|variable&limit=&offset=
 func parseListFilter(r *http.Request) (ListFilter, error) {
 	q := r.URL.Query()
 	var f ListFilter
@@ -448,6 +452,12 @@ func parseListFilter(r *http.Request) (ListFilter, error) {
 		}
 		f.ToDate = &t
 	}
+	switch v := q.Get("kind"); v {
+	case "", "fixed", "variable":
+		f.Kind = v
+	default:
+		return f, domain.NewValidationError("kind", "debe ser fixed o variable")
+	}
 	if v := strings.TrimSpace(q.Get("q")); v != "" {
 		if len(v) > 100 {
 			v = v[:100]
@@ -463,7 +473,7 @@ func parseListFilter(r *http.Request) (ListFilter, error) {
 		f.Limit = int32(n)
 	}
 	if v := q.Get("offset"); v != "" {
-		n, err := strconv.Atoi(v)
+		n, err := strconv.ParseInt(v, 10, 32)
 		if err != nil || n < 0 {
 			return f, domain.NewValidationError("offset", "debe ser entero >= 0")
 		}
@@ -480,25 +490,31 @@ func toExpenseDTO(e domain.Expense) expenseDTO {
 		s := e.CategoryID.String()
 		catID = &s
 	}
+	var recurringID *string
+	if e.RecurringExpenseID != nil {
+		s := e.RecurringExpenseID.String()
+		recurringID = &s
+	}
 	return expenseDTO{
-		ID:              e.ID.String(),
-		HouseholdID:     e.HouseholdID.String(),
-		CreatedBy:       e.CreatedBy.String(),
-		CategoryID:      catID,
-		PaymentMethodID: e.PaymentMethodID.String(),
-		Amount:          e.Amount,
-		Currency:        e.Currency,
-		AmountBase:      e.AmountBase,
-		BaseCurrency:    e.BaseCurrency,
-		RateUsed:        e.RateUsed,
-		RateAt:          e.RateAt,
-		Description:     e.Description,
-		SpentAt:         e.SpentAt.Format("2006-01-02"),
-		Installments:    e.Installments,
-		IsShared:        e.IsShared,
-		Status:          e.Status,
-		CreatedAt:       e.CreatedAt,
-		UpdatedAt:       e.UpdatedAt,
+		ID:                 e.ID.String(),
+		HouseholdID:        e.HouseholdID.String(),
+		CreatedBy:          e.CreatedBy.String(),
+		CategoryID:         catID,
+		PaymentMethodID:    e.PaymentMethodID.String(),
+		Amount:             e.Amount,
+		Currency:           e.Currency,
+		AmountBase:         e.AmountBase,
+		BaseCurrency:       e.BaseCurrency,
+		RateUsed:           e.RateUsed,
+		RateAt:             e.RateAt,
+		Description:        e.Description,
+		SpentAt:            e.SpentAt.Format("2006-01-02"),
+		Installments:       e.Installments,
+		IsShared:           e.IsShared,
+		Status:             e.Status,
+		RecurringExpenseID: recurringID,
+		CreatedAt:          e.CreatedAt,
+		UpdatedAt:          e.UpdatedAt,
 	}
 }
 

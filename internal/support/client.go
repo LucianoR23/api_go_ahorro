@@ -77,11 +77,13 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, id identity, c
 	}
 	defer resp.Body.Close()
 
-	// Un 401 de Soporte = API key inválida o rotada (NO sesión del usuario
-	// de Ahorra). Lo logueamos a nivel error para que el equipo lo note —
-	// el front igual recibe el 401 tal cual.
+	// A 401 from the support service means our API key is invalid or rotated,
+	// not that the user's session ended. Passing it through made the app log
+	// the user out, so it becomes a 502 and is logged as an error.
 	if resp.StatusCode == http.StatusUnauthorized {
-		s.logger.ErrorContext(r.Context(), "support: 401 del servicio — revisar SOPORTE_API_KEY (¿rotada?)", "path", call.path)
+		s.logger.ErrorContext(r.Context(), "support: upstream 401, check SOPORTE_API_KEY (rotated?)", "path", call.path)
+		httpx.WriteJSON(w, http.StatusBadGateway, proxyError{"internal", "servicio de soporte no disponible"})
+		return
 	}
 
 	// Pass-through: el body de error del servicio ya viene en {code, message}

@@ -264,7 +264,7 @@ func parseListFilters(r *http.Request) ListFilters {
 		}
 	}
 	if s := strings.TrimSpace(q.Get("offset")); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n >= 0 {
+		if n, err := strconv.ParseInt(s, 10, 32); err == nil && n >= 0 {
 			f.Offset = int32(n)
 		}
 	}

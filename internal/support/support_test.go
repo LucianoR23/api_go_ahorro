@@ -15,7 +15,6 @@ import (
 	"testing"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/config"
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
 )
@@ -151,13 +150,11 @@ func TestSupportProxy(t *testing.T) {
 		}
 	})
 
-	t.Run("an upstream 401 reaches the app as a session error", func(t *testing.T) {
+	t.Run("an upstream 401 becomes a 502, not a session error", func(t *testing.T) {
 		up.reply(http.StatusUnauthorized, `{"code":"unauthorized"}`, http.Header{"Content-Type": {"application/json"}})
 		defer up.reply(http.StatusOK, `{"ok":true}`, http.Header{"Content-Type": {"application/json"}})
 		res := s.Do(t, apitest.Req{Method: http.MethodGet, Path: "/support/tickets/mine", Token: u.Token})
-		testutil.KnownBug(t, "0.1", "the support proxy passes upstream 401 through, so the app logs the user out", func(t testing.TB) {
-			res.Status(t, http.StatusBadGateway)
-		})
+		res.Status(t, http.StatusBadGateway)
 	})
 
 	t.Run("requires auth", func(t *testing.T) {
