@@ -346,10 +346,18 @@ func (s *Service) GenerateDue(ctx context.Context, date time.Time) (int, int, er
 // + FX + credit_card_periods) y marca last_generated. Lo comparten el worker
 // (GenerateDue) y Create (primera ocurrencia "cuenta este mes").
 //
-// Idempotencia: si Create funciona pero MarkGenerated falla, el expense ya
-// quedó creado y el próximo tick podría duplicarlo. Devolvemos el error para
-// que el caller lo loguee; no revertimos (el user puede borrar el duplicado).
+// Idempotent: the expense and last_generated are written by different
+// services (no shared transaction), so if a run created the expense and then
+// failed to mark the series, the next run finds that expense and only marks
+// the series instead of creating a duplicate (plan 0.3).
 func (s *Service) generateOne(ctx context.Context, t domain.RecurringExpense, date time.Time) error {
+	exists, err := s.repo.HasOccurrence(ctx, t.ID, date)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return s.repo.MarkGenerated(ctx, t.ID, date)
+	}
 	// Series de monto variable nacen como draft con el último monto conocido
 	// como estimado (o el de la plantilla si nunca se confirmó una factura).
 	// El user las confirma cuando llega la factura real.

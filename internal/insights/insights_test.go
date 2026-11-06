@@ -131,21 +131,19 @@ func TestInsightGenerators(t *testing.T) {
 		}
 	})
 
-	t.Run("household alerts are duplicated when the job runs twice in a day", func(t *testing.T) {
+	t.Run("household alerts are not duplicated when the job runs twice in a day", func(t *testing.T) {
 		h := newHouse(t, s)
 		h.goal(t, map[string]any{"goalType": "total_limit", "targetAmount": 1000})
 		h.spend(t, h.owner, 900, "2026-03-05", nil)
 		h.generate(t, "2026-03-10")
 		h.generate(t, "2026-03-10")
 		alerts := ofType(h.list(t, h.owner, ""), "alert")
-		testutil.KnownBug(t, "0.3", "insights without a user (household level) are not deduplicated: NULL user_id is distinct in the unique index", func(t testing.TB) {
-			if len(alerts) != 1 {
-				t.Errorf("alerts after running the job twice = %d, want 1", len(alerts))
-			}
-		})
+		if len(alerts) != 1 {
+			t.Errorf("alerts after running the job twice = %d, want 1", len(alerts))
+		}
 	})
 
-	t.Run("a second personal goal over its limit gets no alert the same day", func(t *testing.T) {
+	t.Run("two personal goals over their limits get one alert each the same day", func(t *testing.T) {
 		h := newHouse(t, s)
 		var cats []struct {
 			ID string `json:"id"`
@@ -156,11 +154,9 @@ func TestInsightGenerators(t *testing.T) {
 		h.spend(t, h.member, 950, "2026-03-05", map[string]any{"categoryId": cats[0].ID})
 		h.generate(t, "2026-03-10")
 		alerts := ofType(h.list(t, h.member, "?userId="+h.member.ID), "alert")
-		testutil.KnownBug(t, "0.3", "goal alerts are unique per user and day, so a second goal's alert is dropped (ref_id should be the goal)", func(t testing.TB) {
-			if len(alerts) != 2 {
-				t.Errorf("alerts for two goals over their limits = %d, want 2", len(alerts))
-			}
-		})
+		if len(alerts) != 2 {
+			t.Errorf("alerts for two goals over their limits = %d, want 2", len(alerts))
+		}
 	})
 
 	t.Run("savings alert only from day 20 and under half the target", func(t *testing.T) {
@@ -195,7 +191,7 @@ func TestInsightGenerators(t *testing.T) {
 
 	t.Run("credit period reminder on the closing day, to the card owner", func(t *testing.T) {
 		h := newHouse(t, s)
-		s.CreateCreditCard(t, h.member, "Visa Galicia", 25, 5, "2026-03-25", "2026-04-06")
+		card := s.CreateCreditCard(t, h.member, "Visa Galicia", 25, 5, "2026-03-25", "2026-04-06")
 		h.generate(t, "2026-03-24")
 		if n := len(ofType(h.list(t, h.owner, ""), "credit_period_reminder")); n != 0 {
 			t.Errorf("reminder before closing: %d", n)
@@ -204,6 +200,16 @@ func TestInsightGenerators(t *testing.T) {
 		got := ofType(h.list(t, h.owner, ""), "credit_period_reminder")
 		if len(got) != 1 || got[0].UserID == nil || *got[0].UserID != h.member.ID || got[0].Title != "Cargá el próximo período de Visa Galicia" {
 			t.Errorf("reminders = %+v", got)
+		}
+		h.generate(t, "2026-03-25") // same day again: still one
+
+		// Next month: the member loads April's period and gets April's reminder
+		// too (before 000023 a card could only ever get one).
+		s.Do(t, apitest.Req{Method: http.MethodPut, Path: "/payment-methods/" + card.ID + "/credit-card/periods/2026-04", Token: h.member.Token,
+			Body: map[string]string{"closingDate": "2026-04-24", "dueDate": "2026-05-06"}}).Status(t, http.StatusOK)
+		h.generate(t, "2026-04-24")
+		if n := len(ofType(h.list(t, h.owner, ""), "credit_period_reminder")); n != 2 {
+			t.Errorf("reminders after two closings = %d, want 2", n)
 		}
 	})
 
@@ -219,11 +225,9 @@ func TestInsightGenerators(t *testing.T) {
 		}
 		h.generate(t, "2026-04-02") // installment 2 due 2026-04-05
 		due = ofType(h.list(t, h.owner, ""), "alert")
-		testutil.KnownBug(t, "0.3", "installment due-soon alerts dedupe on the expense, so only the first installment is ever announced", func(t testing.TB) {
-			if len(due) != 2 {
-				t.Errorf("due-soon alerts after two installments = %d, want 2", len(due))
-			}
-		})
+		if len(due) != 2 {
+			t.Errorf("due-soon alerts after two installments = %d, want 2", len(due))
+		}
 	})
 }
 
