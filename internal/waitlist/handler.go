@@ -128,8 +128,13 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 
 // UnsubscribePage: GET shows a button and never deletes (mail scanners
 // prefetch links).
+// pageCSP: the unsubscribe pages use inline styles and post a form to
+// themselves; nothing else (overrides the API's default-src 'none').
+const pageCSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+
 func (h *Handler) UnsubscribePage(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
+	w.Header().Set("Content-Security-Policy", pageCSP)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	if !h.svc.ValidUnsubscribeToken(token) {
@@ -150,6 +155,7 @@ func (h *Handler) Unsubscribe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "link inválido", http.StatusNotFound)
 		return
 	}
+	w.Header().Set("Content-Security-Policy", pageCSP)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(unsubscribePage(h.svc.cfg.Brand, "", true)))
 }

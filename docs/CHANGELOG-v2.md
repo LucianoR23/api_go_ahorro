@@ -4,6 +4,10 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.16 (API part): security headers and CSRF
+- Every response carries HSTS (2 years, preload), `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, COOP, CORP and a CSP that allows nothing (`default-src 'none'`). The waitlist unsubscribe pages set their own CSP (inline styles, form posts to itself).
+- `/auth/refresh` and `/auth/logout`, the endpoints that use the refresh cookie, reject a browser request from an origin outside `ALLOWED_ORIGINS` (or a cross-site one with no `Origin`) with 403 `forbidden`. Requests without browser headers still pass.
+
 ### B.5 (part 2): waitlist operations
 - `GET /admin/waitlist.csv` (superadmin): confirmed entries as CSV, with spreadsheet formulas neutralized. `DELETE /admin/waitlist?email=` (superadmin): deletes an address on request (Ley 25.326, within 5 business days); 204 even when it was not on the list. Both are recorded in the audit log, without the deleted address.
 

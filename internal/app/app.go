@@ -227,6 +227,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	auditRec := audit.NewRecorder(pool, logger)
 	auditRec.SetNewDeviceAlerts(audit.NewNewDeviceAlerts(verificationSender, userRepo, cfg.BrandName, cfg.AppBaseURL, logger))
 	authHandler.SetAudit(auditRec)
+	authHandler.SetCookieOrigins(cfg.AllowedOrigins)
 	householdsHandler.SetAudit(auditRec)
 	householdsAdminHandler.SetAudit(auditRec)
 	invitesHandler.SetAudit(auditRec)
@@ -447,6 +448,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	cloudflareEdges, _ := httpx.ParsePrefixes(cfg.CloudflareRanges)
 	r.Use(httpx.RealIP(trustedProxies, cloudflareEdges))
 	r.Use(middleware.Recoverer)
+	r.Use(httpx.SecurityHeaders) // plan 0.16
 
 	// CORS: permite al frontend llamar al API desde otro origen. Los orígenes
 	// válidos vienen de la env var ALLOWED_ORIGINS (separada por coma).

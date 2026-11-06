@@ -33,6 +33,8 @@ type Handler struct {
 	logger     *slog.Logger
 	mw         *Middleware
 	audit      *audit.Recorder
+	// cookieGuard: CSRF check on the refresh-cookie endpoints (plan 0.16).
+	cookieGuard func(http.Handler) http.Handler
 	// secureCookies controla flags de la cookie. En prod: true (Secure + Host prefix).
 	secureCookies bool
 	// rateLimit es opcional: si está seteado, se aplica a /auth/login y
@@ -75,6 +77,12 @@ func (h *Handler) SetRateLimiter(rl RateLimiter) {
 //	/auth/*  → públicas (register, login, refresh, logout)
 //	/me      → protegida con RequireAuth
 //
+// SetCookieOrigins enables the CSRF check on /auth/refresh and /auth/logout:
+// a browser request must come from one of origins (plan 0.16).
+func (h *Handler) SetCookieOrigins(origins []string) {
+	h.cookieGuard = httpx.SameOriginCookies(origins)
+}
+
 // SetAudit wires the security audit log (plan 0.17). Nil keeps it off.
 func (h *Handler) SetAudit(rec *audit.Recorder) { h.audit = rec }
 
@@ -105,15 +113,19 @@ func (h *Handler) Mount(r chi.Router) {
 			r.Post("/google", h.LoginWithGoogle)
 		})
 
-		// Refresh: baja superficie pero aplicamos límite amplio.
+		// Refresh and logout act on the refresh cookie: CSRF check (0.16).
 		r.Group(func(r chi.Router) {
-			if h.rateLimit != nil {
-				r.Use(h.rateLimit.Refresh())
+			if h.cookieGuard != nil {
+				r.Use(h.cookieGuard)
 			}
-			r.Post("/refresh", h.Refresh)
+			r.Group(func(r chi.Router) {
+				if h.rateLimit != nil {
+					r.Use(h.rateLimit.Refresh())
+				}
+				r.Post("/refresh", h.Refresh)
+			})
+			r.Post("/logout", h.Logout)
 		})
-
-		r.Post("/logout", h.Logout)
 
 		// Forgot + reset: rate-limit agresivo para evitar spam de correos
 		// y probing de tokens.
