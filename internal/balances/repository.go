@@ -1,6 +1,6 @@
 // Package balances: repository que lee la matriz de deudas y los settlements
 // agregados. Todo es on-demand (no hay tabla materializada): cada request
-// recomputa sumando shares con billing_date <= CURRENT_DATE y restando
+// recomputa sumando shares con billing_date <= today (app timezone) y restando
 // settlements ya registrados.
 package balances
 
@@ -11,8 +11,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 	"github.com/LucianoR23/api_go_ahorra/internal/db"
 	sqlcgen "github.com/LucianoR23/api_go_ahorra/internal/db/sqlc"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Repository struct {
@@ -44,7 +46,10 @@ type SettlementRow struct {
 // balances: shares billed (deuda generada) y settlements (deuda pagada).
 // El service hace la resta y normaliza a pares from→to con Amount > 0.
 func (r *Repository) HouseholdMatrix(ctx context.Context, householdID uuid.UUID) ([]MatrixRow, []SettlementRow, error) {
-	rawMatrix, err := r.q.BalanceMatrixByHousehold(ctx, householdID)
+	rawMatrix, err := r.q.BalanceMatrixByHousehold(ctx, sqlcgen.BalanceMatrixByHouseholdParams{
+		HouseholdID: householdID,
+		Today:       pgtype.Date{Time: dates.Today(), Valid: true},
+	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("balances.HouseholdMatrix/shares: %w", err)
 	}
@@ -86,6 +91,7 @@ type PairRaw struct {
 // params nombrados; internamente matchean con $2/$3 de la query.
 func (r *Repository) PairBalance(ctx context.Context, householdID, from, to uuid.UUID) (PairRaw, error) {
 	row, err := r.q.BalanceOwedBetween(ctx, sqlcgen.BalanceOwedBetweenParams{
+		Today:       pgtype.Date{Time: dates.Today(), Valid: true},
 		HouseholdID: householdID,
 		FromUser:    from,
 		ToUser:      to,

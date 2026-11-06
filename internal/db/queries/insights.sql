@@ -44,6 +44,7 @@ DELETE FROM daily_insights WHERE id = $1;
 SELECT COALESCE(SUM(amount_base), 0)::numeric AS total_base
 FROM expenses
 WHERE household_id = $1
+  AND status = 'confirmed'
   AND spent_at >= $2::date
   AND spent_at <= $3::date;
 
@@ -54,6 +55,7 @@ SELECT
     COUNT(DISTINCT category_id)::bigint AS distinct_categories
 FROM expenses
 WHERE household_id = $1
+  AND status = 'confirmed'
   AND spent_at >= $2::date
   AND spent_at <= $3::date;
 
@@ -66,6 +68,7 @@ SELECT COALESCE(SUM(i.installment_amount_base), 0)::numeric AS total_base
 FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
 WHERE e.household_id = $1
+  AND e.status = 'confirmed'
   AND i.is_paid = false
   AND COALESCE(i.due_date, i.billing_date) >= $2::date
   AND COALESCE(i.due_date, i.billing_date) <= $3::date;
@@ -76,6 +79,7 @@ WHERE e.household_id = $1
 SELECT e.category_id, COALESCE(SUM(e.amount_base), 0)::numeric AS total_base
 FROM expenses e
 WHERE e.household_id = $1
+  AND e.status = 'confirmed'
   AND e.spent_at >= $2::date
   AND e.spent_at <= $3::date
   AND e.category_id IS NOT NULL

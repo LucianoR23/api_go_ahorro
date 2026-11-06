@@ -355,7 +355,7 @@ func TestVariableAmountDrafts(t *testing.T) {
 		}
 	})
 
-	t.Run("confirming a shared draft keeps the shares of the draft amount", func(t *testing.T) {
+	t.Run("confirming a shared draft rescales its installment and shares", func(t *testing.T) {
 		h := newHouse(t, s)
 		r := h.create(t, map[string]any{"description": "Gas", "amount": 1000, "amountIsVariable": true, "isShared": true})
 		h.startFrom(t, r.ID, "2026-01-01")
@@ -366,19 +366,17 @@ func TestVariableAmountDrafts(t *testing.T) {
 
 		var d apitest.ExpenseDetail
 		h.do(t, h.owner, http.MethodGet, "/expenses/"+drafts[0].ID, nil).Status(t, http.StatusOK).JSON(t, &d)
-		testutil.KnownBug(t, "0.4", "confirming a draft updates the expense amount but not its installment and shares", func(t testing.TB) {
-			inst := d.Installments[0]
-			total := 0.0
-			for _, sh := range inst.Shares {
-				total += sh.AmountBaseOwed
-			}
-			if inst.InstallmentAmount != 3000 || total != 3000 {
-				t.Errorf("installment %v, shares total %v; want both 3000", inst.InstallmentAmount, total)
-			}
-		})
+		inst := d.Installments[0]
+		total := 0.0
+		for _, sh := range inst.Shares {
+			total += sh.AmountBaseOwed
+		}
+		if inst.InstallmentAmount != 3000 || total != 3000 {
+			t.Errorf("installment %v, shares total %v; want both 3000", inst.InstallmentAmount, total)
+		}
 	})
 
-	t.Run("drafts count as spending before they are confirmed", func(t *testing.T) {
+	t.Run("drafts are not spending until they are confirmed", func(t *testing.T) {
 		h := newHouse(t, s)
 		r := h.create(t, map[string]any{"description": "Agua", "amount": 900, "amountIsVariable": true, "isShared": true})
 		h.startFrom(t, r.ID, "2026-01-01")
@@ -393,28 +391,44 @@ func TestVariableAmountDrafts(t *testing.T) {
 			Items []apitest.Expense `json:"items"`
 		}
 		h.do(t, h.owner, http.MethodGet, "/expenses", nil).Status(t, http.StatusOK).JSON(t, &l)
-		testutil.KnownBug(t, "0.4", "the expense list includes unconfirmed drafts by default", func(t testing.TB) {
-			for _, e := range l.Items {
-				if e.ID == drafts[0].ID {
-					t.Errorf("draft %s listed as spending", e.ID)
-				}
+		for _, e := range l.Items {
+			if e.ID == drafts[0].ID {
+				t.Errorf("draft %s listed as spending", e.ID)
 			}
-		})
-		testutil.KnownBug(t, "0.4", "the expense list does not expose status (always empty)", func(t testing.TB) {
-			for _, e := range l.Items {
-				if e.Status == "" {
-					t.Errorf("expense %s listed without status", e.ID)
-				}
+		}
+		for _, e := range l.Items {
+			if e.Status == "" {
+				t.Errorf("expense %s listed without status", e.ID)
 			}
-		})
+		}
 		var b struct {
 			Balances []any `json:"balances"`
 		}
 		h.do(t, h.owner, http.MethodGet, "/balances", nil).Status(t, http.StatusOK).JSON(t, &b)
-		testutil.KnownBug(t, "0.4", "balances count the shares of unconfirmed drafts", func(t testing.TB) {
-			if len(b.Balances) != 0 {
-				t.Errorf("a draft created a debt: %v", b.Balances)
-			}
-		})
+		if len(b.Balances) != 0 {
+			t.Errorf("a draft created a debt: %v", b.Balances)
+		}
+
+		// The draft is still reachable on purpose, and counts once confirmed.
+		var onlyDrafts struct {
+			Items []apitest.Expense `json:"items"`
+		}
+		h.do(t, h.owner, http.MethodGet, "/expenses?status=draft", nil).Status(t, http.StatusOK).JSON(t, &onlyDrafts)
+		if len(onlyDrafts.Items) != 1 || onlyDrafts.Items[0].Status != "draft" {
+			t.Errorf("?status=draft = %+v", onlyDrafts.Items)
+		}
+		h.do(t, h.owner, http.MethodGet, "/expenses?status=nope", nil).WantError(t, http.StatusUnprocessableEntity, "validation", "status")
+		h.do(t, h.owner, http.MethodPost, "/expenses/"+drafts[0].ID+"/confirm", map[string]any{"amount": 1200}).Status(t, http.StatusOK)
+		var after struct {
+			Items []apitest.Expense `json:"items"`
+		}
+		h.do(t, h.owner, http.MethodGet, "/expenses", nil).Status(t, http.StatusOK).JSON(t, &after)
+		if len(after.Items) != 1 || after.Items[0].Status != "confirmed" || after.Items[0].Amount != 1200 {
+			t.Errorf("after confirming = %+v", after.Items)
+		}
+		h.do(t, h.owner, http.MethodGet, "/balances", nil).Status(t, http.StatusOK).JSON(t, &b)
+		if len(b.Balances) != 1 {
+			t.Errorf("the confirmed shared bill created no debt: %v", b.Balances)
+		}
 	})
 }
