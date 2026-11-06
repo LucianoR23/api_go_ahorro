@@ -63,7 +63,7 @@ without superuser. Check with `\du`, `\l valuo_next` and `\ddp`.
 | `DATABASE_URL` | `postgres://valuo_app:<PASS_APP>@<DB_HOST>:5432/valuo_next?sslmode=disable`. Must be a **direct** connection to Postgres (staging: the Coolify Postgres resource), never a transaction pooler (PgBouncer in transaction mode, Supabase port 6543): the live insights stream needs `LISTEN/NOTIFY` on a session that stays open |
 | `MIGRATE_ON_START` | `true` |
 | `MIGRATE_DATABASE_URL` | `postgres://valuo_migrate:<PASS_MIGRATE>@<DB_HOST>:5432/valuo_next?sslmode=disable` |
-| `JWT_SECRET` / `JWT_REFRESH_SECRET` | two different `openssl rand -hex 32`, never reused across environments |
+| `JWT_SECRET` | `openssl rand -hex 32`, never reused across environments (signs access tokens; refresh tokens are server-side sessions since 0.5, so `JWT_REFRESH_SECRET` can be deleted) |
 | `ALLOWED_ORIGINS` / `APP_BASE_URL` | the front's URL |
 | `GOOGLE_OAUTH_CLIENT_ID` | same value as the front's `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (empty = `/auth/google` responds 500) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | per environment, from `go run ./cmd/vapidgen`; subject `mailto:...` |
@@ -319,7 +319,8 @@ gitleaks in CI). Rotation, one at a time:
 
 | Secret | How to rotate | Effect |
 |---|---|---|
-| `JWT_SECRET` / `JWT_REFRESH_SECRET` | new 32+ char random values, redeploy | everyone logs in again |
+| `JWT_SECRET` | new 32+ char random value, redeploy | access tokens die; sessions refresh into new ones |
+| Sessions (`user_sessions`) | `UPDATE user_sessions SET revoked_at = now() WHERE revoked_at IS NULL` | everyone logs in again |
 | DB passwords (`valuo_app`, `valuo_migrate`) | `ALTER ROLE ... PASSWORD`, update both URLs, redeploy | none if done together |
 | `RESEND_API_KEY` | new key in Resend, update, redeploy, revoke the old one | none |
 | `SOPORTE_API_KEY` | new key from the support service, update, redeploy | none |

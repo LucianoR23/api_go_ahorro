@@ -137,7 +137,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 
 	userRepo := users.NewRepository(pool)
 
-	tokenIssuer, err := auth.NewTokenIssuer(cfg.JWTSecret, cfg.JWTRefreshSecret)
+	tokenIssuer, err := auth.NewTokenIssuer(cfg.JWTSecret)
 	if err != nil {
 		return nil, fmt.Errorf("app: token issuer: %w", err)
 	}
@@ -147,7 +147,8 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	paymethodsRepo := paymethods.NewRepository(pool)
 	paymethodsSvc := paymethods.NewService(paymethodsRepo)
 
-	authSvc := auth.NewService(userRepo, tokenIssuer, paymethodsSvc, logger)
+	sessions := auth.NewSessionStore(pool)
+	authSvc := auth.NewService(userRepo, tokenIssuer, sessions, paymethodsSvc, logger)
 	authMW := auth.NewMiddleware(tokenIssuer, logger)
 	// Cablear el lookup de is_superadmin para el middleware RequireSuperadmin.
 	// Sin esto, el middleware rechaza todo /admin/* (fail-closed).
@@ -159,6 +160,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	passwordResetRepo := auth.NewPasswordResetRepository(pool)
 	passwordResetSender := opts.NewEmailSender(cfg.PasswordResetFromEmail)
 	passwordResetSvc := auth.NewPasswordResetService(passwordResetRepo, userRepo, passwordResetSender, logger, cfg.AppBaseURL, cfg.BrandName)
+	passwordResetSvc.SetSessions(sessions)
 	authHandler.SetPasswordResetService(passwordResetSvc)
 
 	// Rate limiting: in-memory (httprate). Solo se aplica si NO estamos en
@@ -224,6 +226,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// AccountService: baja de cuenta (soft delete). Requiere pushRepo para
 	// limpiar subs del user al borrarlo. Se cablea al authHandler vía setter.
 	accountSvc := auth.NewAccountService(userRepo, householdsRepo, pushRepo, logger)
+	accountSvc.SetSessions(sessions)
 	authHandler.SetAccountService(accountSvc)
 
 	pushAdapter := pushNotifierAdapter{svc: pushSvc}

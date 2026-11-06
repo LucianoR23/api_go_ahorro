@@ -4,6 +4,14 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.5 (part 1): server-side sessions
+- Migration `000025`: `user_sessions`, one row per signed-in device. The refresh token is an opaque random value; only its SHA-256 is stored, with the user agent. No IP column on purpose (the privacy policy keeps IPs 7 days at most). Stale sessions of a user are deleted when they sign in.
+- Refresh rotates the token; an already-rotated token presented again revokes the session (theft), except within 30 s of the rotation (two tabs refreshing at once), where it is only refused. Sessions slide: 7 days from the last use.
+- Logout revokes the session on the server (a copied refresh token used to keep working). `POST /auth/logout-all` signs out every device.
+- A password reset revokes every session; a password change every session but the current one; account deletion every session. Refresh refuses a deleted user.
+- Access tokens carry the session id (`sid`). The refresh token is no longer a JWT: `JWT_REFRESH_SECRET` is gone (remove it from Coolify; ignored if left).
+- The refresh cookie is brand-neutral: `refresh` in dev, `__Host-refresh` in prod (was `ahorra_refresh`). Everyone signs in again once after this deploy.
+
 ### 0.9: insights stream
 - **Breaking (paired with `ahorra_app` 0.9):** the stream opens with a single-use ticket. `POST /insights/stream-ticket` (auth + household) returns `{ticket, expiresIn: 60}`; `GET /insights/stream?ticket=` redeems it. `?access_token=` is no longer accepted: the access token in the URL ended up in any log that records URLs.
 - The stream is no longer cut every 30 seconds: it is mounted outside the timeout group and pushes the server's write deadline forward on each write. Ping every 25 s stays.

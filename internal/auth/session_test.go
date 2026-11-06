@@ -177,15 +177,26 @@ func TestRefreshAndLogout(t *testing.T) {
 		s.Do(t, post("/auth/logout", nil)).Status(t, http.StatusNoContent)
 	})
 
-	t.Run("a refresh token copied before logout keeps working", func(t *testing.T) {
+	t.Run("logout-all signs out every device", func(t *testing.T) {
+		u := s.Register(t)
+		a := s.Login(t, u.Email, u.Password).RefreshCookieValue(t)
+		b := s.Login(t, u.Email, u.Password).RefreshCookieValue(t)
+		res := s.Do(t, apitest.Req{Method: http.MethodPost, Path: "/auth/logout-all", Token: u.Token}).Status(t, http.StatusNoContent)
+		if c := res.Cookie(apitest.RefreshCookie); c == nil || c.MaxAge >= 0 {
+			t.Errorf("logout-all did not clear the cookie: %+v", c)
+		}
+		s.Refresh(t, a).Status(t, http.StatusUnauthorized)
+		s.Refresh(t, b).Status(t, http.StatusUnauthorized)
+		s.Do(t, apitest.Req{Method: http.MethodPost, Path: "/auth/logout-all"}).Status(t, http.StatusUnauthorized)
+	})
+
+	t.Run("a refresh token copied before logout stops working", func(t *testing.T) {
 		u := s.Register(t)
 		stolen := s.Login(t, u.Email, u.Password).RefreshCookieValue(t)
 		s.Do(t, apitest.Req{Method: http.MethodPost, Path: "/auth/logout", Header: apitest.WithRefreshCookie(stolen)}).
 			Status(t, http.StatusNoContent)
 
-		testutil.KnownBug(t, "0.5", "logout does not revoke the refresh token server-side", func(t testing.TB) {
-			s.Refresh(t, stolen).Status(t, http.StatusUnauthorized)
-		})
+		s.Refresh(t, stolen).Status(t, http.StatusUnauthorized)
 	})
 }
 

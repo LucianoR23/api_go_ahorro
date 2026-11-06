@@ -11,7 +11,6 @@ func setRequired(t *testing.T) {
 	t.Helper()
 	t.Setenv("DATABASE_URL", "postgres://app:pw@localhost:5432/x")
 	t.Setenv("JWT_SECRET", strings.Repeat("a", 32))
-	t.Setenv("JWT_REFRESH_SECRET", strings.Repeat("b", 32))
 }
 
 func TestLoadMigrateOnStart(t *testing.T) {

@@ -106,6 +106,8 @@ type Querier interface {
 	// (no debería darse en condiciones normales: si Get devolvió NotFound y
 	// alguien crea la misma identidad en paralelo, la segunda inserción falla).
 	CreateUserIdentity(ctx context.Context, arg CreateUserIdentityParams) error
+	// ===================== user_sessions (plan 0.5) =====================
+	CreateUserSession(ctx context.Context, arg CreateUserSessionParams) (UserSession, error)
 	// Registro vía OAuth (Google): sin password_hash, con email ya verificado
 	// (el provider externo nos garantiza la propiedad del email).
 	CreateUserWithoutPassword(ctx context.Context, arg CreateUserWithoutPasswordParams) (User, error)
@@ -121,6 +123,9 @@ type Querier interface {
 	// Normalmente no se usa (al sacar miembro el CASCADE lo limpia), pero
 	// lo expongo por simetría con el resto del CRUD.
 	DeleteSplitRule(ctx context.Context, arg DeleteSplitRuleParams) error
+	// Housekeeping on each sign-in: drops this user's sessions that expired or
+	// were revoked more than a day ago.
+	DeleteStaleUserSessions(ctx context.Context, userID uuid.UUID) error
 	GetBankByID(ctx context.Context, id uuid.UUID) (Bank, error)
 	// Usada por CreateBank para detectar un match inactivo y "revivirlo" en
 	// vez de fallar por conflicto. El índice parcial (is_active=true) no
@@ -173,6 +178,8 @@ type Querier interface {
 	// Lookup por (provider, subject). pgx.ErrNoRows si no existe → el service
 	// lo mapea a domain.ErrNotFound y arranca el flujo de auto-vinculación.
 	GetUserIdentity(ctx context.Context, arg GetUserIdentityParams) (UserIdentity, error)
+	GetUserSessionByPrevRefreshHash(ctx context.Context, prevRefreshHash []byte) (UserSession, error)
+	GetUserSessionByRefreshHash(ctx context.Context, refreshHash []byte) (UserSession, error)
 	// Al emitir un nuevo token, invalidamos los anteriores del user.
 	InvalidateActiveEmailVerificationsForUser(ctx context.Context, userID uuid.UUID) error
 	// Al emitir un nuevo token, invalidamos los anteriores del user (los
@@ -287,7 +294,13 @@ type Querier interface {
 	RemoveHouseholdMember(ctx context.Context, arg RemoveHouseholdMemberParams) error
 	// Admin-only: limpia deleted_at y deja el hogar accesible de nuevo.
 	RestoreHousehold(ctx context.Context, id uuid.UUID) error
+	RevokeAllUserSessions(ctx context.Context, userID uuid.UUID) error
 	RevokeInvite(ctx context.Context, id uuid.UUID) (HouseholdInvite, error)
+	RevokeOtherUserSessions(ctx context.Context, arg RevokeOtherUserSessionsParams) error
+	RevokeUserSession(ctx context.Context, id uuid.UUID) error
+	// Conditional on the current hash, so two concurrent refreshes with the same
+	// token cannot both rotate: the loser gets no row.
+	RotateUserSession(ctx context.Context, arg RotateUserSessionParams) (UserSession, error)
 	// Activa o desactiva un banco. El ON DELETE SET NULL en payment_methods.bank_id
 	// NO se dispara acá (no borramos la fila), así que los métodos siguen
 	// asociados al banco aunque el banco esté inactivo.

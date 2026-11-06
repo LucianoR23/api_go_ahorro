@@ -13,13 +13,13 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
 )
 
-// refreshCookieName: nombre de la cookie que guarda el refresh token.
-// Prefijo "__Host-" es un hint de navegador para que la cookie solo sea
-// aceptada si: Secure, Path=/, sin Domain. Lo activamos solo en prod
-// (requiere HTTPS); en dev usamos nombre normal para que funcione en http.
+// Refresh cookie names, brand-neutral since plan 0.5 (they were
+// "ahorra_refresh"). The "__Host-" prefix makes the browser accept the cookie
+// only with Secure, Path=/ and no Domain; it needs HTTPS, so dev uses the
+// plain name.
 const (
-	refreshCookieNameDev  = "ahorra_refresh"
-	refreshCookieNameProd = "__Host-ahorra_refresh"
+	refreshCookieNameDev  = "refresh"
+	refreshCookieNameProd = "__Host-refresh"
 )
 
 // Handler agrupa los endpoints de auth y sus dependencias.
@@ -152,6 +152,7 @@ func (h *Handler) Mount(r chi.Router) {
 
 	r.Group(func(r chi.Router) {
 		r.Use(h.mw.RequireAuth)
+		r.Post("/auth/logout-all", h.LogoutAll)
 		r.Get("/me", h.Me)
 		r.Patch("/me", h.UpdateMe)
 		r.Delete("/me", h.DeleteMe)
@@ -192,7 +193,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.svc.Register(r.Context(), req.Email, req.Password, req.FirstName, req.LastName, req.InviteToken)
+	result, err := h.svc.Register(contextWithUserAgent(r.Context(), r.UserAgent()), req.Email, req.Password, req.FirstName, req.LastName, req.InviteToken)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -220,7 +221,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.svc.Login(r.Context(), req.Email, req.Password)
+	result, err := h.svc.Login(contextWithUserAgent(r.Context(), r.UserAgent()), req.Email, req.Password)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -260,7 +261,7 @@ func (h *Handler) LoginWithGoogle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, isNew, err := h.svc.LoginWithGoogle(r.Context(), req.IdToken)
+	result, isNew, err := h.svc.LoginWithGoogle(contextWithUserAgent(r.Context(), r.UserAgent()), req.IdToken)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -422,10 +423,30 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 
 // ===================== Logout =====================
 
-// Logout simplemente borra la cookie de refresh. No hay tabla de tokens
-// revocados: el access expira en 15min y el refresh queda inaccesible
-// para el cliente. Si se filtró antes del logout, espera su expiración.
+// Logout ends this device's session on the server (a copied refresh token
+// stops working) and clears the cookie. Always 204.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie(h.cookieName()); err == nil {
+		if err := h.svc.Logout(r.Context(), cookie.Value); err != nil {
+			h.logger.WarnContext(r.Context(), "logout: revoke failed", "error", err)
+		}
+	}
+	h.clearRefreshCookie(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// LogoutAll ends every session of the user, on every device, this one
+// included ("Cerrar sesión en todos los dispositivos").
+func (h *Handler) LogoutAll(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, r, h.logger, domain.ErrUnauthorized)
+		return
+	}
+	if err := h.svc.LogoutAll(r.Context(), userID); err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
 	h.clearRefreshCookie(w)
 	w.WriteHeader(http.StatusNoContent)
 }

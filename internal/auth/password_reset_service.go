@@ -58,7 +58,18 @@ type PasswordResetService struct {
 	logger     *slog.Logger
 	appBaseURL string
 	ttl        time.Duration
+	sessions   sessionRevoker
 }
+
+// sessionRevoker: ends sessions when the password changes (plan 0.5).
+type sessionRevoker interface {
+	RevokeAll(ctx context.Context, userID uuid.UUID) error
+	RevokeOthers(ctx context.Context, userID, keep uuid.UUID) error
+}
+
+// SetSessions wires session revocation: a reset ends every session, a change
+// ends every session but the current one.
+func (s *PasswordResetService) SetSessions(r sessionRevoker) { s.sessions = r }
 
 func NewPasswordResetService(
 	resets passwordResetRepo,
@@ -179,6 +190,12 @@ func (s *PasswordResetService) ConfirmReset(ctx context.Context, token, newPassw
 	if err := s.users.UpdatePasswordHash(ctx, reset.UserID, newHash); err != nil {
 		return err
 	}
+	// Whoever had a session (maybe the reason for the reset) is signed out.
+	if s.sessions != nil {
+		if err := s.sessions.RevokeAll(ctx, reset.UserID); err != nil {
+			return err
+		}
+	}
 
 	// Invalidamos otros resets activos del user por si hay varios mails
 	// flotando. No crítico pero limpio.
@@ -221,6 +238,12 @@ func (s *PasswordResetService) ChangePassword(ctx context.Context, userID uuid.U
 	}
 	if err := s.users.UpdatePasswordHash(ctx, userID, newHash); err != nil {
 		return err
+	}
+	// Other devices are signed out; this one keeps its session.
+	if s.sessions != nil {
+		if err := s.sessions.RevokeOthers(ctx, userID, SessionIDFrom(ctx)); err != nil {
+			return err
+		}
 	}
 
 	// Invalidamos cualquier reset activo: el user ya tiene la clave nueva.
