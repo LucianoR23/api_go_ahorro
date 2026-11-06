@@ -41,6 +41,8 @@ const (
 	HouseholdRole       = "household.role_changed"
 	AdminRestore        = "admin.household_restored"
 	AdminPurge          = "admin.household_purged"
+	AdminWaitlistExport = "admin.waitlist_exported"
+	AdminWaitlistDelete = "admin.waitlist_deleted"
 )
 
 // Event: one thing that happened. UserID is the account it happened to

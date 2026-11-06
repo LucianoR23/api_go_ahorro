@@ -287,3 +287,40 @@ func TestWaitlistCORSAndRateLimit(t *testing.T) {
 		t.Error("429 without Retry-After")
 	}
 }
+
+func TestAdmin(t *testing.T) {
+	t.Parallel()
+	s := apitest.New(t)
+	admin, user := s.Register(t), s.Register(t)
+	s.MakeSuperadmin(t, admin)
+
+	confirmed := apitest.UniqueEmail()
+	signup(t, s, body(s, confirmed, map[string]any{"monotributo": true, "source": "instagram"})).Status(t, http.StatusAccepted)
+	confirm(t, s, confirmToken(t, mails(t, s, confirmed, 1)[0])).Status(t, http.StatusOK)
+	pending := apitest.UniqueEmail()
+	signup(t, s, body(s, pending, nil)).Status(t, http.StatusAccepted)
+
+	s.Do(t, apitest.Req{Method: http.MethodGet, Path: "/admin/waitlist.csv", Token: user.Token}).WantError(t, http.StatusForbidden, "forbidden", "")
+	csv := s.Do(t, apitest.Req{Method: http.MethodGet, Path: "/admin/waitlist.csv", Token: admin.Token}).Status(t, http.StatusOK)
+	text := string(csv.Body)
+	if !strings.HasPrefix(text, "email,monotributo,form,source,medium,campaign,referrer_path,notice_version,created_at,confirmed_at\n") ||
+		!strings.Contains(text, confirmed+",true,hero,instagram,") || strings.Contains(text, pending) {
+		t.Errorf("export = %q", text)
+	}
+
+	s.Do(t, apitest.Req{Method: http.MethodDelete, Path: "/admin/waitlist?email=" + strings.ToUpper(confirmed), Token: admin.Token}).Status(t, http.StatusNoContent)
+	s.Do(t, apitest.Req{Method: http.MethodDelete, Path: "/admin/waitlist?email=nope", Token: admin.Token}).WantError(t, http.StatusUnprocessableEntity, "validation", "email")
+	var left int
+	if err := s.Pool.QueryRow(t.Context(), `SELECT count(*) FROM waitlist_entries WHERE email = $1`, confirmed).Scan(&left); err != nil || left != 0 {
+		t.Errorf("deleted entry left %d, %v", left, err)
+	}
+
+	var exports, deletes int
+	if err := s.Pool.QueryRow(t.Context(), `SELECT count(*) FILTER (WHERE action = 'admin.waitlist_exported'),
+		count(*) FILTER (WHERE action = 'admin.waitlist_deleted') FROM audit_events WHERE actor_id = $1`, admin.ID).Scan(&exports, &deletes); err != nil {
+		t.Fatal(err)
+	}
+	if exports != 1 || deletes != 1 {
+		t.Errorf("audit: %d exports, %d deletes", exports, deletes)
+	}
+}
