@@ -3,7 +3,6 @@ package goals_test
 // Characterization tests of budget goals and their progress (item 0.21f).
 
 import (
-	"fmt"
 	"net/http"
 	"os"
 	"testing"
@@ -28,13 +27,16 @@ type goalJSON struct {
 }
 
 type progressJSON struct {
-	Goal          goalJSON `json:"goal"`
-	PeriodStart   string   `json:"periodStart"`
-	PeriodEnd     string   `json:"periodEnd"`
-	CurrentAmount float64  `json:"currentAmount"`
-	TargetAmount  float64  `json:"targetAmount"`
-	Percent       float64  `json:"percent"`
-	Status        string   `json:"status"`
+	Goal             goalJSON `json:"goal"`
+	PeriodStart      string   `json:"periodStart"`
+	PeriodEnd        string   `json:"periodEnd"`
+	CurrentAmount    float64  `json:"currentAmount"`
+	TargetAmount     float64  `json:"targetAmount"`
+	TargetAmountBase float64  `json:"targetAmountBase"`
+	BaseCurrency     string   `json:"baseCurrency"`
+	FxRate           *float64 `json:"fxRate"`
+	Percent          float64  `json:"percent"`
+	Status           string   `json:"status"`
 }
 
 type house struct {
@@ -265,15 +267,25 @@ func TestGoalProgress(t *testing.T) {
 		h.do(t, h.owner, http.MethodGet, "/goals/progress?at=mañana", nil).Status(t, http.StatusOK)
 	})
 
-	t.Run("a target in another currency is compared against base-currency spending", func(t *testing.T) {
+	t.Run("a target in another currency is converted with today's rate", func(t *testing.T) {
 		h := newHouse(t, s)
+		if _, err := s.Pool.Exec(t.Context(), `INSERT INTO exchange_rates (currency, source, last_update, rate_avg, rate_buy, rate_sell)
+			VALUES ('USD', 'blue', now(), 1500, 1490, 1510)`); err != nil {
+			t.Fatal(err)
+		}
 		g := h.goal(t, map[string]any{"goalType": "total_limit", "targetAmount": 100, "currency": "USD"})
-		h.spend(t, h.owner, 50000, "2026-03-10", nil) // ARS
+		h.spend(t, h.owner, 90000, "2026-03-10", nil) // ARS
 		p := h.progress(t, g, "2026-03-15")
-		testutil.KnownBug(t, "0.1", "goal progress ignores the goal currency: ARS spending is measured against a USD target", func(t testing.TB) {
-			if p.Status == "exceeded" {
-				t.Errorf("50000 ARS counted as %v against a target of 100 USD (%s)", p.CurrentAmount, fmt.Sprintf("%.0f%%", p.Percent))
-			}
-		})
+		// USD 100 x 1500 = ARS 150000; 90000 spent is 60%.
+		if p.TargetAmount != 100 || p.TargetAmountBase != 150000 || p.BaseCurrency != "ARS" ||
+			p.FxRate == nil || *p.FxRate != 1500 || p.Percent != 60 || p.Status != "ok" {
+			t.Errorf("USD goal progress = %+v", p)
+		}
+
+		ars := h.goal(t, map[string]any{"goalType": "total_limit", "targetAmount": 100000})
+		pa := h.progress(t, ars, "2026-03-15")
+		if pa.TargetAmountBase != 100000 || pa.FxRate != nil || pa.Percent != 90 {
+			t.Errorf("ARS goal progress = %+v", pa)
+		}
 	})
 }

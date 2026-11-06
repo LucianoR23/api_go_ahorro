@@ -14,9 +14,10 @@ import (
 
 func progress(goalType string, current, target float64) domain.BudgetGoalProgress {
 	return domain.BudgetGoalProgress{
-		Goal:          domain.BudgetGoal{GoalType: goalType},
-		CurrentAmount: current,
-		TargetAmount:  target,
+		Goal:             domain.BudgetGoal{GoalType: goalType},
+		CurrentAmount:    current,
+		TargetAmount:     target,
+		TargetAmountBase: target,
 	}
 }
 

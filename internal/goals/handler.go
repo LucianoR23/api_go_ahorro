@@ -89,10 +89,14 @@ type progressDTO struct {
 	Goal          goalDTO `json:"goal"`
 	PeriodStart   string  `json:"periodStart"`
 	PeriodEnd     string  `json:"periodEnd"`
-	CurrentAmount float64 `json:"currentAmount"`
-	TargetAmount  float64 `json:"targetAmount"`
-	Percent       float64 `json:"percent"`
-	Status        string  `json:"status"`
+	CurrentAmount float64 `json:"currentAmount"` // in baseCurrency
+	TargetAmount  float64 `json:"targetAmount"`  // in the goal's currency
+	// TargetAmountBase: the target in baseCurrency; percent and status use it.
+	TargetAmountBase float64  `json:"targetAmountBase"`
+	BaseCurrency     string   `json:"baseCurrency"`
+	FxRate           *float64 `json:"fxRate"` // today's rate used, null if none
+	Percent          float64  `json:"percent"`
+	Status           string   `json:"status"`
 }
 
 // ===================== handlers =====================
@@ -350,13 +354,16 @@ func toDTO(g domain.BudgetGoal) goalDTO {
 
 func toProgressDTO(p domain.BudgetGoalProgress) progressDTO {
 	return progressDTO{
-		Goal:          toDTO(p.Goal),
-		PeriodStart:   p.PeriodStart.Format("2006-01-02"),
-		PeriodEnd:     p.PeriodEnd.Format("2006-01-02"),
-		CurrentAmount: p.CurrentAmount,
-		TargetAmount:  p.TargetAmount,
-		Percent:       p.Percent,
-		Status:        p.Status,
+		Goal:             toDTO(p.Goal),
+		PeriodStart:      p.PeriodStart.Format("2006-01-02"),
+		PeriodEnd:        p.PeriodEnd.Format("2006-01-02"),
+		CurrentAmount:    p.CurrentAmount,
+		TargetAmount:     p.TargetAmount,
+		TargetAmountBase: p.TargetAmountBase,
+		BaseCurrency:     p.BaseCurrency,
+		FxRate:           p.FxRate,
+		Percent:          p.Percent,
+		Status:           p.Status,
 	}
 }
 

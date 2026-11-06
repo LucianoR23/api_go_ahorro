@@ -14,15 +14,23 @@ import (
 // ser miembro del hogar) y para el creador del goal en general.
 type householdLookup interface {
 	IsMember(ctx context.Context, householdID, userID uuid.UUID) (bool, error)
+	GetByID(ctx context.Context, id uuid.UUID) (domain.Household, error)
+}
+
+// fxConverter: converts a goal's target into the household's base currency,
+// with the same rates expenses use.
+type fxConverter interface {
+	Convert(ctx context.Context, amount float64, from, to string) (converted, rate float64, err error)
 }
 
 type Service struct {
 	repo       *Repository
 	households householdLookup
+	fx         fxConverter
 }
 
-func NewService(repo *Repository, households householdLookup) *Service {
-	return &Service{repo: repo, households: households}
+func NewService(repo *Repository, households householdLookup, fx fxConverter) *Service {
+	return &Service{repo: repo, households: households, fx: fx}
 }
 
 // ===================== CRUD =====================
@@ -173,7 +181,11 @@ func (s *Service) Progress(ctx context.Context, householdID uuid.UUID, id uuid.U
 	if err != nil {
 		return domain.BudgetGoalProgress{}, err
 	}
-	return buildProgress(g, start, end, current), nil
+	target, err := s.targetInBase(ctx, g)
+	if err != nil {
+		return domain.BudgetGoalProgress{}, err
+	}
+	return buildProgress(g, start, end, current, target), nil
 }
 
 // ProgressList: todos los goals activos del hogar con progreso calculado.
@@ -190,9 +202,38 @@ func (s *Service) ProgressList(ctx context.Context, householdID uuid.UUID, f Lis
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, buildProgress(g, start, end, current))
+		target, err := s.targetInBase(ctx, g)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, buildProgress(g, start, end, current, target))
 	}
 	return out, nil
+}
+
+// baseTarget: a goal's target in the household's base currency. Spending and
+// incomes are summed in the base currency, so a USD or EUR target is
+// converted with today's rate (decided in 0.1: simple, and the app says the
+// percentage uses today's rate).
+type baseTarget struct {
+	Amount   float64
+	Currency string
+	Rate     *float64 // nil when the goal is already in the base currency
+}
+
+func (s *Service) targetInBase(ctx context.Context, g domain.BudgetGoal) (baseTarget, error) {
+	hh, err := s.households.GetByID(ctx, g.HouseholdID)
+	if err != nil {
+		return baseTarget{}, err
+	}
+	if g.Currency == hh.BaseCurrency {
+		return baseTarget{Amount: g.TargetAmount, Currency: hh.BaseCurrency}, nil
+	}
+	amount, rate, err := s.fx.Convert(ctx, g.TargetAmount, g.Currency, hh.BaseCurrency)
+	if err != nil {
+		return baseTarget{}, err
+	}
+	return baseTarget{Amount: amount, Currency: hh.BaseCurrency, Rate: &rate}, nil
 }
 
 func (s *Service) computeCurrent(ctx context.Context, g domain.BudgetGoal, from, to time.Time) (float64, error) {
@@ -291,26 +332,25 @@ func periodRange(period string, at time.Time) (time.Time, time.Time) {
 	}
 }
 
-func buildProgress(g domain.BudgetGoal, start, end time.Time, current float64) domain.BudgetGoalProgress {
+// buildProgress: current is in the base currency, so percent and status use
+// the target converted to it. For savings, percent is how much of the target
+// is already saved.
+func buildProgress(g domain.BudgetGoal, start, end time.Time, current float64, target baseTarget) domain.BudgetGoalProgress {
 	percent := 0.0
-	if g.TargetAmount > 0 {
-		switch g.GoalType {
-		case domain.GoalTypeSavings:
-			// Para savings, percent expresa cuánto del target ya ahorramos.
-			percent = (current / g.TargetAmount) * 100
-		default:
-			percent = (current / g.TargetAmount) * 100
-		}
+	if target.Amount > 0 {
+		percent = (current / target.Amount) * 100
 	}
-	status := statusFor(g.GoalType, current, g.TargetAmount)
 	return domain.BudgetGoalProgress{
-		Goal:          g,
-		PeriodStart:   start,
-		PeriodEnd:     end,
-		CurrentAmount: current,
-		TargetAmount:  g.TargetAmount,
-		Percent:       percent,
-		Status:        status,
+		Goal:             g,
+		PeriodStart:      start,
+		PeriodEnd:        end,
+		CurrentAmount:    current,
+		TargetAmount:     g.TargetAmount,
+		TargetAmountBase: target.Amount,
+		BaseCurrency:     target.Currency,
+		FxRate:           target.Rate,
+		Percent:          percent,
+		Status:           statusFor(g.GoalType, current, target.Amount),
 	}
 }
 
