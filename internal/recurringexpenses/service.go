@@ -12,6 +12,7 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/LucianoR23/api_go_ahorra/internal/expenses"
+	"github.com/LucianoR23/api_go_ahorra/internal/ownership"
 )
 
 // householdLookup: para validar que el creator sea miembro del hogar.
@@ -34,12 +35,17 @@ type expensesReader interface {
 }
 
 type Service struct {
+	own          *ownership.Checker
 	repo         *Repository
 	households   householdLookup
 	expenses     expensesCreator
 	expensesRead expensesReader // opcional; cableado vía SetExpensesReader
 	logger       *slog.Logger
 }
+
+// SetOwnership wires the checks that client ids belong where they claim
+// (plan 0.6). Without it, writes that carry those ids fail.
+func (s *Service) SetOwnership(c *ownership.Checker) { s.own = c }
 
 func NewService(repo *Repository, households householdLookup, expenses expensesCreator, logger *slog.Logger) *Service {
 	return &Service{repo: repo, households: households, expenses: expenses, logger: logger}
@@ -92,6 +98,13 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.RecurringE
 		return domain.RecurringExpense{}, err
 	}
 	if err := validateVariableConfig(in.AmountIsVariable, in.AlertThresholdPct, in.Installments); err != nil {
+		return domain.RecurringExpense{}, err
+	}
+	if err := s.own.Category(ctx, in.CategoryID, in.HouseholdID); err != nil {
+		return domain.RecurringExpense{}, err
+	}
+	// Its expenses are filed by the creator, so the method must be theirs.
+	if err := s.own.PaymentMethod(ctx, &in.PaymentMethodID, in.CreatedBy); err != nil {
 		return domain.RecurringExpense{}, err
 	}
 	ok, err := s.households.IsMember(ctx, in.HouseholdID, in.CreatedBy)
@@ -186,6 +199,12 @@ func (s *Service) Update(ctx context.Context, householdID, id uuid.UUID, in Upda
 	}
 	if existing.HouseholdID != householdID {
 		return domain.RecurringExpense{}, domain.ErrNotFound
+	}
+	if err := s.own.Category(ctx, in.CategoryID, householdID); err != nil {
+		return domain.RecurringExpense{}, err
+	}
+	if err := s.own.PaymentMethod(ctx, &in.PaymentMethodID, existing.CreatedBy); err != nil {
+		return domain.RecurringExpense{}, err
 	}
 	in.Currency = strings.ToUpper(strings.TrimSpace(in.Currency))
 	in.Frequency = strings.ToLower(strings.TrimSpace(in.Frequency))

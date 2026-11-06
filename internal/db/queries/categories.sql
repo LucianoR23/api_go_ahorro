@@ -22,3 +22,7 @@ RETURNING *;
 
 -- name: DeleteCategory :exec
 DELETE FROM categories WHERE id = $1;
+
+-- name: CategoryInHousehold :one
+-- A category id sent by a client belongs to that household (plan 0.6).
+SELECT EXISTS (SELECT 1 FROM categories WHERE id = $1 AND household_id = $2)::bool;

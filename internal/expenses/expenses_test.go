@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
 )
@@ -238,7 +237,7 @@ func TestCreateExpense(t *testing.T) {
 			"description": "x", "spentAt": "2026-01-10", "installments": 1}).WantError(t, http.StatusNotFound, "not_found", "")
 	})
 
-	t.Run("a category from another household is accepted", func(t *testing.T) {
+	t.Run("a category from another household is rejected", func(t *testing.T) {
 		h := newHouse(t, s)
 		other := s.Register(t)
 		oh := s.CreateHousehold(t, other, "")
@@ -249,9 +248,7 @@ func TestCreateExpense(t *testing.T) {
 
 		res := h.do(t, h.owner, http.MethodPost, "/expenses", map[string]any{"paymentMethodId": h.ownerCash, "amount": 10, "currency": "ARS",
 			"description": "x", "spentAt": "2026-01-10", "installments": 1, "categoryId": cats[0].ID})
-		testutil.KnownBug(t, "0.6", "category_id is not checked against the household", func(t testing.TB) {
-			res.Status(t, http.StatusUnprocessableEntity)
-		})
+		res.Status(t, http.StatusUnprocessableEntity)
 	})
 }
 
@@ -469,7 +466,7 @@ func TestEditAndDeleteExpenses(t *testing.T) {
 		h.do(t, h.owner, http.MethodDelete, "/expenses/"+theirs.ID, nil).Status(t, http.StatusNoContent)
 	})
 
-	t.Run("a category from another household is accepted on edit", func(t *testing.T) {
+	t.Run("a category from another household is rejected on edit", func(t *testing.T) {
 		h := newHouse(t, s)
 		e := h.cashExpense(t, h.owner, 100, nil).Expense
 		other := s.Register(t)
@@ -479,9 +476,7 @@ func TestEditAndDeleteExpenses(t *testing.T) {
 		}
 		s.Do(t, apitest.Req{Method: http.MethodGet, Path: "/categories", Token: other.Token, Household: oh.ID}).Status(t, http.StatusOK).JSON(t, &cats)
 		res := h.do(t, h.owner, http.MethodPatch, "/expenses/"+e.ID, map[string]any{"description": "x", "spentAt": "2026-01-10", "categoryId": cats[0].ID})
-		testutil.KnownBug(t, "0.6", "category_id is not checked against the household on edit", func(t testing.TB) {
-			res.Status(t, http.StatusUnprocessableEntity)
-		})
+		res.Status(t, http.StatusUnprocessableEntity)
 	})
 }
 

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/api_go_ahorra/internal/ownership"
 )
 
 // paymentMethodLookup: dependencia mínima que usamos de paymethods.Service.
@@ -83,6 +84,7 @@ type ShareOverride struct {
 // calcula cuotas con closing/due correctos, y arma shares para gastos
 // compartidos. Toda la escritura pasa por Repository.CreateTx (atómica).
 type Service struct {
+	own           *ownership.Checker
 	repo          *Repository
 	households    householdLookup
 	paymMethods   paymentMethodLookup
@@ -93,6 +95,10 @@ type Service struct {
 	insights      insightCreator  // opcional; cableado via SetInsightCreator
 	recurring     recurringReader // opcional; cableado via SetRecurringReader
 }
+
+// SetOwnership wires the checks that client ids belong where they claim
+// (plan 0.6). Without it, writes that carry those ids fail.
+func (s *Service) SetOwnership(c *ownership.Checker) { s.own = c }
 
 func NewService(
 	repo *Repository,
@@ -190,12 +196,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.ExpenseDet
 		return domain.ExpenseDetail{}, domain.ErrNotFound
 	}
 
-	// Category: si viene, debe ser del household.
-	if in.CategoryID != nil {
-		// Confiamos en el FK + household_id; la validación explícita la
-		// puede agregar categories service si lo inyectamos. Por ahora el
-		// CHECK del schema + la UI del frontend cubren el 99%.
-		_ = in.CategoryID
+	// Category: if sent, it must belong to the household (plan 0.6).
+	if err := s.own.Category(ctx, in.CategoryID, in.HouseholdID); err != nil {
+		return domain.ExpenseDetail{}, err
 	}
 
 	// Ajustar installments según kind.
@@ -650,6 +653,9 @@ func (s *Service) Update(ctx context.Context, householdID, id, actorUserID uuid.
 	}
 	categoryID := prev.Expense.CategoryID
 	if in.SetCategory {
+		if err := s.own.Category(ctx, in.CategoryID, householdID); err != nil {
+			return domain.Expense{}, err
+		}
 		categoryID = in.CategoryID
 	}
 	updated, err := s.repo.UpdateMeta(ctx, id, description, spentAt, categoryID)
