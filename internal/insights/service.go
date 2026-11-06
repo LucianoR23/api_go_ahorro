@@ -333,7 +333,11 @@ func (s *Service) genGoalAlerts(ctx context.Context, householdID uuid.UUID, at t
 		if p.Goal.Scope == domain.GoalScopeUser {
 			userID = p.Goal.UserID
 		}
+		// ref = the goal: one alert per goal and day (migration 000023), so
+		// two goals over their limits the same day both get one.
+		goalID := p.Goal.ID
 		ins, c, err := s.repo.Create(ctx, CreateParams{
+			RefID:       &goalID,
 			HouseholdID: householdID,
 			UserID:      userID,
 			InsightDate: dayStart(at),
@@ -428,7 +432,8 @@ func (s *Service) genWeeklyReview(ctx context.Context, householdID uuid.UUID, at
 //   - Si today != latest.ClosingDate (truncado a día UTC) → skip.
 //   - El insight queda linkeado al user dueño de la tarjeta vía UserID,
 //     porque las tarjetas son personales (no del hogar). RefID =
-//     paymentMethodID dedupea si el worker corre dos veces el mismo día.
+//     paymentMethodID, plus the date in the unique index: once per closing
+//     day, every month (before 000023 it could only happen once per card).
 //
 // No-op si las deps no están cableadas (SetCreditPeriodDeps no llamado).
 func (s *Service) genCreditPeriodReminders(ctx context.Context, householdID uuid.UUID, at time.Time) (int, int) {
@@ -510,9 +515,10 @@ func (s *Service) genCreditPeriodReminders(ctx context.Context, householdID uuid
 // están marcadas paid en su creación, así que el filtro is_paid=false
 // del query las excluye naturalmente.
 //
-// Dedupe: refID = expenseID (mismo gasto cuotas distintas comparten
-// expenseID; si el user tiene varias cuotas venciendo el mismo día se
-// genera solo una entrada por gasto, que es lo deseable UX-wise).
+// Dedupe: one alert per expense and day (ref = expense, plus the date in the
+// unique index since migration 000023). Each installment is due on a
+// different date, so each one gets its alert; several installments of the
+// same expense due the same day share one.
 //
 // No-op si la dep no está cableada.
 func (s *Service) genInstallmentsDueSoon(ctx context.Context, householdID uuid.UUID, at time.Time) (int, int) {

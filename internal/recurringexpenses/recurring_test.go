@@ -227,6 +227,28 @@ func TestRecurringExpenseGeneration(t *testing.T) {
 		}
 	})
 
+	t.Run("a run that created the expense but did not mark the series does not duplicate it", func(t *testing.T) {
+		h := newHouse(t, s)
+		r := h.create(t, map[string]any{"dayOfMonth": 31})
+		h.startFrom(t, r.ID, "2026-01-01")
+		h.runJob(t, "2026-02-28")
+		// Simulate the failure between creating the expense and marking the series.
+		if _, err := s.Pool.Exec(t.Context(), `UPDATE recurring_expenses SET last_generated = '2026-01-31' WHERE id = $1`, r.ID); err != nil {
+			t.Fatal(err)
+		}
+		h.runJob(t, "2026-02-28")
+		if n := len(h.seriesExpenses(t, r.ID)); n != 1 {
+			t.Errorf("expenses after the retried run = %d, want 1", n)
+		}
+		var last string
+		if err := s.Pool.QueryRow(t.Context(), `SELECT last_generated::text FROM recurring_expenses WHERE id = $1`, r.ID).Scan(&last); err != nil {
+			t.Fatal(err)
+		}
+		if last != "2026-02-28" {
+			t.Errorf("last_generated = %s, want the series marked on the retry", last)
+		}
+	})
+
 	t.Run("daily job: matching days only, once per day, shared split, stops when inactive", func(t *testing.T) {
 		h := newHouse(t, s)
 		r := h.create(t, map[string]any{"dayOfMonth": 31, "isShared": true})

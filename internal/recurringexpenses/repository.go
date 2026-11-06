@@ -195,6 +195,20 @@ func (r *Repository) UpdateLastAmount(ctx context.Context, id uuid.UUID, amount 
 	return nil
 }
 
+// HasOccurrence: whether the series already has an expense on date. Makes
+// generateOne idempotent when a previous run created the expense but failed
+// to mark the series as generated.
+func (r *Repository) HasOccurrence(ctx context.Context, id uuid.UUID, date time.Time) (bool, error) {
+	var exists bool
+	if err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM expenses WHERE recurring_expense_id = $1 AND spent_at = $2)`,
+		id, pgtype.Date{Time: date, Valid: true},
+	).Scan(&exists); err != nil {
+		return false, fmt.Errorf("recurringexpenses.HasOccurrence: %w", err)
+	}
+	return exists, nil
+}
+
 func (r *Repository) MarkGenerated(ctx context.Context, id uuid.UUID, date time.Time) error {
 	if err := r.q.MarkRecurringExpenseGenerated(ctx, sqlcgen.MarkRecurringExpenseGeneratedParams{
 		ID:      id,

@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.3: insight dedupe
+- Migration `000023`: the `daily_insights` unique indexes use `NULLS NOT DISTINCT` and split refs by kind. No ref: one per household, user, day and type. Scheduled insights with a ref (goal alerts, installment due-soon alerts, card closing reminders): one per ref and day. Event insights (shared expense, invite, settlement, spike): one per ref. Existing duplicates under the new keys are deleted first, keeping the oldest row; the down migration restores the 000020 indexes.
+- Fixed: household-level insights were duplicated when the job ran twice a day; a second goal over its limit the same day got no alert (goal alerts now carry the goal id as `ref_id`); only the first installment of an expense got a due-soon alert; a card got its closing reminder only once in its life.
+- Recurring expense generation is idempotent: if a run created the expense but did not mark the series, the next run marks it instead of booking a duplicate (no shared transaction between the two services, so it checks for the expense first).
+- Verified on a scratch Postgres 18: all migrations up, `000023` down and up again. Needs Postgres 15+ (`NULLS NOT DISTINCT`); staging runs 18, production 17.
+
 ### 0.2: timezone
 - "Today", the current month and the hour of the daily jobs follow `APP_TIMEZONE` (default `America/Argentina/Buenos_Aires`) instead of UTC. Before, from 21:00 in Buenos Aires a card due that day already counted as overdue, a settlement, income or recurring series without a date started on the next day, the default report/goal month could jump ahead on the last evening of the month, and the jobs ran three hours early.
 - `internal/dates` is the single place that decides which day it is; it returns calendar days as midnight UTC, comparable with the `DATE` columns. Workers convert their tick to a calendar day once and pass it to the services; the zone database is embedded in the binary.
