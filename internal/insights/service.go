@@ -212,43 +212,41 @@ func (s *Service) List(ctx context.Context, householdID uuid.UUID, f ListFilters
 	return s.repo.ListByHousehold(ctx, householdID, f)
 }
 
-func (s *Service) CountUnread(ctx context.Context, householdID uuid.UUID, userID *uuid.UUID) (int64, error) {
-	return s.repo.CountUnread(ctx, householdID, userID)
+func (s *Service) CountUnread(ctx context.Context, householdID, viewer uuid.UUID, userID *uuid.UUID) (int64, error) {
+	return s.repo.CountUnread(ctx, householdID, viewer, userID)
 }
 
-func (s *Service) Get(ctx context.Context, householdID, id uuid.UUID) (domain.DailyInsight, error) {
+// visible: the insight is in the household and is either household-level or
+// the viewer's own (plan 0.6). Otherwise it does not exist for the viewer.
+func (s *Service) visible(ctx context.Context, householdID, viewer, id uuid.UUID) (domain.DailyInsight, error) {
 	ins, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return domain.DailyInsight{}, err
 	}
-	if ins.HouseholdID != householdID {
+	if ins.HouseholdID != householdID || (ins.UserID != nil && *ins.UserID != viewer) {
 		return domain.DailyInsight{}, domain.ErrNotFound
 	}
 	return ins, nil
 }
 
-func (s *Service) MarkRead(ctx context.Context, householdID, id uuid.UUID) error {
-	ins, err := s.repo.GetByID(ctx, id)
-	if err != nil {
+func (s *Service) Get(ctx context.Context, householdID, viewer, id uuid.UUID) (domain.DailyInsight, error) {
+	return s.visible(ctx, householdID, viewer, id)
+}
+
+func (s *Service) MarkRead(ctx context.Context, householdID, viewer, id uuid.UUID) error {
+	if _, err := s.visible(ctx, householdID, viewer, id); err != nil {
 		return err
-	}
-	if ins.HouseholdID != householdID {
-		return domain.ErrNotFound
 	}
 	return s.repo.MarkRead(ctx, id)
 }
 
-func (s *Service) MarkAllRead(ctx context.Context, householdID uuid.UUID, userID *uuid.UUID) error {
-	return s.repo.MarkAllRead(ctx, householdID, userID)
+func (s *Service) MarkAllRead(ctx context.Context, householdID, viewer uuid.UUID, userID *uuid.UUID) error {
+	return s.repo.MarkAllRead(ctx, householdID, viewer, userID)
 }
 
-func (s *Service) Delete(ctx context.Context, householdID, id uuid.UUID) error {
-	ins, err := s.repo.GetByID(ctx, id)
-	if err != nil {
+func (s *Service) Delete(ctx context.Context, householdID, viewer, id uuid.UUID) error {
+	if _, err := s.visible(ctx, householdID, viewer, id); err != nil {
 		return err
-	}
-	if ins.HouseholdID != householdID {
-		return domain.ErrNotFound
 	}
 	return s.repo.Delete(ctx, id)
 }

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/config"
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
 )
@@ -193,11 +192,15 @@ func TestInsightGenerators(t *testing.T) {
 		h := newHouse(t, s)
 		card := s.CreateCreditCard(t, h.member, "Visa Galicia", 25, 5, "2026-03-25", "2026-04-06")
 		h.generate(t, "2026-03-24")
-		if n := len(ofType(h.list(t, h.owner, ""), "credit_period_reminder")); n != 0 {
+		if n := len(ofType(h.list(t, h.member, ""), "credit_period_reminder")); n != 0 {
 			t.Errorf("reminder before closing: %d", n)
 		}
 		h.generate(t, "2026-03-25")
-		got := ofType(h.list(t, h.owner, ""), "credit_period_reminder")
+		// Personal to the card owner: the household owner does not see it (0.6).
+		if n := len(ofType(h.list(t, h.owner, ""), "credit_period_reminder")); n != 0 {
+			t.Errorf("another member sees the card owner's reminder: %d", n)
+		}
+		got := ofType(h.list(t, h.member, ""), "credit_period_reminder")
 		if len(got) != 1 || got[0].UserID == nil || *got[0].UserID != h.member.ID || got[0].Title != "Cargá el próximo período de Visa Galicia" {
 			t.Errorf("reminders = %+v", got)
 		}
@@ -208,7 +211,7 @@ func TestInsightGenerators(t *testing.T) {
 		s.Do(t, apitest.Req{Method: http.MethodPut, Path: "/payment-methods/" + card.ID + "/credit-card/periods/2026-04", Token: h.member.Token,
 			Body: map[string]string{"closingDate": "2026-04-24", "dueDate": "2026-05-06"}}).Status(t, http.StatusOK)
 		h.generate(t, "2026-04-24")
-		if n := len(ofType(h.list(t, h.owner, ""), "credit_period_reminder")); n != 2 {
+		if n := len(ofType(h.list(t, h.member, ""), "credit_period_reminder")); n != 2 {
 			t.Errorf("reminders after two closings = %d, want 2", n)
 		}
 	})
@@ -285,8 +288,10 @@ func TestInsightEndpoints(t *testing.T) {
 	t.Run("list filters; malformed filters are ignored", func(t *testing.T) {
 		h, _ := setup(t)
 		h.spend(t, h.member, 300, "2026-03-07", map[string]any{"isShared": true, "description": "Super"}) // owner's insight
-		if n := len(h.list(t, h.owner, "?type=shared_expense")); n != 2 {
-			t.Errorf("type filter = %d, want 2", n)
+		// The member's personal shared_expense insight is private (0.6): the
+		// owner sees only their own.
+		if n := len(h.list(t, h.owner, "?type=shared_expense")); n != 1 {
+			t.Errorf("type filter = %d, want 1", n)
 		}
 		if n := len(h.list(t, h.owner, "?q=Super")); n != 1 {
 			t.Errorf("text filter = %d, want 1", n)
@@ -296,8 +301,8 @@ func TestInsightEndpoints(t *testing.T) {
 		}
 		// Bad values do not error: they are dropped (the owner also has the
 		// "invite accepted" insight from adding the member).
-		if n := len(ofType(h.list(t, h.owner, "?userId=x&from=x&limit=0&offset=-1"), "shared_expense")); n != 2 {
-			t.Errorf("list with malformed filters = %d shared_expense, want 2", n)
+		if n := len(ofType(h.list(t, h.owner, "?userId=x&from=x&limit=0&offset=-1"), "shared_expense")); n != 1 {
+			t.Errorf("list with malformed filters = %d shared_expense, want 1", n)
 		}
 		h.do(t, h.owner, http.MethodGet, "/insights/nope", nil).WantError(t, http.StatusUnprocessableEntity, "validation", "id")
 		page := h.do(t, h.owner, http.MethodGet, "/insights?limit=1", nil)
@@ -306,7 +311,7 @@ func TestInsightEndpoints(t *testing.T) {
 		}
 	})
 
-	t.Run("another member reads, marks and deletes my personal insight", func(t *testing.T) {
+	t.Run("another member cannot list, read, mark or delete my personal insight", func(t *testing.T) {
 		h, ins := setup(t)
 		listed := false
 		for _, i := range h.list(t, h.owner, "") {
@@ -315,11 +320,9 @@ func TestInsightEndpoints(t *testing.T) {
 		read := h.do(t, h.owner, http.MethodGet, "/insights/"+ins.ID, nil)
 		mark := h.do(t, h.owner, http.MethodPost, "/insights/"+ins.ID+"/read", nil)
 		del := h.do(t, h.owner, http.MethodDelete, "/insights/"+ins.ID, nil)
-		testutil.KnownBug(t, "0.6", "personal insights are visible and editable by every household member", func(t testing.TB) {
-			if listed || read.Code == http.StatusOK || mark.Code == http.StatusNoContent || del.Code == http.StatusNoContent {
-				t.Errorf("owner reached the member's insight: listed %v, get %d, read %d, delete %d", listed, read.Code, mark.Code, del.Code)
-			}
-		})
+		if listed || read.Code == http.StatusOK || mark.Code == http.StatusNoContent || del.Code == http.StatusNoContent {
+			t.Errorf("owner reached the member's insight: listed %v, get %d, read %d, delete %d", listed, read.Code, mark.Code, del.Code)
+		}
 	})
 
 	t.Run("manual generation is for superadmins only", func(t *testing.T) {

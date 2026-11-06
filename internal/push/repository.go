@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"time"
 
+	"errors"
+	"github.com/LucianoR23/api_go_ahorra/internal/domain"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -39,17 +42,22 @@ func (r *Repository) Upsert(ctx context.Context, userID uuid.UUID, endpoint, p25
 INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, user_agent)
 VALUES ($1, $2, $3, $4, NULLIF($5, ''))
 ON CONFLICT (endpoint) DO UPDATE SET
-    user_id      = EXCLUDED.user_id,
     p256dh       = EXCLUDED.p256dh,
     auth         = EXCLUDED.auth,
     user_agent   = COALESCE(EXCLUDED.user_agent, push_subscriptions.user_agent),
     last_seen_at = NOW()
+WHERE push_subscriptions.user_id = EXCLUDED.user_id
 RETURNING id, user_id, endpoint, p256dh, auth, COALESCE(user_agent, ''), created_at, last_seen_at`
 
 	var s Subscription
 	err := r.pool.QueryRow(ctx, q, userID, endpoint, p256dh, auth, userAgent).Scan(
 		&s.ID, &s.UserID, &s.Endpoint, &s.P256dh, &s.Auth, &s.UserAgent, &s.CreatedAt, &s.LastSeenAt,
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The endpoint belongs to another user: never reassigned (plan 0.6),
+		// or someone could take over another account's device notifications.
+		return Subscription{}, domain.NewConflictError("este dispositivo ya recibe notificaciones de otra cuenta")
+	}
 	if err != nil {
 		return Subscription{}, fmt.Errorf("push.Upsert: %w", err)
 	}

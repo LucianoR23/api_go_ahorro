@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.6 (parts 2 to 4): permissions, ownership, push
+- Edit and delete of others' records (decided with the user): expenses by their author or the household owner; incomes by the member who received them or the owner; settlements by the two members in the payment or the owner. Others get 403. Confirming a variable bill draft stays open to any member.
+- Personal insights are listed, counted, read, marked and deleted only by their owner; household-level insights stay shared.
+- `internal/ownership`: a category must belong to the household (expenses, goals, recurring expenses; 422), a payment method to the receiver of an income (incomes, recurring incomes) or the creator of a recurring expense (404, as expenses already did).
+- Push: an endpoint must be https on a known push service (FCM, Mozilla, Apple, Windows), else 422 (blind SSRF); an endpoint registered to another user is a 409 instead of being reassigned. `PUSH_EXTRA_HOSTS` is for tests only.
+
 ### 0.6 (part 1): client IP, body cap, insight generation
 - `httpx.RealIP`: `X-Forwarded-For` is read only from `TRUSTED_PROXIES` (Traefik's network) and `CF-Connecting-IP` only when the connection came from a Cloudflare edge (`CLOUDFLARE_RANGES`, defaults to Cloudflare's published list). Before, any client could claim any IP, getting around the sign-in rate limits and writing a fake IP into the audit log. Staging needs `TRUSTED_PROXIES=10.0.0.0/8`.
 - Every JSON route caps the request body at 1 MB ("el pedido es demasiado grande"); support uploads keep their own limits.

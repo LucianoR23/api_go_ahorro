@@ -285,7 +285,7 @@ type updateInstallmentReq struct {
 }
 
 func (h *Handler) UpdateInstallment(w http.ResponseWriter, r *http.Request) {
-	_, householdID, err := h.ctxUserAndHousehold(r)
+	userID, householdID, err := h.ctxUserAndHousehold(r)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -340,7 +340,7 @@ func (h *Handler) UpdateInstallment(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	inst, err := h.svc.UpdateInstallment(r.Context(), householdID, expenseID, n, in)
+	inst, err := h.svc.UpdateInstallment(r.Context(), householdID, expenseID, userID, n, in)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return

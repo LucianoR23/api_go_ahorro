@@ -90,6 +90,9 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (domain.DailyIns
 }
 
 type ListFilters struct {
+	// Viewer: only household-level insights and the viewer's own personal
+	// ones are listed (plan 0.6). Set by the handler, not the query string.
+	Viewer      uuid.UUID
 	UserID      *uuid.UUID
 	OnlyUnread  *bool
 	From        *time.Time
@@ -116,6 +119,8 @@ func (r *Repository) ListByHousehold(ctx context.Context, householdID uuid.UUID,
 		args = append(args, val)
 		where = append(where, fmt.Sprintf(clause, len(args)))
 	}
+	args = append(args, f.Viewer)
+	where = append(where, fmt.Sprintf("(user_id IS NULL OR user_id = $%d)", len(args)))
 	if f.UserID != nil {
 		add("user_id = $%d", *f.UserID)
 	}
@@ -188,10 +193,11 @@ func (r *Repository) ListByHousehold(ctx context.Context, householdID uuid.UUID,
 	return out, total, rows.Err()
 }
 
-func (r *Repository) CountUnread(ctx context.Context, householdID uuid.UUID, userID *uuid.UUID) (int64, error) {
+func (r *Repository) CountUnread(ctx context.Context, householdID, viewer uuid.UUID, userID *uuid.UUID) (int64, error) {
 	n, err := r.q.CountUnreadInsightsByHousehold(ctx, sqlcgen.CountUnreadInsightsByHouseholdParams{
 		HouseholdID: householdID,
 		UserID:      userID,
+		Viewer:      viewer,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("insights.CountUnread: %w", err)
@@ -206,10 +212,11 @@ func (r *Repository) MarkRead(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *Repository) MarkAllRead(ctx context.Context, householdID uuid.UUID, userID *uuid.UUID) error {
+func (r *Repository) MarkAllRead(ctx context.Context, householdID, viewer uuid.UUID, userID *uuid.UUID) error {
 	if err := r.q.MarkAllInsightsReadByHousehold(ctx, sqlcgen.MarkAllInsightsReadByHouseholdParams{
 		HouseholdID: householdID,
 		UserID:      userID,
+		Viewer:      viewer,
 	}); err != nil {
 		return fmt.Errorf("insights.MarkAllRead: %w", err)
 	}

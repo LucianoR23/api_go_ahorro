@@ -41,6 +41,8 @@ type Querier interface {
 	// > 0 → from_user debe ese monto a to_user
 	// < 0 → to_user debe a from_user (el signo lo resuelve el service)
 	BalanceOwedBetween(ctx context.Context, arg BalanceOwedBetweenParams) (BalanceOwedBetweenRow, error)
+	// A category id sent by a client belongs to that household (plan 0.6).
+	CategoryInHousehold(ctx context.Context, arg CategoryInHouseholdParams) (bool, error)
 	ClearOldAuditIPs(ctx context.Context) (int64, error)
 	// Confirma un draft con el monto real. Actualiza amount + amount_base + rate
 	// (recalculados por el service antes de llamar) y pasa el status a confirmed.
@@ -59,6 +61,8 @@ type Querier interface {
 	// de cuenta para exigir transferencia previa.
 	CountHouseholdsOwnedByUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountIncomesByHousehold(ctx context.Context, arg CountIncomesByHouseholdParams) (int64, error)
+	// Only what the viewer may see: household-level insights and their own
+	// personal ones (plan 0.6).
 	CountUnreadInsightsByHousehold(ctx context.Context, arg CountUnreadInsightsByHouseholdParams) (int64, error)
 	// ===================== audit_events (plan 0.17) =====================
 	CreateAuditEvent(ctx context.Context, arg CreateAuditEventParams) error
@@ -284,6 +288,8 @@ type Querier interface {
 	MarkRecurringIncomeGenerated(ctx context.Context, arg MarkRecurringIncomeGeneratedParams) error
 	// Idempotente: si ya estaba verificado no hace nada.
 	MarkUserEmailVerified(ctx context.Context, id uuid.UUID) error
+	// A payment method id sent by a client belongs to that user (plan 0.6).
+	PaymentMethodOwnedBy(ctx context.Context, arg PaymentMethodOwnedByParams) (bool, error)
 	// Admin-only: borrado físico. ON DELETE CASCADE arrastra miembros,
 	// expenses, goals, settlements, split_rules, categories, invites. Irreversible.
 	PurgeHousehold(ctx context.Context, id uuid.UUID) error

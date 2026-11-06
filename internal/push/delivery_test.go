@@ -69,6 +69,7 @@ func TestPushDelivery(t *testing.T) {
 
 	s := apitest.New(t, apitest.WithConfig(func(c *config.Config) {
 		c.VAPIDPublicKey, c.VAPIDPrivateKey = pub, priv
+		c.PushExtraHosts = []string{strings.TrimPrefix(pushSrv.URL, "http://")} // local stand-in (plan 0.6 allowlist)
 	}))
 	admin := s.Register(t)
 	s.MakeSuperadmin(t, admin)

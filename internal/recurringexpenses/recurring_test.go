@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
 )
@@ -175,14 +174,12 @@ func TestRecurringExpensesCRUD(t *testing.T) {
 		}
 	})
 
-	t.Run("another user's payment method is accepted, then every occurrence fails", func(t *testing.T) {
+	t.Run("another user's payment method is rejected", func(t *testing.T) {
 		h := newHouse(t, s)
 		res := h.do(t, h.owner, http.MethodPost, "/recurring-expenses", h.body(map[string]any{"paymentMethodId": s.Cash(t, h.member).ID}))
-		testutil.KnownBug(t, "0.6", "a recurring expense's payment_method_id is not checked against the creator", func(t testing.TB) {
-			if res.Code == http.StatusCreated {
-				t.Errorf("template created on another user's payment method (its expenses can never be generated)")
-			}
-		})
+		if res.Code == http.StatusCreated {
+			t.Errorf("template created on another user's payment method (its expenses can never be generated)")
+		}
 	})
 
 	t.Run("household scoped", func(t *testing.T) {

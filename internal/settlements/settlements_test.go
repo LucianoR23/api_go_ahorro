@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
 )
@@ -262,15 +261,14 @@ func TestSettlements(t *testing.T) {
 		}
 	})
 
-	t.Run("a third member deletes a payment between two others", func(t *testing.T) {
+	t.Run("a third member cannot delete a payment between two others; a participant can", func(t *testing.T) {
 		h := newHouse(t, s)
 		h.shared(t, h.owner, 900, "2026-01-10")
 		var sp settlementJSON
 		h.settle(t, h.ana, h.ana, h.owner, 100, nil).Status(t, http.StatusCreated).JSON(t, &sp)
 		res := h.do(t, h.carlos, http.MethodDelete, "/settlements/"+sp.ID, nil)
-		testutil.KnownBug(t, "0.6", "any household member can delete a settlement between two other members", func(t testing.TB) {
-			res.Status(t, http.StatusForbidden)
-		})
+		res.Status(t, http.StatusForbidden)
+		h.do(t, h.ana, http.MethodDelete, "/settlements/"+sp.ID, nil).Status(t, http.StatusNoContent)
 	})
 
 	t.Run("household scoped", func(t *testing.T) {

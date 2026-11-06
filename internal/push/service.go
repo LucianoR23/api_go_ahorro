@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"net/url"
 )
 
 // Config: VAPID keys + subject. Generadas una vez con `webpush-go` CLI o con
@@ -21,6 +22,45 @@ type Config struct {
 	PublicKey  string
 	PrivateKey string
 	Subject    string // "mailto:admin@ahorra.app"
+	// ExtraHosts: endpoint hosts accepted besides the known push services,
+	// over http too. Tests only (a local stand-in for FCM); empty in prod.
+	ExtraHosts []string
+}
+
+// pushServiceHosts: the browsers' push services (Chrome/Edge via FCM,
+// Firefox, Safari, Windows). An endpoint must be https on one of these, so
+// the API never sends requests to arbitrary URLs (blind SSRF, plan 0.6).
+var pushServiceHosts = []string{
+	"fcm.googleapis.com",
+	"android.googleapis.com",
+	"updates.push.services.mozilla.com",
+	"push.services.mozilla.com",
+	"web.push.apple.com",
+	".notify.windows.com",
+}
+
+// endpointAllowed reports whether endpoint is an https URL on a known push
+// service (".x" entries match subdomains), or on one of extra.
+func endpointAllowed(endpoint string, extra []string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" || u.User != nil {
+		return false
+	}
+	for _, h := range extra {
+		if u.Host == h {
+			return u.Scheme == "http" || u.Scheme == "https"
+		}
+	}
+	if u.Scheme != "https" || u.Port() != "" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	for _, h := range pushServiceHosts {
+		if host == h || (strings.HasPrefix(h, ".") && strings.HasSuffix(host, h)) {
+			return true
+		}
+	}
+	return false
 }
 
 // Enabled indica si hay VAPID keys configuradas. Si no, el service no envía
@@ -90,6 +130,9 @@ func (s *Service) Subscribe(ctx context.Context, in SubscribeInput) (Subscriptio
 	}
 	if in.Auth == "" {
 		return Subscription{}, domain.NewValidationError("keys.auth", "requerido")
+	}
+	if !endpointAllowed(in.Endpoint, s.cfg.ExtraHosts) {
+		return Subscription{}, domain.NewValidationError("endpoint", "no es un servicio de notificaciones conocido")
 	}
 	return s.repo.Upsert(ctx, in.UserID, in.Endpoint, in.P256dh, in.Auth, in.UserAgent)
 }

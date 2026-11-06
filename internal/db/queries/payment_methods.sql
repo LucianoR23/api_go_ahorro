@@ -79,3 +79,7 @@ SET is_active           = true,
     allows_installments = $3
 WHERE id = $1
 RETURNING *;
+
+-- name: PaymentMethodOwnedBy :one
+-- A payment method id sent by a client belongs to that user (plan 0.6).
+SELECT EXISTS (SELECT 1 FROM payment_methods WHERE id = $1 AND owner_user_id = $2)::bool;

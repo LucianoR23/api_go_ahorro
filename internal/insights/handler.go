@@ -80,12 +80,13 @@ type generateResp struct {
 // ===================== handlers =====================
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	_, householdID, err := h.ctxUserAndHousehold(r)
+	userID, householdID, err := h.ctxUserAndHousehold(r)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
 	f := parseListFilters(r)
+	f.Viewer = userID
 	items, total, err := h.svc.List(r.Context(), householdID, f)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
@@ -131,7 +132,7 @@ func (h *Handler) StreamTicket(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UnreadCount(w http.ResponseWriter, r *http.Request) {
-	_, householdID, err := h.ctxUserAndHousehold(r)
+	userID, householdID, err := h.ctxUserAndHousehold(r)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -142,7 +143,7 @@ func (h *Handler) UnreadCount(w http.ResponseWriter, r *http.Request) {
 			userFilter = &u
 		}
 	}
-	n, err := h.svc.CountUnread(r.Context(), householdID, userFilter)
+	n, err := h.svc.CountUnread(r.Context(), householdID, userID, userFilter)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -151,7 +152,7 @@ func (h *Handler) UnreadCount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
-	_, householdID, err := h.ctxUserAndHousehold(r)
+	userID, householdID, err := h.ctxUserAndHousehold(r)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -161,7 +162,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	ins, err := h.svc.Get(r.Context(), householdID, id)
+	ins, err := h.svc.Get(r.Context(), householdID, userID, id)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -170,7 +171,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) MarkRead(w http.ResponseWriter, r *http.Request) {
-	_, householdID, err := h.ctxUserAndHousehold(r)
+	userID, householdID, err := h.ctxUserAndHousehold(r)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -180,7 +181,7 @@ func (h *Handler) MarkRead(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	if err := h.svc.MarkRead(r.Context(), householdID, id); err != nil {
+	if err := h.svc.MarkRead(r.Context(), householdID, userID, id); err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
@@ -188,7 +189,7 @@ func (h *Handler) MarkRead(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) MarkAllRead(w http.ResponseWriter, r *http.Request) {
-	_, householdID, err := h.ctxUserAndHousehold(r)
+	userID, householdID, err := h.ctxUserAndHousehold(r)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -199,7 +200,7 @@ func (h *Handler) MarkAllRead(w http.ResponseWriter, r *http.Request) {
 			userFilter = &u
 		}
 	}
-	if err := h.svc.MarkAllRead(r.Context(), householdID, userFilter); err != nil {
+	if err := h.svc.MarkAllRead(r.Context(), householdID, userID, userFilter); err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
@@ -207,7 +208,7 @@ func (h *Handler) MarkAllRead(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	_, householdID, err := h.ctxUserAndHousehold(r)
+	userID, householdID, err := h.ctxUserAndHousehold(r)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -217,7 +218,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	if err := h.svc.Delete(r.Context(), householdID, id); err != nil {
+	if err := h.svc.Delete(r.Context(), householdID, userID, id); err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}

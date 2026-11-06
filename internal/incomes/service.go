@@ -11,6 +11,7 @@ import (
 
 	"github.com/LucianoR23/api_go_ahorra/internal/dates"
 	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/api_go_ahorra/internal/ownership"
 )
 
 // householdLookup: interface mínima que necesitamos de households.
@@ -19,6 +20,7 @@ import (
 type householdLookup interface {
 	IsMember(ctx context.Context, householdID, userID uuid.UUID) (bool, error)
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Household, error)
+	GetMemberRole(ctx context.Context, householdID, userID uuid.UUID) (domain.Role, error)
 }
 
 // fxConverter: convierte amount de una currency a otra. Lo implementa
@@ -28,11 +30,16 @@ type fxConverter interface {
 }
 
 type Service struct {
+	own        *ownership.Checker
 	repo       *Repository
 	households householdLookup
 	fx         fxConverter
 	logger     *slog.Logger
 }
+
+// SetOwnership wires the checks that client ids belong where they claim
+// (plan 0.6). Without it, writes that carry those ids fail.
+func (s *Service) SetOwnership(c *ownership.Checker) { s.own = c }
 
 func NewService(repo *Repository, households householdLookup, fx fxConverter, logger *slog.Logger) *Service {
 	return &Service{repo: repo, households: households, fx: fx, logger: logger}
@@ -72,6 +79,10 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Income, er
 	}
 	if in.ReceivedAt.IsZero() {
 		in.ReceivedAt = dates.Today()
+	}
+	// The money lands on the receiver's account: the method must be theirs.
+	if err := s.own.PaymentMethod(ctx, in.PaymentMethodID, in.ReceivedBy); err != nil {
+		return domain.Income{}, err
 	}
 
 	ok, err := s.households.IsMember(ctx, in.HouseholdID, in.ReceivedBy)
@@ -144,7 +155,7 @@ type UpdateInput struct {
 	ReceivedAt  time.Time
 }
 
-func (s *Service) Update(ctx context.Context, householdID, id uuid.UUID, in UpdateInput) (domain.Income, error) {
+func (s *Service) Update(ctx context.Context, householdID, id, actor uuid.UUID, in UpdateInput) (domain.Income, error) {
 	in.Source = strings.ToLower(strings.TrimSpace(in.Source))
 	in.Description = strings.TrimSpace(in.Description)
 	if !isValidSource(in.Source) {
@@ -161,6 +172,9 @@ func (s *Service) Update(ctx context.Context, householdID, id uuid.UUID, in Upda
 	if existing.HouseholdID != householdID {
 		return domain.Income{}, domain.ErrNotFound
 	}
+	if err := s.requireReceiverOrOwner(ctx, householdID, actor, existing); err != nil {
+		return domain.Income{}, err
+	}
 	return s.repo.Update(ctx, id, UpdateParams{
 		Source:      in.Source,
 		Description: in.Description,
@@ -168,7 +182,7 @@ func (s *Service) Update(ctx context.Context, householdID, id uuid.UUID, in Upda
 	})
 }
 
-func (s *Service) Delete(ctx context.Context, householdID, id uuid.UUID) error {
+func (s *Service) Delete(ctx context.Context, householdID, id, actor uuid.UUID) error {
 	existing, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return err
@@ -176,7 +190,26 @@ func (s *Service) Delete(ctx context.Context, householdID, id uuid.UUID) error {
 	if existing.HouseholdID != householdID {
 		return domain.ErrNotFound
 	}
+	if err := s.requireReceiverOrOwner(ctx, householdID, actor, existing); err != nil {
+		return err
+	}
 	return s.repo.Delete(ctx, id)
+}
+
+// requireReceiverOrOwner: only the member who received the income or the
+// household owner may edit or delete it (plan 0.6); others get 403.
+func (s *Service) requireReceiverOrOwner(ctx context.Context, householdID, actor uuid.UUID, inc domain.Income) error {
+	if actor == inc.ReceivedBy {
+		return nil
+	}
+	role, err := s.households.GetMemberRole(ctx, householdID, actor)
+	if err != nil {
+		return err
+	}
+	if !domain.CanModify(actor, []uuid.UUID{inc.ReceivedBy}, role) {
+		return domain.ErrForbidden
+	}
+	return nil
 }
 
 // TotalsInRange devuelve la suma de ingresos (amount_base) en [from, to].
@@ -232,6 +265,9 @@ func (s *Service) CreateRecurring(ctx context.Context, in CreateRecurringInput) 
 	}
 	if in.Description == "" {
 		return domain.RecurringIncome{}, domain.NewValidationError("description", "no puede estar vacío")
+	}
+	if err := s.own.PaymentMethod(ctx, in.PaymentMethodID, in.ReceivedBy); err != nil {
+		return domain.RecurringIncome{}, err
 	}
 	ok, err := s.households.IsMember(ctx, in.HouseholdID, in.ReceivedBy)
 	if err != nil {
@@ -316,6 +352,9 @@ func (s *Service) UpdateRecurring(ctx context.Context, householdID, id uuid.UUID
 	}
 	if existing.HouseholdID != householdID {
 		return domain.RecurringIncome{}, domain.ErrNotFound
+	}
+	if err := s.own.PaymentMethod(ctx, in.PaymentMethodID, existing.ReceivedBy); err != nil {
+		return domain.RecurringIncome{}, err
 	}
 	in.Currency = strings.ToUpper(strings.TrimSpace(in.Currency))
 	in.Source = strings.ToLower(strings.TrimSpace(in.Source))

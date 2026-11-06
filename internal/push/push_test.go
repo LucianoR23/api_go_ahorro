@@ -8,7 +8,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
 )
@@ -107,29 +106,25 @@ func TestPushSubscriptions(t *testing.T) {
 		}
 	})
 
-	t.Run("subscribing another user's endpoint takes it over", func(t *testing.T) {
+	t.Run("another user's endpoint is never taken over", func(t *testing.T) {
 		a, b := s.Register(t), s.Register(t)
 		ep := endpoint()
 		subscribe(t, s, a, ep)
 		res := s.Do(t, apitest.Req{Method: http.MethodPost, Path: "/push/subscriptions", Token: b.Token, Body: subBody(ep)})
-		testutil.KnownBug(t, "0.6", "the subscription upsert reassigns an endpoint to another user", func(t testing.TB) {
-			var still bool
-			for _, sub := range list(t, s, a) {
-				still = still || sub.Endpoint == ep
-			}
-			if !still || res.Code == http.StatusCreated {
-				t.Errorf("b took over a's endpoint (status %d, a still has it: %v)", res.Code, still)
-			}
-		})
+		var still bool
+		for _, sub := range list(t, s, a) {
+			still = still || sub.Endpoint == ep
+		}
+		if !still || res.Code == http.StatusCreated {
+			t.Errorf("b took over a's endpoint (status %d, a still has it: %v)", res.Code, still)
+		}
 	})
 
-	t.Run("any URL is accepted as endpoint", func(t *testing.T) {
+	t.Run("only known push services are accepted as endpoint", func(t *testing.T) {
 		u := s.Register(t)
 		res := s.Do(t, apitest.Req{Method: http.MethodPost, Path: "/push/subscriptions", Token: u.Token,
 			Body: subBody("http://169.254.169.254/latest/meta-data")})
-		testutil.KnownBug(t, "0.6", "push endpoints are not checked against known push services (blind SSRF)", func(t testing.TB) {
-			res.Status(t, http.StatusUnprocessableEntity)
-		})
+		res.Status(t, http.StatusUnprocessableEntity)
 	})
 
 	t.Run("validation", func(t *testing.T) {
