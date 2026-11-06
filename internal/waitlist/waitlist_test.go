@@ -242,6 +242,9 @@ func TestUnsubscribe(t *testing.T) {
 	if !strings.Contains(string(page.Body), `<form method="post"`) || count(email) != 1 {
 		t.Errorf("GET must show a button and delete nothing (rows %d)", count(email))
 	}
+	if csp := page.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "form-action 'self'") || !strings.Contains(csp, "style-src 'unsafe-inline'") {
+		t.Errorf("page CSP = %q, want its own (inline styles, form to self)", csp)
+	}
 	// RFC 8058 one-click, as a mail client sends it.
 	s.Do(t, apitest.Req{Method: http.MethodPost, Path: "/waitlist/unsubscribe?token=" + token,
 		Body: "List-Unsubscribe=One-Click", Header: http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}}).Status(t, http.StatusOK)
