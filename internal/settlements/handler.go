@@ -149,7 +149,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	_, householdID, err := ctxUserAndHousehold(r)
+	userID, householdID, err := ctxUserAndHousehold(r)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -159,7 +159,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	if err := h.svc.Delete(r.Context(), householdID, id); err != nil {
+	if err := h.svc.Delete(r.Context(), householdID, id, userID); err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}

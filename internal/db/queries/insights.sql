@@ -18,11 +18,14 @@ RETURNING *;
 SELECT * FROM daily_insights WHERE id = $1;
 
 -- name: CountUnreadInsightsByHousehold :one
+-- Only what the viewer may see: household-level insights and their own
+-- personal ones (plan 0.6).
 SELECT COUNT(*)::bigint
 FROM daily_insights
 WHERE household_id = $1
   AND is_read = false
-  AND (sqlc.narg(user_id)::uuid IS NULL OR user_id = sqlc.narg(user_id)::uuid);
+  AND (sqlc.narg(user_id)::uuid IS NULL OR user_id = sqlc.narg(user_id)::uuid)
+  AND (user_id IS NULL OR user_id = sqlc.arg(viewer)::uuid);
 
 -- name: MarkDailyInsightRead :exec
 UPDATE daily_insights SET is_read = true WHERE id = $1;
@@ -32,7 +35,8 @@ UPDATE daily_insights
 SET is_read = true
 WHERE household_id = $1
   AND is_read = false
-  AND (sqlc.narg(user_id)::uuid IS NULL OR user_id = sqlc.narg(user_id)::uuid);
+  AND (sqlc.narg(user_id)::uuid IS NULL OR user_id = sqlc.narg(user_id)::uuid)
+  AND (user_id IS NULL OR user_id = sqlc.arg(viewer)::uuid);
 
 -- name: DeleteDailyInsight :exec
 DELETE FROM daily_insights WHERE id = $1;

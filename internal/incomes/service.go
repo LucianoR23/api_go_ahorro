@@ -19,6 +19,7 @@ import (
 type householdLookup interface {
 	IsMember(ctx context.Context, householdID, userID uuid.UUID) (bool, error)
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Household, error)
+	GetMemberRole(ctx context.Context, householdID, userID uuid.UUID) (domain.Role, error)
 }
 
 // fxConverter: convierte amount de una currency a otra. Lo implementa
@@ -144,7 +145,7 @@ type UpdateInput struct {
 	ReceivedAt  time.Time
 }
 
-func (s *Service) Update(ctx context.Context, householdID, id uuid.UUID, in UpdateInput) (domain.Income, error) {
+func (s *Service) Update(ctx context.Context, householdID, id, actor uuid.UUID, in UpdateInput) (domain.Income, error) {
 	in.Source = strings.ToLower(strings.TrimSpace(in.Source))
 	in.Description = strings.TrimSpace(in.Description)
 	if !isValidSource(in.Source) {
@@ -161,6 +162,9 @@ func (s *Service) Update(ctx context.Context, householdID, id uuid.UUID, in Upda
 	if existing.HouseholdID != householdID {
 		return domain.Income{}, domain.ErrNotFound
 	}
+	if err := s.requireReceiverOrOwner(ctx, householdID, actor, existing); err != nil {
+		return domain.Income{}, err
+	}
 	return s.repo.Update(ctx, id, UpdateParams{
 		Source:      in.Source,
 		Description: in.Description,
@@ -168,7 +172,7 @@ func (s *Service) Update(ctx context.Context, householdID, id uuid.UUID, in Upda
 	})
 }
 
-func (s *Service) Delete(ctx context.Context, householdID, id uuid.UUID) error {
+func (s *Service) Delete(ctx context.Context, householdID, id, actor uuid.UUID) error {
 	existing, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return err
@@ -176,7 +180,26 @@ func (s *Service) Delete(ctx context.Context, householdID, id uuid.UUID) error {
 	if existing.HouseholdID != householdID {
 		return domain.ErrNotFound
 	}
+	if err := s.requireReceiverOrOwner(ctx, householdID, actor, existing); err != nil {
+		return err
+	}
 	return s.repo.Delete(ctx, id)
+}
+
+// requireReceiverOrOwner: only the member who received the income or the
+// household owner may edit or delete it (plan 0.6); others get 403.
+func (s *Service) requireReceiverOrOwner(ctx context.Context, householdID, actor uuid.UUID, inc domain.Income) error {
+	if actor == inc.ReceivedBy {
+		return nil
+	}
+	role, err := s.households.GetMemberRole(ctx, householdID, actor)
+	if err != nil {
+		return err
+	}
+	if !domain.CanModify(actor, []uuid.UUID{inc.ReceivedBy}, role) {
+		return domain.ErrForbidden
+	}
+	return nil
 }
 
 // TotalsInRange devuelve la suma de ingresos (amount_base) en [from, to].
