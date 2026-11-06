@@ -4,6 +4,10 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.5 (part 4): verified-email gate
+- `auth.Middleware.RequireVerifiedEmail`: after `RequireAuth`, lets through only users with a verified email; others get 403 `{"code":"email_unverified","message":"Verificá tu email para usar esta función."}`; fails closed if not wired. No route uses it yet: AI features, bots and paid checkout (later phases) go behind it.
+- The app side of 0.5 (sign out everywhere, pending email notice) ships in `ahorra_app`.
+
 ### 0.5 (part 3): email change with verification
 - Migration `000026`: `users.pending_email` and `email_verifications.new_email`.
 - `PATCH /me` with a new email keeps the current one: the new address waits as `pendingEmail` (in the user JSON) and a "Confirmá tu nuevo email" link goes to the new mailbox. The verify link applies it, verified. Before, the email changed at once and stayed marked verified, so anyone with a session could move the account to an address nobody had proven.
