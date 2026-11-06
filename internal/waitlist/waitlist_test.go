@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,12 +21,12 @@ func TestMain(m *testing.M) { os.Exit(testdb.Main(m)) }
 
 const landing = "landing.test"
 
-var tokenN int
+// tokenN: unique Turnstile tokens; atomic because the tests run in parallel.
+var tokenN atomic.Int64
 
 // body: a valid sign-up with a fresh Turnstile token for the landing.
 func body(s *apitest.Server, email string, extra map[string]any) map[string]any {
-	tokenN++
-	tok := "ts-" + email + "-" + string(rune('a'+tokenN%26)) + time.Now().Format("150405.000000")
+	tok := "ts-" + email + "-" + strconv.FormatInt(tokenN.Add(1), 10)
 	s.Turnstile.Add(tok, landing)
 	b := map[string]any{
 		"email": email, "monotributo": false, "form": "hero",
