@@ -86,6 +86,9 @@ func TestHandlerReportsErrorsWithoutPersonalData(t *testing.T) {
 	if len(ev.Exception) == 0 || ev.Exception[len(ev.Exception)-1].Stacktrace == nil {
 		t.Fatalf("no exception with a stack trace: %+v", ev.Exception)
 	}
+	if got := ev.Exception[len(ev.Exception)-1].Type; got != "error interno no manejado" {
+		t.Errorf("exception type %q, want the log message (the issue title)", got)
+	}
 	if !strings.Contains(ev.Exception[len(ev.Exception)-1].Value, "SQLSTATE 23505") {
 		t.Errorf("SQLSTATE dropped: %q", ev.Exception[len(ev.Exception)-1].Value)
 	}

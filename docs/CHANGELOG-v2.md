@@ -6,6 +6,7 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ### 0.12: error monitoring (GlitchTip)
 - New dependency `github.com/getsentry/sentry-go` v0.50.0 (approved by the user). With `GLITCHTIP_DSN` set, every ERROR log line becomes a GlitchTip event: unhandled 500s, failed jobs, startup failures. Events carry the message, the error chain, a stack trace and a few allowlisted tags (`method`, `path`, `kind`, `job`, `queue`). Request, user, breadcrumbs and any other log attribute are dropped, and every string is scrubbed of e-mails, IDs, tokens, quoted values and numbers (`internal/monitoring`).
+- The issue title is the log message (e.g. `migrations failed`), not the Go error type (`*fmt.wrapError`).
 - Handler panics are logged through slog (new `httpx.Recoverer`, replacing chi's, which printed to stderr), so they are reported too.
 - New variables `GLITCHTIP_DSN` and `GLITCHTIP_ENVIRONMENT`. DEPLOY.md section 8 sets up GlitchTip on Coolify (all in one, own Postgres 18, no Valkey).
 
