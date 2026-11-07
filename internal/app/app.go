@@ -38,6 +38,7 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
 	"github.com/LucianoR23/api_go_ahorra/internal/incomes"
 	"github.com/LucianoR23/api_go_ahorra/internal/insights"
+	"github.com/LucianoR23/api_go_ahorra/internal/jobs"
 	"github.com/LucianoR23/api_go_ahorra/internal/ownership"
 	"github.com/LucianoR23/api_go_ahorra/internal/paymethods"
 	"github.com/LucianoR23/api_go_ahorra/internal/push"
@@ -99,7 +100,7 @@ type Jobs struct {
 	// Insights generates the daily insights of every household at "at".
 	Insights func(ctx context.Context, at time.Time) (generated, failed int, err error)
 	// MonthlyReports emails the previous month's summary as of "at".
-	MonthlyReports func(ctx context.Context, at time.Time)
+	MonthlyReports func(ctx context.Context, at time.Time) error
 }
 
 // Jobs returns the background jobs' units of work.
@@ -108,9 +109,10 @@ func (a *App) Jobs() Jobs { return a.jobs }
 // Router returns the HTTP handler with every route and middleware mounted.
 func (a *App) Router() chi.Router { return a.router }
 
-// Start launches the background jobs (FX refresh, recurring generators,
-// insights listener and worker, monthly reports) in the order production
-// always used, and returns a function that stops them in reverse order.
+// Start launches the insights listener and the River job runner (FX
+// refresh, recurring generators, insights, monthly reports, retention
+// cleanups; plan 0.8), and returns a function that stops them in reverse
+// order.
 func (a *App) Start(ctx context.Context) (stop func()) {
 	stops := make([]func(), 0, len(a.starters))
 	for _, start := range a.starters {
@@ -231,7 +233,6 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	householdsHandler.SetAudit(auditRec)
 	householdsAdminHandler.SetAudit(auditRec)
 	invitesHandler.SetAudit(auditRec)
-	a.starters = append(a.starters, audit.NewWorker(pool, 3, 30, logger).Start)
 	// Permite que /auth/register consuma el inviteToken del body.
 	authSvc.SetInviteAccepter(invitesSvc)
 
@@ -267,8 +268,8 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	creditPeriodsSvc := creditperiods.NewService(creditPeriodsRepo, paymethodsSvc)
 	creditPeriodsHandler := creditperiods.NewHandler(creditPeriodsSvc, authMW, logger)
 
-	// fxrates: tasas ARS/USD/EUR. Hidratamos caché desde DB al arrancar y
-	// levantamos un worker que refresca cada 15min (bluelytics).
+	// fxrates: tasas ARS/USD/EUR. Hidratamos caché desde DB al arrancar; el
+	// job fx_refresh refresca cada 15min (bluelytics).
 	fxRepo := fxrates.NewRepository(pool)
 	fxFetcher := fxrates.NewFetcher(opts.FXHTTPClient)
 	fxSvc := fxrates.NewService(fxRepo, fxFetcher, logger)
@@ -277,8 +278,6 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		logger.Warn("fxrates hydrate inicial falló", "error", err)
 	}
 	fxHandler := fxrates.NewHandler(fxSvc, authMW, logger)
-	fxWorker := fxrates.NewWorker(fxSvc, 15*time.Minute, logger)
-	a.starters = append(a.starters, fxWorker.Start)
 
 	// expenses: núcleo del producto. Depende de casi todo lo anterior:
 	// households (base_currency + miembros para shares), paymethods (ownership
@@ -306,18 +305,15 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 
 	// incomes: ingresos cobrados + plantillas recurrentes. No tiene shares
 	// (la plata entra y ya), pero sí FX (congela rate al recibir igual que
-	// expenses). El worker de recurring_incomes se agrega en CP8.4.
+	// expenses).
 	incomesRepo := incomes.NewRepository(pool)
 	incomesSvc := incomes.NewService(incomesRepo, householdsRepo, fxSvc, logger)
 	incomesSvc.SetOwnership(ownChecker)
 	incomesHandler := incomes.NewHandler(incomesSvc, authMW, householdsMW, logger)
-	// Worker diario 00:30 local — genera ingresos recurrentes.
-	incomesWorker := incomes.NewWorker(incomesSvc, 0, 30, logger)
-	a.starters = append(a.starters, incomesWorker.Start)
 
 	// recurring_expenses: plantillas de gastos fijos. El generator delega
 	// en expensesSvc.Create para heredar toda la lógica (cuotas, shares,
-	// FX, credit_card_periods). Worker 00:30 también.
+	// FX, credit_card_periods).
 	recurringExpensesRepo := recurringexpenses.NewRepository(pool)
 	recurringExpensesSvc := recurringexpenses.NewService(recurringExpensesRepo, householdsRepo, expensesSvc, logger)
 	recurringExpensesSvc.SetOwnership(ownChecker)
@@ -327,8 +323,6 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	expensesSvc.SetRecurringReader(recurringExpensesRepo)
 	recurringExpensesSvc.SetExpensesReader(expensesRepo)
 	recurringExpensesHandler := recurringexpenses.NewHandler(recurringExpensesSvc, authMW, householdsMW, logger)
-	recurringExpensesWorker := recurringexpenses.NewWorker(recurringExpensesSvc, 0, 30, logger)
-	a.starters = append(a.starters, recurringExpensesWorker.Start)
 
 	// goals: metas presupuestarias (category_limit / total_limit / savings),
 	// scope household o user. El progreso se calcula vivo contra expense_installments
@@ -339,7 +333,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	goalsHandler := goals.NewHandler(goalsSvc, authMW, householdsMW, logger)
 
 	// insights: genera daily_summary, alerts (goals >=80%) y weekly_review
-	// (domingos). Worker 01:00 local. Idempotente via UNIQUE parciales.
+	// (domingos). Job diario 01:00 local. Idempotente via UNIQUE parciales.
 	// El adapter traduce goalsSvc.ProgressList a la interface que insights usa.
 	insightsRepo := insights.NewRepository(pool)
 	goalsAdapter := insights.GoalsAdapter(func(ctx context.Context, hhID uuid.UUID, onlyActive *bool, at time.Time) ([]domain.BudgetGoalProgress, error) {
@@ -394,8 +388,6 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		func(ctx context.Context, hh, u uuid.UUID) (bool, error) {
 			return householdsRepo.IsMember(ctx, hh, u)
 		})
-	insightsWorker := insights.NewWorker(insightsSvc, 1, 0, logger)
-	a.starters = append(a.starters, insightsWorker.Start)
 
 	// Cablear el insight creator en los services que disparan eventos.
 	insightsAdapter := insightsCreatorAdapter{svc: insightsSvc, logger: logger}
@@ -404,8 +396,6 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	settlementsSvc.SetInsightCreator(insightsAdapter)
 
 	// reports: agregaciones read-only (monthly + trends + ai-export).
-	// No tiene worker por ahora — el email mensual se agrega cuando
-	// configuremos RESEND_API_KEY.
 	a.jobs = Jobs{
 		RecurringExpenses: recurringExpensesSvc.GenerateDue,
 		RecurringIncomes:  incomesSvc.GenerateDue,
@@ -416,12 +406,11 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	reportsSvc := reports.NewService(reportsRepo, householdsRepo, logger)
 	reportsHandler := reports.NewHandler(reportsSvc, authMW, householdsMW, logger)
 
-	// Resend sender + worker mensual. Si RESEND_API_KEY no está, el worker
-	// arranca igual pero no envía — útil para dev sin credenciales.
+	// Resend sender for the monthly email. Without RESEND_API_KEY the job
+	// runs and sends nothing (dev without credentials).
 	reportsSender := opts.NewEmailSender(cfg.ReportFromEmail)
-	reportsWorker := reports.NewWorker(reportsSvc, householdsRepo, reportsSender, cfg.BrandName, 8, 0, logger)
-	a.starters = append(a.starters, reportsWorker.Start)
-	a.jobs.MonthlyReports = reportsWorker.RunOnce
+	reportsMailer := reports.NewMailer(reportsSvc, householdsRepo, reportsSender, cfg.BrandName, logger)
+	a.jobs.MonthlyReports = reportsMailer.SendMonthly
 
 	// support: proxy al servicio centralizado Lemy Support. Stateless, sin
 	// repo ni migración — solo usa userRepo para resolver el email del
@@ -471,7 +460,20 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		UnsubscribeKey: []byte("waitlist:" + cfg.JWTSecret),
 	}, opts.TurnstileVerifier, headerSender{waitlistSender}, logger)
 	waitlistHandler := waitlist.NewHandler(waitlistSvc, cfg.WaitlistAllowedOrigins, opts.WaitlistLimiter, logger)
-	a.starters = append(a.starters, waitlist.NewWorker(waitlistSvc, 4, 0, logger).Start)
+	// Background jobs on River (plan 0.8). Last starter, so it stops first.
+	runner, err := jobs.New(pool, jobs.Units{
+		FXRefresh:         fxSvc.Refresh,
+		RecurringIncomes:  a.jobs.RecurringIncomes,
+		RecurringExpenses: a.jobs.RecurringExpenses,
+		Insights:          a.jobs.Insights,
+		MonthlyReports:    a.jobs.MonthlyReports,
+		AuditRetention:    func(ctx context.Context) error { return audit.ApplyRetention(ctx, pool, logger) },
+		WaitlistCleanup:   waitlistSvc.Cleanup,
+	}, logger)
+	if err != nil {
+		return nil, err
+	}
+	a.starters = append(a.starters, runner.Start)
 	r.Use(byPathPrefix("/waitlist", waitlistHandler.CORS()))
 
 	r.Use(skipPathPrefix("/waitlist", cors.Handler(cors.Options{

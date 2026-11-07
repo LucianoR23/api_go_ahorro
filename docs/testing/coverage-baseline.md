@@ -59,7 +59,8 @@ Plan Phase 0 exit criteria: ≥ 70% overall (met) and ≥ 80% on
   0.15b.
 - `internal/config` (63%): the `.env` loader paths.
 - Background workers' schedulers (`Start` loops) are not run in tests; their
-  units of work are, through `App.Jobs`.
+  units of work are, through `App.Jobs`. (Since 0.8 the schedulers are River
+  periodic jobs in `internal/jobs`, which has its own tests.)
 
 ## Known bugs pinned
 

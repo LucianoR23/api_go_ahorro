@@ -28,15 +28,16 @@ internal/
   db/queries/         .sql fuente para sqlc generate
   domain/             structs de dominio (User, Expense, Goal, ...)
   expenses/           core — CRUD gastos + installments + shares
-  fxrates/            tasas ARS/USD/EUR + worker de refresh cada 15min
+  fxrates/            tasas ARS/USD/EUR (refresh cada 15min vía jobs)
   goals/              metas presupuestarias (category_limit / total_limit / savings)
   households/         hogares + miembros + middleware de tenancy
   httpx/              helpers de JSON + logger dev + banner
   incomes/            ingresos + recurring_incomes
-  insights/           generador de insights diarios/semanales + worker
+  insights/           generador de insights diarios/semanales
+  jobs/               jobs en segundo plano sobre River (cola en Postgres)
   paymethods/         bancos, tarjetas, métodos de pago (scope user)
-  recurringexpenses/  plantillas de gastos fijos + worker de generación
-  reports/            monthly report + trends + AI export + worker email
+  recurringexpenses/  plantillas de gastos fijos + generación
+  reports/            monthly report + trends + AI export + email mensual
   settlements/        pagos entre miembros (reducen deuda)
   splitrules/         pesos default para dividir gastos compartidos
   users/              repo de users
@@ -96,7 +97,7 @@ Ver [`.env.example`](./.env.example). Resumen:
 | `MIGRATE_DATABASE_URL` | si `MIGRATE_ON_START=true` | URL del rol dueño del schema (DDL). Sin fallback a `DATABASE_URL` |
 | `JWT_SECRET` | sí | mínimo 32 chars |
 | `ALLOWED_ORIGINS` | no (localhost:3005) | CORS, separado por coma |
-| `RESEND_API_KEY` | no | si falta, el worker de reports loguea skip y no envía |
+| `RESEND_API_KEY` | no | si falta, el job del email mensual loguea skip y no envía |
 | `REPORT_FROM_EMAIL` | no | remitente de reportes (dominio verificado en Resend) |
 | `GOOGLE_OAUTH_CLIENT_ID` | no | OAuth web client ID; audiencia de los ID tokens de Google. Sin ella `/auth/google` responde 500 |
 | `APP_BASE_URL` | no (localhost:3005) | URL pública del front para los links de los emails |
@@ -113,17 +114,19 @@ Ver [`.env.example`](./.env.example). Resumen:
 
 **Errores**: todos los errores del API van por `httpx.WriteError`, que serializa a `{code, message, field?}` con status HTTP mapeado desde el tipo de error (`domain.ErrNotFound` → 404, `ValidationError` → 422, etc.). El frontend mapea por `code`, nunca parsea `message`.
 
-**Workers**: goroutines que corren cada N tiempo, con catch-up al arrancar:
+**Jobs en segundo plano** (`internal/jobs`): corren sobre [River](https://riverqueue.com), una cola de jobs en Postgres (tablas `river_*`, migración 000029). Cada réplica levanta un cliente; los jobs periódicos los encola solo el líder, y cada job corre una vez aunque haya N instancias. Los que fallan se reintentan con backoff. Horarios en la zona de la app:
 
-| Worker | Cadencia | Qué hace |
+| Job | Cadencia | Qué hace |
 |---|---|---|
-| fxrates | 15 min | refresh tasas ARS/USD/EUR desde bluelytics |
-| incomes recurrentes | diario 00:30 | genera ingresos desde plantillas |
-| expenses recurrentes | diario 00:30 | genera gastos desde plantillas |
-| insights | diario 01:00 | arma daily_summary + alerts + weekly (domingos) |
-| reports email | día 1 mes 08:00 | envía resumen del mes anterior por Resend |
+| `fx_refresh` | 15 min y al arrancar | refresh tasas ARS/USD/EUR desde bluelytics |
+| `recurring_incomes` | diario 00:30 | genera ingresos desde plantillas |
+| `recurring_expenses` | diario 00:30 | genera gastos desde plantillas |
+| `insights_daily` | diario 01:00 | arma daily_summary + alerts + weekly (domingos) |
+| `monthly_report` | día 1 08:00 | envía el resumen del mes anterior por Resend |
+| `audit_retention` | diario 03:30 y al arrancar | borra IPs de más de 7 días y eventos de más de 12 meses |
+| `waitlist_cleanup` | diario 04:00 y al arrancar | borra altas sin confirmar de más de 30 días |
 
-Todos catchean errores per-hogar para no trabar al siguiente.
+Los jobs diarios y el mensual son únicos por día (o mes). Al arrancar, la API encola los días que se perdieron mientras estuvo caída, desde el último job completado: hasta 31 días para los recurrentes, 7 para insights y solo el último mes para el email. Los jobs completados se guardan 62 días; sin historial no se recupera nada. Los errores de un hogar se loguean y no frenan al siguiente.
 
 ## Endpoints
 
@@ -160,7 +163,7 @@ go test -race ./...    # con detector de races (no soportado en Windows ARM64; C
 - Cobertura: `scripts/coverage.sh` mide la cobertura entre paquetes de `internal/` (sin sqlc ni testutil) y falla si baja del piso de `.coverage-floor` o si el piso baja respecto de `next`. Línea base y huecos conocidos: `docs/testing/coverage-baseline.md`. Si un PR sube la cobertura, subí el piso en el mismo PR.
 - Lint: golangci-lint v2 con `.golangci.yml` (gofmt, staticcheck, gosec, errcheck...). Las exclusiones existentes apuntan al ítem del plan que las elimina; no se agregan exclusiones para código nuevo.
 - Bugs conocidos de la auditoría: `testutil.KnownBug(t, "<ítem>", ...)` pasa mientras el bug se reproduce y falla cuando se arregla, para que el ítem que lo arregla lo convierta en test normal.
-- Tiempo determinístico: los workers tienen un clock inyectable (`now`); los tests usan `testutil.Location` (`America/Argentina/Buenos_Aires`) y `testutil.FixedClock`.
+- Tiempo determinístico: los jobs tienen un clock inyectable (`now`); los tests usan `testutil.Location` (`America/Argentina/Buenos_Aires`) y `testutil.FixedClock`.
 - Tests de integración: `internal/testutil/testdb` levanta Postgres 18 con testcontainers (necesita Docker) y le da a cada test su propia DB migrada, clonada de un template. Con `TEST_DATABASE_URL` (URL de superusuario) usa ese server en vez del contenedor. Sin Docker ni esa variable, se saltean en `go test` local; en CI y en `./scripts/check.sh` (`TESTDB_REQUIRED=1`) fallan, así un check verde siempre corrió los tests de integración. `check.sh` levanta un único Postgres efímero con `docker run` y lo comparte vía `TEST_DATABASE_URL` (en Docker Desktop para Windows, que cada paquete levante su propio contenedor con testcontainers falla de forma intermitente).
 - Tests HTTP: `internal/testutil/apitest` corre el router real (`internal/app`) con fakes de email, Google y rate limit; las llamadas HTTP salientes están bloqueadas y bcrypt usa el costo mínimo (producción sigue en 12). Se usa desde paquetes de test externos (`package foo_test`).
 

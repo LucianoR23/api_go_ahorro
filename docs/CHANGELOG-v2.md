@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.8 (part 1): background jobs on River
+- New dependency `github.com/riverqueue/river` v0.51.0 with its pgx v5 driver (approved by the user). Migration 000029 adds River's tables (`river_job`, `river_queue`, `river_leader`, `river_notification`, `river_migration`): River's own migrations 001 to 008 copied as one golang-migrate file. River's migrator does not run at startup.
+- The seven in-process loops (FX refresh, recurring incomes, recurring expenses, insights, monthly email, audit retention, waitlist cleanup) are now River jobs in `internal/jobs`. Same times as before, in the app timezone. With several replicas only the leader enqueues periodic jobs and each job runs once; a failed job retries with backoff.
+- Daily jobs and the monthly email are unique per day (or month). On start the API enqueues the days missed while it was down, from the last completed job: up to 31 days for recurring generation, 7 for insights, only the latest month for the email. Completed jobs are kept 62 days. Generation jobs run one at a time, so backfilled days apply in order.
+- `reports.Worker` is now `reports.Mailer`; `App.Jobs().MonthlyReports` returns an error when a run could not start.
+
 ### 0.7 (part 3): balances, settlements, goals, insights and reports in decimal
 - Balances, settlements, goal progress, insight texts and monthly reports (totals, trends, AI export, email) add and subtract money as exact decimals. Percentages are computed from the exact values and stay floats.
 - Settlements: paying more than the current debt is rejected exactly. The old 1-cent tolerance (there for float noise) is gone, so 300.01 against a 300.00 debt is now a 422 instead of leaving a 1-cent debt the other way.
