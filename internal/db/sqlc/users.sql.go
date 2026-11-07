@@ -53,11 +53,12 @@ const countHouseholdsOwnedByUser = `-- name: CountHouseholdsOwnedByUser :one
 SELECT COUNT(*) AS count
 FROM household_members hm
 JOIN households h ON h.id = hm.household_id
-WHERE hm.user_id = $1 AND hm.role = 'owner' AND h.deleted_at IS NULL
+WHERE hm.user_id = $1 AND hm.role = 'owner' AND h.kind = 'shared' AND h.deleted_at IS NULL
 `
 
-// Active households the user owns. Account deletion requires a transfer
-// first; a soft-deleted household does not count (plan 0.8).
+// Active shared households the user owns. Account deletion requires a
+// transfer first; a soft-deleted household does not count (plan 0.8), and
+// "Mi plata" goes with the account (plan 1.2).
 func (q *Queries) CountHouseholdsOwnedByUser(ctx context.Context, userID uuid.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, countHouseholdsOwnedByUser, userID)
 	var count int64
@@ -255,6 +256,19 @@ type SetUserPendingEmailParams struct {
 // An email change waiting for the link sent to the new address (plan 0.5).
 func (q *Queries) SetUserPendingEmail(ctx context.Context, arg SetUserPendingEmailParams) error {
 	_, err := q.db.Exec(ctx, setUserPendingEmail, arg.ID, arg.PendingEmail)
+	return err
+}
+
+const softDeletePersonalHouseholdOfUser = `-- name: SoftDeletePersonalHouseholdOfUser :exec
+UPDATE households
+SET deleted_at = now(), updated_at = now()
+WHERE created_by = $1 AND kind = 'personal' AND deleted_at IS NULL
+`
+
+// Account deletion: "Mi plata" is soft-deleted with the account, its data
+// kept like any deleted household (plan 1.2).
+func (q *Queries) SoftDeletePersonalHouseholdOfUser(ctx context.Context, createdBy uuid.UUID) error {
+	_, err := q.db.Exec(ctx, softDeletePersonalHouseholdOfUser, createdBy)
 	return err
 }
 

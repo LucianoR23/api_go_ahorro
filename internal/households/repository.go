@@ -49,52 +49,71 @@ type AfterMemberHook func(ctx context.Context, tx pgx.Tx, householdID, userID uu
 // para evitar el clásico bug de olvidar rollback en early-return.
 func (r *Repository) CreateWithOwner(ctx context.Context, name, baseCurrency string, kind domain.HouseholdKind, ownerID uuid.UUID, afterCreate AfterCreateHook, afterMember AfterMemberHook) (domain.Household, error) {
 	var created domain.Household
-
 	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		// qTx apunta a la misma Queries generada pero ejecuta dentro de la tx.
-		qTx := r.q.WithTx(tx)
-
-		h, err := qTx.CreateHousehold(ctx, sqlcgen.CreateHouseholdParams{
-			Name:         name,
-			BaseCurrency: baseCurrency,
-			CreatedBy:    ownerID,
-			Kind:         string(kind),
-		})
-		if err != nil {
-			return fmt.Errorf("crear household: %w", err)
-		}
-
-		if _, err := qTx.AddHouseholdMember(ctx, sqlcgen.AddHouseholdMemberParams{
-			HouseholdID: h.ID,
-			UserID:      ownerID,
-			Role:        string(domain.RoleOwner),
-		}); err != nil {
-			if ruleErr := spaceRuleError(err); ruleErr != nil {
-				return ruleErr
-			}
-			return fmt.Errorf("agregar owner como member: %w", err)
-		}
-
-		// Hook por-member: seed split_rule del owner (weight=1.0).
-		if afterMember != nil {
-			if err := afterMember(ctx, tx, h.ID, ownerID); err != nil {
-				return fmt.Errorf("after-member hook (owner): %w", err)
-			}
-		}
-
-		if afterCreate != nil {
-			if err := afterCreate(ctx, tx, h.ID); err != nil {
-				return fmt.Errorf("after-create hook: %w", err)
-			}
-		}
-
-		created = toDomain(h)
-		return nil
+		var err error
+		created, err = r.CreateWithOwnerTx(ctx, tx, name, baseCurrency, kind, ownerID, afterCreate, afterMember)
+		return err
 	})
 	if err != nil {
 		return domain.Household{}, err
 	}
 	return created, nil
+}
+
+// CreateWithOwnerTx is CreateWithOwner inside the caller's transaction
+// (registration creates "Mi plata" in its own, plan 1.2).
+func (r *Repository) CreateWithOwnerTx(ctx context.Context, tx pgx.Tx, name, baseCurrency string, kind domain.HouseholdKind, ownerID uuid.UUID, afterCreate AfterCreateHook, afterMember AfterMemberHook) (domain.Household, error) {
+	// qTx apunta a la misma Queries generada pero ejecuta dentro de la tx.
+	qTx := r.q.WithTx(tx)
+
+	h, err := qTx.CreateHousehold(ctx, sqlcgen.CreateHouseholdParams{
+		Name:         name,
+		BaseCurrency: baseCurrency,
+		CreatedBy:    ownerID,
+		Kind:         string(kind),
+	})
+	if err != nil {
+		if isUniqueViolation(err) && kind == domain.HouseholdPersonal {
+			return domain.Household{}, fmt.Errorf("ya tiene Mi plata: %w", domain.ErrConflict)
+		}
+		return domain.Household{}, fmt.Errorf("crear household: %w", err)
+	}
+
+	if _, err := qTx.AddHouseholdMember(ctx, sqlcgen.AddHouseholdMemberParams{
+		HouseholdID: h.ID,
+		UserID:      ownerID,
+		Role:        string(domain.RoleOwner),
+	}); err != nil {
+		if ruleErr := spaceRuleError(err); ruleErr != nil {
+			return domain.Household{}, ruleErr
+		}
+		return domain.Household{}, fmt.Errorf("agregar owner como member: %w", err)
+	}
+
+	// Hook por-member: seed split_rule del owner (weight=1.0).
+	if afterMember != nil {
+		if err := afterMember(ctx, tx, h.ID, ownerID); err != nil {
+			return domain.Household{}, fmt.Errorf("after-member hook (owner): %w", err)
+		}
+	}
+	if afterCreate != nil {
+		if err := afterCreate(ctx, tx, h.ID); err != nil {
+			return domain.Household{}, fmt.Errorf("after-create hook: %w", err)
+		}
+	}
+	return toDomain(h), nil
+}
+
+// PersonalForUser returns the user's "Mi plata", or ErrNotFound.
+func (r *Repository) PersonalForUser(ctx context.Context, userID uuid.UUID) (domain.Household, error) {
+	h, err := r.q.GetPersonalHouseholdForUser(ctx, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Household{}, domain.ErrNotFound
+		}
+		return domain.Household{}, fmt.Errorf("households.PersonalForUser: %w", err)
+	}
+	return toDomain(h), nil
 }
 
 // GetByID devuelve el household o ErrNotFound. No valida membresía:

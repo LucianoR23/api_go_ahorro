@@ -77,9 +77,23 @@ func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, name, baseCurre
 		return domain.Household{}, err
 	}
 
-	// afterCreate: siembra categorías default dentro de la misma tx.
-	// afterMember: siembra split_rule weight=1.0 para el owner.
-	// Ambos seeders son opcionales (útil para tests).
+	createHook, memberHook := s.seedHooks()
+
+	// One shared space per user (plan 1.2). The database enforces it too;
+	// checking here gives the user the name of the hogar they are in.
+	if current, err := s.repo.ActiveSharedForUser(ctx, ownerID); err == nil {
+		return domain.Household{}, domain.NewConflictError(
+			"Ya sos parte del hogar " + current.Name + ". Para crear otro, primero salí de " + current.Name + ".")
+	} else if !errors.Is(err, domain.ErrNotFound) {
+		return domain.Household{}, err
+	}
+	return s.repo.CreateWithOwner(ctx, name, baseCurrency, domain.HouseholdShared, ownerID, createHook, memberHook)
+}
+
+// seedHooks returns the hooks that seed a new household inside its
+// transaction: default categories and the owner's split rule. Both seeders
+// are optional (tests).
+func (s *Service) seedHooks() (AfterCreateHook, AfterMemberHook) {
 	var createHook AfterCreateHook
 	if s.categories != nil {
 		createHook = func(ctx context.Context, tx pgx.Tx, householdID uuid.UUID) error {
@@ -92,19 +106,44 @@ func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, name, baseCurre
 			return s.splitRules.SeedForMemberTx(ctx, tx, householdID, userID)
 		}
 	}
-	// One shared space per user (plan 1.2). The database enforces it too;
-	// checking here gives the user the name of the hogar they are in.
-	if current, err := s.repo.ActiveSharedForUser(ctx, ownerID); err == nil {
-		return domain.Household{}, domain.NewConflictError(
-			"Ya sos parte del hogar " + current.Name + ". Para crear otro, primero salí de " + current.Name + ".")
-	} else if !errors.Is(err, domain.ErrNotFound) {
-		return domain.Household{}, err
-	}
-	return s.repo.CreateWithOwner(ctx, name, baseCurrency, domain.HouseholdShared, ownerID, createHook, memberHook)
+	return createHook, memberHook
 }
 
-// List devuelve los hogares del user. Sin filtros por ahora.
+// Name and currency of a new "Mi plata". The app shows its own label for the
+// personal space; the name is what lists and exports read.
+const (
+	personalName     = "Mi plata"
+	personalCurrency = "ARS"
+)
+
+// EnsurePersonalTx creates the user's "Mi plata" inside the caller's
+// transaction (registration). Plan 1.2.
+func (s *Service) EnsurePersonalTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID) error {
+	createHook, memberHook := s.seedHooks()
+	_, err := s.repo.CreateWithOwnerTx(ctx, tx, personalName, personalCurrency, domain.HouseholdPersonal, userID, createHook, memberHook)
+	return err
+}
+
+// EnsurePersonal returns the user's "Mi plata", creating it when missing:
+// accounts from before plan 1.2, or a Google sign-up whose creation failed.
+// Safe to call concurrently (the unique index decides; the loser reads).
+func (s *Service) EnsurePersonal(ctx context.Context, userID uuid.UUID) (domain.Household, error) {
+	if h, err := s.repo.PersonalForUser(ctx, userID); err == nil || !errors.Is(err, domain.ErrNotFound) {
+		return h, err
+	}
+	createHook, memberHook := s.seedHooks()
+	h, err := s.repo.CreateWithOwner(ctx, personalName, personalCurrency, domain.HouseholdPersonal, userID, createHook, memberHook)
+	if errors.Is(err, domain.ErrConflict) {
+		return s.repo.PersonalForUser(ctx, userID)
+	}
+	return h, err
+}
+
+// List devuelve los hogares del user, "Mi plata" primero (la crea si falta).
 func (s *Service) List(ctx context.Context, userID uuid.UUID) ([]domain.Household, error) {
+	if _, err := s.EnsurePersonal(ctx, userID); err != nil {
+		return nil, err
+	}
 	return s.repo.ListForUser(ctx, userID)
 }
 

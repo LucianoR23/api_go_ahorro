@@ -158,6 +158,14 @@ func TestDeleteMe(t *testing.T) {
 		if !deleted || email != "deleted+"+u.ID+"@deleted.invalid" {
 			t.Errorf("row after delete: email %q, deleted %v", email, deleted)
 		}
+		var personalDeleted bool
+		if err := s.Pool.QueryRow(t.Context(),
+			`SELECT deleted_at IS NOT NULL FROM households WHERE created_by = $1 AND kind = 'personal'`, u.ID).Scan(&personalDeleted); err != nil {
+			t.Fatal(err)
+		}
+		if !personalDeleted {
+			t.Errorf("Mi plata must be soft-deleted with the account")
+		}
 
 		again := s.Register(t, apitest.RegisterOpts{Email: u.Email})
 		if again.ID == u.ID {

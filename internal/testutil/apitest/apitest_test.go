@@ -42,8 +42,9 @@ func TestRegisterVerifyAndCreateHousehold(t *testing.T) {
 	var list []apitest.Household
 	s.Do(t, apitest.Req{Method: http.MethodGet, Path: "/households", Token: u.Token}).
 		Status(t, http.StatusOK).JSON(t, &list)
-	if len(list) != 1 || list[0].ID != h.ID {
-		t.Fatalf("households = %+v, want only %s", list, h.ID)
+	// "Mi plata" (created on register, plan 1.2) first, then the hogar.
+	if len(list) != 2 || list[1].ID != h.ID {
+		t.Fatalf("households = %+v, want Mi plata and %s", list, h.ID)
 	}
 }
 
