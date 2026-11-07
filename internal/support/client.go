@@ -5,7 +5,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
+	"github.com/LucianoR23/valuo_api/internal/httpx"
 )
 
 // proxyError es el shape de error que el front ya entiende ({code, message}).
@@ -56,7 +56,7 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, id identity, c
 
 	// Reenviamos la IP real del cliente. El rate-limit por IP de Soporte
 	// (60/min en POST /tickets) usa X-Forwarded-For; sin esto TODOS los
-	// usuarios de Ahorra colapsarían en la IP del API Go y compartirían el
+	// usuarios de la app colapsarían en la IP del API Go y compartirían el
 	// bucket. middleware.RealIP ya dejó la IP real en r.RemoteAddr.
 	if ip := clientIP(r); ip != "" {
 		req.Header.Set("X-Forwarded-For", ip)

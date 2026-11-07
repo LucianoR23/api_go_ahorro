@@ -12,9 +12,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/dbmigrate"
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
-	"github.com/LucianoR23/api_go_ahorra/migrations"
+	"github.com/LucianoR23/valuo_api/internal/dbmigrate"
+	"github.com/LucianoR23/valuo_api/internal/testutil/testdb"
+	"github.com/LucianoR23/valuo_api/migrations"
 )
 
 func TestMain(m *testing.M) { os.Exit(testdb.Main(m)) }

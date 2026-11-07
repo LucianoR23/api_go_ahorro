@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 // DecodeJSON reads one JSON value from the request body into dst, rejecting

@@ -3,11 +3,11 @@ package fxrates
 import (
 	"context"
 	"fmt"
-	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/LucianoR23/valuo_api/internal/money"
 	"github.com/shopspring/decimal"
 	"log/slog"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 // Service: cara pública del paquete. Los handlers y los services de

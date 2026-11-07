@@ -8,10 +8,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/audit"
-	"github.com/LucianoR23/api_go_ahorra/internal/auth"
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
-	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
+	"github.com/LucianoR23/valuo_api/internal/audit"
+	"github.com/LucianoR23/valuo_api/internal/auth"
+	"github.com/LucianoR23/valuo_api/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/httpx"
 )
 
 // InvitesHandler expone las rutas de invitaciones a hogar.

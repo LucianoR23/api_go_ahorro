@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 // ErrorResponse es la forma estable del JSON de error que ve el frontend.

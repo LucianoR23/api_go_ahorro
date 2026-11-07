@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/auth/google"
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
+	"github.com/LucianoR23/valuo_api/internal/auth/google"
+	"github.com/LucianoR23/valuo_api/internal/testutil/apitest"
 )
 
 func googleClaims(subject, email string) google.Claims {

@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/db/sqlc"
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/db/sqlc"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 // IdentityRepository persiste vinculaciones OAuth en la tabla user_identities.

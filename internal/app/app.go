@@ -21,34 +21,34 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/audit"
-	"github.com/LucianoR23/api_go_ahorra/internal/auth"
-	"github.com/LucianoR23/api_go_ahorra/internal/auth/google"
-	"github.com/LucianoR23/api_go_ahorra/internal/balances"
-	"github.com/LucianoR23/api_go_ahorra/internal/categories"
-	"github.com/LucianoR23/api_go_ahorra/internal/config"
-	"github.com/LucianoR23/api_go_ahorra/internal/creditperiods"
-	"github.com/LucianoR23/api_go_ahorra/internal/dates"
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
-	"github.com/LucianoR23/api_go_ahorra/internal/email"
-	"github.com/LucianoR23/api_go_ahorra/internal/expenses"
-	"github.com/LucianoR23/api_go_ahorra/internal/fxrates"
-	"github.com/LucianoR23/api_go_ahorra/internal/goals"
-	"github.com/LucianoR23/api_go_ahorra/internal/households"
-	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
-	"github.com/LucianoR23/api_go_ahorra/internal/incomes"
-	"github.com/LucianoR23/api_go_ahorra/internal/insights"
-	"github.com/LucianoR23/api_go_ahorra/internal/jobs"
-	"github.com/LucianoR23/api_go_ahorra/internal/ownership"
-	"github.com/LucianoR23/api_go_ahorra/internal/paymethods"
-	"github.com/LucianoR23/api_go_ahorra/internal/push"
-	"github.com/LucianoR23/api_go_ahorra/internal/recurringexpenses"
-	"github.com/LucianoR23/api_go_ahorra/internal/reports"
-	"github.com/LucianoR23/api_go_ahorra/internal/settlements"
-	"github.com/LucianoR23/api_go_ahorra/internal/splitrules"
-	"github.com/LucianoR23/api_go_ahorra/internal/support"
-	"github.com/LucianoR23/api_go_ahorra/internal/users"
-	"github.com/LucianoR23/api_go_ahorra/internal/waitlist"
+	"github.com/LucianoR23/valuo_api/internal/audit"
+	"github.com/LucianoR23/valuo_api/internal/auth"
+	"github.com/LucianoR23/valuo_api/internal/auth/google"
+	"github.com/LucianoR23/valuo_api/internal/balances"
+	"github.com/LucianoR23/valuo_api/internal/categories"
+	"github.com/LucianoR23/valuo_api/internal/config"
+	"github.com/LucianoR23/valuo_api/internal/creditperiods"
+	"github.com/LucianoR23/valuo_api/internal/dates"
+	"github.com/LucianoR23/valuo_api/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/email"
+	"github.com/LucianoR23/valuo_api/internal/expenses"
+	"github.com/LucianoR23/valuo_api/internal/fxrates"
+	"github.com/LucianoR23/valuo_api/internal/goals"
+	"github.com/LucianoR23/valuo_api/internal/households"
+	"github.com/LucianoR23/valuo_api/internal/httpx"
+	"github.com/LucianoR23/valuo_api/internal/incomes"
+	"github.com/LucianoR23/valuo_api/internal/insights"
+	"github.com/LucianoR23/valuo_api/internal/jobs"
+	"github.com/LucianoR23/valuo_api/internal/ownership"
+	"github.com/LucianoR23/valuo_api/internal/paymethods"
+	"github.com/LucianoR23/valuo_api/internal/push"
+	"github.com/LucianoR23/valuo_api/internal/recurringexpenses"
+	"github.com/LucianoR23/valuo_api/internal/reports"
+	"github.com/LucianoR23/valuo_api/internal/settlements"
+	"github.com/LucianoR23/valuo_api/internal/splitrules"
+	"github.com/LucianoR23/valuo_api/internal/support"
+	"github.com/LucianoR23/valuo_api/internal/users"
+	"github.com/LucianoR23/valuo_api/internal/waitlist"
 )
 
 // EmailSender sends transactional mail (verification, password reset, invites).
@@ -481,7 +481,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// text, e-mail addresses); see httpx.RedactQueryInLogs.
 	r.Use(httpx.RedactQueryInLogs)
 	if cfg.Env == "prod" {
-		reqLogger := httplog.NewLogger("ahorra-api", httplog.Options{
+		reqLogger := httplog.NewLogger("api", httplog.Options{
 			JSON:             true,
 			LogLevel:         parseLogLevel(cfg.LogLevel),
 			Concise:          true,

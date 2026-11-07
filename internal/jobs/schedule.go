@@ -3,7 +3,7 @@ package jobs
 import (
 	"time"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/dates"
+	"github.com/LucianoR23/valuo_api/internal/dates"
 )
 
 // daily fires every day at hour:minute in the app timezone.

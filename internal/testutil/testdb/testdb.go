@@ -36,8 +36,8 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/dbmigrate"
-	"github.com/LucianoR23/api_go_ahorra/migrations"
+	"github.com/LucianoR23/valuo_api/internal/dbmigrate"
+	"github.com/LucianoR23/valuo_api/migrations"
 )
 
 // Image must match docker-compose.yml and the staging database.

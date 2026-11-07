@@ -26,10 +26,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/app"
-	"github.com/LucianoR23/api_go_ahorra/internal/auth"
-	"github.com/LucianoR23/api_go_ahorra/internal/config"
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
+	"github.com/LucianoR23/valuo_api/internal/app"
+	"github.com/LucianoR23/valuo_api/internal/auth"
+	"github.com/LucianoR23/valuo_api/internal/config"
+	"github.com/LucianoR23/valuo_api/internal/testutil/testdb"
 )
 
 // Server is a running API backed by its own database.

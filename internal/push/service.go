@@ -12,7 +12,7 @@ import (
 	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/google/uuid"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 	"net/url"
 )
 
@@ -21,7 +21,7 @@ import (
 type Config struct {
 	PublicKey  string
 	PrivateKey string
-	Subject    string // "mailto:admin@ahorra.app"
+	Subject    string // "mailto:<contact>"
 	// ExtraHosts: endpoint hosts accepted besides the known push services,
 	// over http too. Tests only (a local stand-in for FCM); empty in prod.
 	ExtraHosts []string

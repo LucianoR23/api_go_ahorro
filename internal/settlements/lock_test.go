@@ -11,9 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/households"
-	"github.com/LucianoR23/api_go_ahorra/internal/settlements"
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
+	"github.com/LucianoR23/valuo_api/internal/households"
+	"github.com/LucianoR23/valuo_api/internal/settlements"
+	"github.com/LucianoR23/valuo_api/internal/testutil/apitest"
 )
 
 // slowDebt reports a fixed debt minus the payments already stored, and

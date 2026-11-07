@@ -3,7 +3,7 @@ package fxrates
 import (
 	"sync"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 // cacheKey: combina moneda y fuente. "USD|blue", "EUR|oficial", etc.

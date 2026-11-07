@@ -9,14 +9,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/audit"
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
-	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
+	"github.com/LucianoR23/valuo_api/internal/audit"
+	"github.com/LucianoR23/valuo_api/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/httpx"
 	"github.com/google/uuid"
 )
 
-// Refresh cookie names, brand-neutral since plan 0.5 (they were
-// "ahorra_refresh"). The "__Host-" prefix makes the browser accept the cookie
+// Refresh cookie names, brand-neutral (plan 0.5). The "__Host-" prefix makes the browser accept the cookie
 // only with Secure, Path=/ and no Domain; it needs HTTPS, so dev uses the
 // plain name.
 const (

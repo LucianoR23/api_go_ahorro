@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LucianoR23/api_go_ahorra/migrations"
+	"github.com/LucianoR23/valuo_api/migrations"
 )
 
 func TestToPgx5URL(t *testing.T) {

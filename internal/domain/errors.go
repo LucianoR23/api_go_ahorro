@@ -1,4 +1,4 @@
-// Package domain define los tipos y errores de negocio de Ahorra.
+// Package domain define los tipos y errores de negocio de la API.
 //
 // Esta capa NO conoce a pgx, chi ni HTTP. Es el vocabulario común entre
 // repository, service y handler — cada capa traduce a y desde acá:

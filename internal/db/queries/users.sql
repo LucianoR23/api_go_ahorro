@@ -41,7 +41,7 @@ SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL;
 -- (único garantizado) + un dominio que no es deliverable.
 UPDATE users
 SET deleted_at = now(),
-    email      = 'deleted+' || id::text || '@ahorra.deleted',
+    email      = 'deleted+' || id::text || '@deleted.invalid',
     updated_at = now()
 WHERE id = $1 AND deleted_at IS NULL;
 

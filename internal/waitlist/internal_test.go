@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
+	"github.com/LucianoR23/valuo_api/internal/testutil/testdb"
 )
 
 func TestSanitizeAttribution(t *testing.T) {

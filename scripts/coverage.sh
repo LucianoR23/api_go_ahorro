@@ -25,7 +25,7 @@ go tool cover -func=coverage.out | awk '
   /^total:/ { next }
   {
     file = $1; sub(/:[0-9.]+:?$/, "", file); sub(/\/[^\/]+\.go$/, "", file)
-    sub(/^github.com\/LucianoR23\/api_go_ahorra\//, "", file)
+    sub(/^github.com\/LucianoR23\/valuo_api\//, "", file)
     pct = $NF; sub("%", "", pct); sum[file] += pct; n[file]++
   }
   END { for (p in sum) printf "  %-32s %6.1f%%\n", p, sum[p] / n[p] }' | sort
@@ -35,7 +35,7 @@ echo
 echo "service.go files (plan Phase 0 exit: >= 80%):"
 go tool cover -func=coverage.out | awk '
   /\/service\.go:/ {
-    file = $1; sub(/:[0-9.]+:?$/, "", file); sub(/^github.com\/LucianoR23\/api_go_ahorra\//, "", file)
+    file = $1; sub(/:[0-9.]+:?$/, "", file); sub(/^github.com\/LucianoR23\/valuo_api\//, "", file)
     pct = $NF; sub("%", "", pct); sum[file] += pct; n[file]++
   }
   END { for (f in sum) printf "  %-44s %6.1f%%\n", f, sum[f] / n[f] }' | sort

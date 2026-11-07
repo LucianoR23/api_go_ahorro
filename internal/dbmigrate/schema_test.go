@@ -13,8 +13,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
-	"github.com/LucianoR23/api_go_ahorra/migrations"
+	"github.com/LucianoR23/valuo_api/internal/testutil/testdb"
+	"github.com/LucianoR23/valuo_api/migrations"
 )
 
 // TestForeignKeysAreIndexed: every foreign key has an index that starts with
@@ -148,5 +148,79 @@ func TestInstallmentHouseholdBackfill(t *testing.T) {
 	// The down migration restores the previous schema.
 	if err := m.Migrate(29); err != nil {
 		t.Fatalf("migrate down to 29: %v", err)
+	}
+}
+
+// TestDeletedEmailDomain: migration 000031 moves the placeholder e-mail of
+// deleted accounts to the reserved .invalid domain and leaves others alone.
+func TestDeletedEmailDomain(t *testing.T) {
+	t.Parallel()
+	dbURL := testdb.NewEmptyURL(t)
+	ctx := context.Background()
+
+	src, err := iofs.New(migrations.FS, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	driverURL, err := url.Parse(dbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driverURL.Scheme = "pgx5"
+	m, err := migrate.NewWithSourceInstance("iofs", src, driverURL.String())
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	t.Cleanup(func() { _, _ = m.Close() })
+	if err := m.Migrate(30); err != nil {
+		t.Fatalf("migrate to 30: %v", err)
+	}
+
+	conn, err := pgx.Connect(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close(ctx) })
+
+	var deletedID string
+	if _, err := conn.Exec(ctx, `INSERT INTO users (email, first_name, last_name) VALUES ('ana@example.test', 'Ana', 'Test')`); err != nil {
+		t.Fatalf("seed active user: %v", err)
+	}
+	if err := conn.QueryRow(ctx, `
+		INSERT INTO users (email, first_name, last_name) VALUES ('tmp@example.test', 'X', 'Y') RETURNING id::text`).Scan(&deletedID); err != nil {
+		t.Fatalf("seed deleted user: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `UPDATE users SET email = 'deleted+' || id::text || '@ahorra.deleted' WHERE id = $1`, deletedID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.Migrate(31); err != nil {
+		t.Fatalf("migrate to 31: %v", err)
+	}
+	emails := func() map[string]bool {
+		rows, err := conn.Query(ctx, `SELECT email FROM users`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		list, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]bool{}
+		for _, e := range list {
+			got[e] = true
+		}
+		return got
+	}
+	got := emails()
+	if !got["deleted+"+deletedID+"@deleted.invalid"] || !got["ana@example.test"] || len(got) != 2 {
+		t.Fatalf("emails after 31 = %v", got)
+	}
+
+	if err := m.Migrate(30); err != nil {
+		t.Fatalf("migrate down to 30: %v", err)
+	}
+	if got := emails(); !got["deleted+"+deletedID+"@ahorra.deleted"] {
+		t.Errorf("emails after down = %v", got)
 	}
 }

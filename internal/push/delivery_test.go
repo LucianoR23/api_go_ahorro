@@ -13,8 +13,8 @@ import (
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/config"
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
+	"github.com/LucianoR23/valuo_api/internal/config"
+	"github.com/LucianoR23/valuo_api/internal/testutil/apitest"
 )
 
 // browserKeys returns subscription keys a real browser would send: an
