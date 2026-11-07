@@ -48,8 +48,14 @@ without superuser. Check with `\du`, `\l valuo_next` and `\ddp`.
   requests a Let's Encrypt certificate).
 - Health check: leave Coolify's UI health check off. The image's `HEALTHCHECK`
   (`/health/live`) is the source of truth.
-- DNS: an `A` record per host pointing at the server, DNS only (no Cloudflare proxy).
-  Create it before the first deploy, or redeploy once it resolves.
+- DNS: an `A` record per host pointing at the server, **proxied** (orange cloud), like
+  every Valuo host: Cloudflare hides the server's IP, and Traefik keeps its own Let's
+  Encrypt certificate behind it. The API believes `CF-Connecting-IP` only from
+  Cloudflare's ranges (`CLOUDFLARE_RANGES`). Create it before the first deploy, or
+  redeploy once it resolves.
+- Cloudflare injects its Web Analytics beacon into proxied HTML pages; the CSP blocks
+  it, so the browser console shows a CSP error for `static.cloudflareinsights.com`.
+  Expected and harmless: no data leaves.
 
 ## 3. Environment variables (runtime, none are build variables)
 
@@ -432,7 +438,7 @@ are diagnostics, kept 30 days.
 
 ### 8.1 Coolify resource
 
-1. DNS: `A` record `errors.valuo.ar` to the server, DNS only (no Cloudflare proxy).
+1. DNS: `A` record `errors.valuo.ar` to the server, proxied (section 2).
 2. In the Valuo project, environment `staging`: New resource, Docker Compose Empty,
    name `glitchtip`, paste the file below.
 3. In the `web` service, Domains: `https://errors.valuo.ar:8000` (the `:8000` tells
@@ -526,6 +532,8 @@ project (Settings, Client Keys, e.g. 60 events per minute) so nobody can flood i
 - API: a 500 or a panic shows up in project `api` within a minute, environment `staging`.
 - App: an error thrown in the browser shows up in project `app`.
 - Open one event of each and check there is no e-mail, name, amount or token anywhere.
+- GlitchTip stores the sender's IP with the last octet zeroed (from the connection,
+  not from the SDK). The privacy policy lists it under error monitoring.
 
 ### 8.4 What an event contains
 
