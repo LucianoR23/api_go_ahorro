@@ -236,7 +236,7 @@ const sumInstallmentsBilledForReport = `-- name: SumInstallmentsBilledForReport 
 SELECT COALESCE(SUM(i.installment_amount_base), 0)::numeric AS total_base
 FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
-WHERE e.household_id = $1
+WHERE i.household_id = $1
   AND e.status = 'confirmed'
   AND i.billing_date >= $2::date
   AND i.billing_date <= $3::date
@@ -263,7 +263,7 @@ SELECT
     COALESCE(SUM(i.installment_amount_base), 0)::numeric AS total_base
 FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
-WHERE e.household_id = $1
+WHERE i.household_id = $1
   AND e.status = 'confirmed'
   AND COALESCE(i.due_date, i.billing_date) >= $2::date
   AND COALESCE(i.due_date, i.billing_date) <= $3::date
@@ -307,7 +307,7 @@ const sumInstallmentsDueForReport = `-- name: SumInstallmentsDueForReport :one
 SELECT COALESCE(SUM(i.installment_amount_base), 0)::numeric AS total_base
 FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
-WHERE e.household_id = $1
+WHERE i.household_id = $1
   AND e.status = 'confirmed'
   AND COALESCE(i.due_date, i.billing_date) >= $2::date
   AND COALESCE(i.due_date, i.billing_date) <= $3::date

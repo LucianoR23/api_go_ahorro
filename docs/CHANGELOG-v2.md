@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.14: performance (migration 000030)
+- Indexes on the 18 foreign keys that had none: the 10 in the audit (§11) and 8 more the catalog check found. New test `TestForeignKeysAreIndexed` reads the catalog and fails when any foreign key lacks an index, so later migrations keep it.
+- `expense_installments.household_id`, copied from the expense and backfilled. A composite foreign key `(expense_id, household_id) → expenses(id, household_id)` keeps it equal to the expense's household. Reports, goals, balances and the due-soon insight now filter installments by household and date with household-first indexes (`(household_id, billing_date)`, `(household_id, COALESCE(due_date, billing_date))`, unpaid `(household_id, due_date)`) instead of reading every household's installments in the date range.
+- The due-soon insight reads one household's installments per run, not every household's once per household.
+- The card-closing reminder reads a household's active cards with their latest period in one query (`LATERAL`), instead of one query per member plus one per card.
+
 ### 0.12: error monitoring (GlitchTip)
 - New dependency `github.com/getsentry/sentry-go` v0.50.0 (approved by the user). With `GLITCHTIP_DSN` set, every ERROR log line becomes a GlitchTip event: unhandled 500s, failed jobs, startup failures. Events carry the message, the error chain, a stack trace and a few allowlisted tags (`method`, `path`, `kind`, `job`, `queue`). Request, user, breadcrumbs and any other log attribute are dropped, and every string is scrubbed of e-mails, IDs, tokens, quoted values and numbers (`internal/monitoring`).
 - The issue title is the log message (e.g. `migrations failed`), not the Go error type (`*fmt.wrapError`).

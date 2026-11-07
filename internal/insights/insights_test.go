@@ -232,6 +232,21 @@ func TestInsightGenerators(t *testing.T) {
 			t.Errorf("due-soon alerts after two installments = %d, want 2", len(due))
 		}
 	})
+
+	t.Run("installment due-soon only reaches its own household", func(t *testing.T) {
+		a, b := newHouse(t, s), newHouse(t, s)
+		card := s.CreateCreditCard(t, b.owner, "Amex", 25, 5, "2026-02-26", "2026-03-07")
+		s.CreateExpense(t, b.owner, b.id, map[string]any{"paymentMethodId": card.ID, "amount": 300, "spentAt": "2026-02-10",
+			"installments": 1, "description": "Bici"})
+		a.generate(t, "2026-03-04")
+		if n := len(ofType(a.list(t, a.owner, ""), "alert")); n != 0 {
+			t.Errorf("another household's installment alerted here: %d", n)
+		}
+		b.generate(t, "2026-03-04")
+		if n := len(ofType(b.list(t, b.owner, ""), "alert")); n != 1 {
+			t.Errorf("due-soon alerts in the expense's household = %d, want 1", n)
+		}
+	})
 }
 
 func TestInsightEndpoints(t *testing.T) {

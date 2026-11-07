@@ -59,12 +59,13 @@ DELETE FROM expenses WHERE id = $1;
 -- ===== installments =====
 
 -- name: CreateInstallment :one
+-- household_id is the expense's (composite foreign key, migration 000030).
 INSERT INTO expense_installments (
-    expense_id, installment_number,
+    expense_id, household_id, installment_number,
     installment_amount, installment_amount_base,
     billing_date, due_date, is_paid, paid_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING *;
 
 -- name: ListInstallmentsByExpense :many

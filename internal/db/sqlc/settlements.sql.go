@@ -21,7 +21,7 @@ SELECT
 FROM expense_installment_shares s
 JOIN expense_installments i ON i.id = s.installment_id
 JOIN expenses e ON e.id = i.expense_id
-WHERE e.household_id = $1
+WHERE i.household_id = $1
   AND e.status = 'confirmed'
   AND i.billing_date <= $2::date
   AND s.user_id <> e.created_by
@@ -76,7 +76,7 @@ SELECT
         FROM expense_installment_shares s
         JOIN expense_installments i ON i.id = s.installment_id
         JOIN expenses e ON e.id = i.expense_id
-        WHERE e.household_id = $1
+        WHERE i.household_id = $1
           AND e.created_by = $2::uuid
           AND s.user_id = $3::uuid
           AND e.status = 'confirmed'
@@ -87,7 +87,7 @@ SELECT
         FROM expense_installment_shares s
         JOIN expense_installments i ON i.id = s.installment_id
         JOIN expenses e ON e.id = i.expense_id
-        WHERE e.household_id = $1
+        WHERE i.household_id = $1
           AND e.created_by = $3::uuid
           AND s.user_id = $2::uuid
           AND e.status = 'confirmed'
