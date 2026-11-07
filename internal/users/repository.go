@@ -20,7 +20,8 @@ import (
 // Repository ofrece operaciones de persistencia sobre User.
 // Los handlers y services NUNCA tocan sqlcgen directo: pasan por acá.
 type Repository struct {
-	q *sqlcgen.Queries
+	pool *pgxpool.Pool
+	q    *sqlcgen.Queries
 }
 
 // NewRepository envuelve el pool en el Queries generado por sqlc.
@@ -28,7 +29,7 @@ type Repository struct {
 // lo agregamos cuando haga falta (ej: bootstrap del register que crea
 // user + household + efectivo en una sola tx).
 func NewRepository(pool *pgxpool.Pool) *Repository {
-	return &Repository{q: sqlcgen.New(pool)}
+	return &Repository{pool: pool, q: sqlcgen.New(pool)}
 }
 
 // Credentials es lo único que sale del repo con el password hash adentro.
@@ -48,7 +49,16 @@ type Credentials struct {
 // Create inserta un usuario y devuelve la fila mapeada a dominio.
 // El caller ya debe haber hasheado el password — el repo no conoce bcrypt.
 func (r *Repository) Create(ctx context.Context, email, passwordHash, firstName, lastName string) (domain.User, error) {
-	row, err := r.q.CreateUser(ctx, sqlcgen.CreateUserParams{
+	return create(ctx, r.q, email, passwordHash, firstName, lastName)
+}
+
+// CreateTx is Create inside the caller's transaction (registration, plan 0.8).
+func (r *Repository) CreateTx(ctx context.Context, tx pgx.Tx, email, passwordHash, firstName, lastName string) (domain.User, error) {
+	return create(ctx, r.q.WithTx(tx), email, passwordHash, firstName, lastName)
+}
+
+func create(ctx context.Context, q *sqlcgen.Queries, email, passwordHash, firstName, lastName string) (domain.User, error) {
+	row, err := q.CreateUser(ctx, sqlcgen.CreateUserParams{
 		Email:        email,
 		PasswordHash: pgtype.Text{String: passwordHash, Valid: true},
 		FirstName:    firstName,
@@ -159,16 +169,6 @@ func (r *Repository) IsSuperadmin(ctx context.Context, userID uuid.UUID) (bool, 
 	return ok, nil
 }
 
-// CountHouseholdsOwned devuelve cuántos hogares tiene el user como owner.
-// Usado por la baja de cuenta para bloquear si aún es dueño de alguno.
-func (r *Repository) CountHouseholdsOwned(ctx context.Context, userID uuid.UUID) (int64, error) {
-	n, err := r.q.CountHouseholdsOwnedByUser(ctx, userID)
-	if err != nil {
-		return 0, fmt.Errorf("users.CountHouseholdsOwned: %w", err)
-	}
-	return n, nil
-}
-
 // SetPendingEmail stores (or clears, with nil) an email change waiting for
 // verification.
 func (r *Repository) SetPendingEmail(ctx context.Context, id uuid.UUID, email *string) error {
@@ -207,14 +207,56 @@ func (r *Repository) MarkEmailVerified(ctx context.Context, id uuid.UUID) error 
 	return nil
 }
 
-// SoftDelete marca al user como borrado y anonimiza su email. No remueve
-// filas referenciadas (expenses, settlements, etc.) — esas quedan con el
-// user_id original para preservar el histórico.
-func (r *Repository) SoftDelete(ctx context.Context, id uuid.UUID) error {
-	if err := r.q.SoftDeleteUser(ctx, id); err != nil {
-		return fmt.Errorf("users.SoftDelete: %w", err)
+// MarkEmailVerifiedTx is MarkEmailVerified inside the caller's transaction.
+func (r *Repository) MarkEmailVerifiedTx(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
+	if err := r.q.WithTx(tx).MarkUserEmailVerified(ctx, id); err != nil {
+		return fmt.Errorf("users.MarkEmailVerified: %w", err)
 	}
 	return nil
+}
+
+// DeleteAccount deletes the account in one transaction (plan 0.8): unless
+// the user still owns an active household, it removes their memberships and
+// push subscriptions, revokes their sessions, marks the user deleted and
+// anonymizes the email (which frees it to register again). Rows that
+// reference the user (expenses, settlements, ...) keep the id to preserve
+// the history. It returns the active households still owned; when that is
+// above zero nothing changed. An unknown or already deleted user is a no-op.
+func (r *Repository) DeleteAccount(ctx context.Context, id uuid.UUID) (owned int64, err error) {
+	err = pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		q := r.q.WithTx(tx)
+		if _, err := q.LockUserForDeletion(ctx, id); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			return err
+		}
+		if err := q.LockUserMemberships(ctx, id); err != nil {
+			return err
+		}
+		n, err := q.CountHouseholdsOwnedByUser(ctx, id)
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			owned = n
+			return nil
+		}
+		if err := q.RemoveAllMembershipsForUser(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteUserPushSubscriptions(ctx, id); err != nil {
+			return err
+		}
+		if err := q.RevokeAllUserSessions(ctx, id); err != nil {
+			return err
+		}
+		return q.SoftDeleteUser(ctx, id)
+	})
+	if err != nil {
+		return 0, fmt.Errorf("users.DeleteAccount: %w", err)
+	}
+	return owned, nil
 }
 
 // GetCredentialsByEmail se usa solo en el login. Devuelve User + hash

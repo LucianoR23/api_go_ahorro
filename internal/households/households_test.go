@@ -4,13 +4,13 @@ package households_test
 // superadmin household endpoints (item 0.21c), through the real router.
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
 	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
 )
@@ -273,6 +273,33 @@ func TestMembersAndOwnership(t *testing.T) {
 			t.Errorf("deleted account still listed as member")
 		}
 	})
+
+	// Plan 0.8: the deletion is one transaction. Before, memberships were
+	// removed first, so a failure marking the user deleted left a live
+	// account with no households.
+	t.Run("a failed account deletion changes nothing", func(t *testing.T) {
+		owner, h, m1, _ := setup(t)
+		fn := "fail_delete_" + strings.ReplaceAll(m1.ID, "-", "")
+		for _, sql := range []string{
+			`CREATE FUNCTION ` + fn + `() RETURNS trigger LANGUAGE plpgsql AS $$
+			BEGIN RAISE EXCEPTION 'injected failure'; END $$`,
+			`CREATE TRIGGER ` + fn + ` BEFORE UPDATE OF deleted_at ON users
+			FOR EACH ROW WHEN (NEW.id = '` + m1.ID + `' AND NEW.deleted_at IS NOT NULL) EXECUTE FUNCTION ` + fn + `()`,
+		} {
+			if _, err := s.Pool.Exec(context.Background(), sql); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Cleanup(func() {
+			_, _ = s.Pool.Exec(context.Background(), `DROP TRIGGER `+fn+` ON users; DROP FUNCTION `+fn+`()`)
+		})
+
+		s.Do(t, req(http.MethodDelete, "/me", m1.Token, nil)).Status(t, http.StatusInternalServerError)
+		if _, still := members(t, s, owner, h.ID)[m1.ID]; !still {
+			t.Errorf("membership removed by a deletion that failed")
+		}
+		s.Do(t, req(http.MethodGet, "/me", m1.Token, nil)).Status(t, http.StatusOK)
+	})
 }
 
 func TestDeleteHouseholdAndAdmin(t *testing.T) {
@@ -366,9 +393,6 @@ func TestDeleteHouseholdAndAdmin(t *testing.T) {
 		h := s.CreateHousehold(t, owner, "")
 		s.Do(t, req(http.MethodDelete, "/households/"+h.ID, owner.Token, nil)).Status(t, http.StatusNoContent)
 
-		res := s.Do(t, req(http.MethodDelete, "/me", owner.Token, nil))
-		testutil.KnownBug(t, "0.8", "account deletion counts soft-deleted households as still owned", func(t testing.TB) {
-			res.Status(t, http.StatusNoContent)
-		})
+		s.Do(t, req(http.MethodDelete, "/me", owner.Token, nil)).Status(t, http.StatusNoContent)
 	})
 }

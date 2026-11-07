@@ -1,6 +1,7 @@
 package households_test
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -104,6 +105,40 @@ func TestInvites(t *testing.T) {
 		}
 		if status(t, s, inv.Token) != "accepted" {
 			t.Errorf("invite not accepted")
+		}
+	})
+
+	// Plan 0.8: registration is one transaction. Before, a failure after the
+	// user insert (here, marking the email verified) left the account
+	// created and the invite consumed, with a 201.
+	t.Run("a registration that fails midway leaves nothing behind", func(t *testing.T) {
+		owner, h := newHousehold(t)
+		email := apitest.UniqueEmail()
+		inv := s.Invite(t, owner, h.ID, email)
+		fn := "fail_verify_" + strings.ReplaceAll(strings.ReplaceAll(strings.Split(email, "@")[0], "-", "_"), ".", "_")
+		for _, sql := range []string{
+			`CREATE FUNCTION ` + fn + `() RETURNS trigger LANGUAGE plpgsql AS $$
+			BEGIN RAISE EXCEPTION 'injected failure'; END $$`,
+			`CREATE TRIGGER ` + fn + ` BEFORE UPDATE OF email_verified_at ON users
+			FOR EACH ROW WHEN (NEW.email = '` + email + `') EXECUTE FUNCTION ` + fn + `()`,
+		} {
+			if _, err := s.Pool.Exec(context.Background(), sql); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Cleanup(func() {
+			_, _ = s.Pool.Exec(context.Background(), `DROP TRIGGER `+fn+` ON users; DROP FUNCTION `+fn+`()`)
+		})
+
+		s.Do(t, apitest.Req{Method: http.MethodPost, Path: "/auth/register", Body: map[string]string{
+			"email": email, "password": apitest.DefaultPassword, "firstName": "Inv", "inviteToken": inv.Token,
+		}}).Status(t, http.StatusInternalServerError)
+
+		if n := count(t, s, `SELECT count(*) FROM users WHERE email = $1`, email); n != 0 {
+			t.Errorf("user rows after a failed registration = %d, want 0", n)
+		}
+		if status(t, s, inv.Token) != "pending" {
+			t.Errorf("invite consumed by a failed registration")
 		}
 	})
 

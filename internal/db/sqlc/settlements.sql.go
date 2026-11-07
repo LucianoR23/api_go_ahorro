@@ -228,6 +228,18 @@ func (q *Queries) GetSettlementByID(ctx context.Context, id uuid.UUID) (Settleme
 	return i, err
 }
 
+const lockHouseholdForSettlement = `-- name: LockHouseholdForSettlement :exec
+SELECT id FROM households WHERE id = $1 FOR NO KEY UPDATE
+`
+
+// Serializes settlements per household (plan 0.8): the debt check and the
+// insert run while this lock is held, so two payments cannot both pass the
+// check. NO KEY UPDATE does not block inserts that reference the household.
+func (q *Queries) LockHouseholdForSettlement(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, lockHouseholdForSettlement, id)
+	return err
+}
+
 const settlementsByHouseholdAggregated = `-- name: SettlementsByHouseholdAggregated :many
 SELECT
     household_id,

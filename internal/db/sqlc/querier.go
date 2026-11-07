@@ -58,8 +58,8 @@ type Querier interface {
 	// Cuenta los owners vigentes de un hogar. Sirve para invariantes (ej:
 	// no permitir demotions que dejen 0 owners).
 	CountHouseholdOwners(ctx context.Context, householdID uuid.UUID) (int64, error)
-	// Cuenta cuántos hogares tienen a este user como owner. Usado por la baja
-	// de cuenta para exigir transferencia previa.
+	// Active households the user owns. Account deletion requires a transfer
+	// first; a soft-deleted household does not count (plan 0.8).
 	CountHouseholdsOwnedByUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountIncomesByHousehold(ctx context.Context, arg CountIncomesByHouseholdParams) (int64, error)
 	// Only what the viewer may see: household-level insights and their own
@@ -147,6 +147,7 @@ type Querier interface {
 	DeleteStaleUserSessions(ctx context.Context, userID uuid.UUID) error
 	// Unconfirmed sign-ups older than 30 days (contract section 5).
 	DeleteStaleWaitlistEntries(ctx context.Context) (int64, error)
+	DeleteUserPushSubscriptions(ctx context.Context, userID uuid.UUID) error
 	DeleteWaitlistEntry(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteWaitlistEntryByEmail(ctx context.Context, email string) (int64, error)
 	GetBankByID(ctx context.Context, id uuid.UUID) (Bank, error)
@@ -285,6 +286,15 @@ type Querier interface {
 	ListRecurringIncomesByHousehold(ctx context.Context, householdID uuid.UUID) ([]RecurringIncome, error)
 	ListSharesByExpense(ctx context.Context, expenseID uuid.UUID) ([]ExpenseInstallmentShare, error)
 	ListSplitRulesByHousehold(ctx context.Context, householdID uuid.UUID) ([]HouseholdSplitRule, error)
+	// Serializes settlements per household (plan 0.8): the debt check and the
+	// insert run while this lock is held, so two payments cannot both pass the
+	// check. NO KEY UPDATE does not block inserts that reference the household.
+	LockHouseholdForSettlement(ctx context.Context, id uuid.UUID) error
+	// Account deletion: locks the user row and, through the second statement,
+	// their memberships, so an ownership transfer to them waits for the
+	// deletion to commit.
+	LockUserForDeletion(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	LockUserMemberships(ctx context.Context, userID uuid.UUID) error
 	MarkAllInsightsReadByHousehold(ctx context.Context, arg MarkAllInsightsReadByHouseholdParams) error
 	MarkDailyInsightRead(ctx context.Context, id uuid.UUID) error
 	// Single-use condicional: solo matchea si aún no fue usado y no expiró.

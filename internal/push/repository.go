@@ -112,17 +112,6 @@ func (r *Repository) DeleteByEndpointRaw(ctx context.Context, endpoint string) e
 	return nil
 }
 
-// DeleteAllForUser borra todas las subs de un user. Usado por DELETE /me:
-// cuenta borrada → nada que notificar.
-func (r *Repository) DeleteAllForUser(ctx context.Context, userID uuid.UUID) error {
-	const q = `DELETE FROM push_subscriptions WHERE user_id = $1`
-	_, err := r.pool.Exec(ctx, q, userID)
-	if err != nil {
-		return fmt.Errorf("push.DeleteAllForUser: %w", err)
-	}
-	return nil
-}
-
 // DeleteByIDForUser borra una sub por su ID, validando ownership. Si la
 // sub no existe o pertenece a otro user, devuelve rowsAffected=0 → el caller
 // decide si lo trata como 404.

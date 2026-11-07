@@ -42,7 +42,11 @@ type CreateParams struct {
 	PaidAt       time.Time
 }
 
-func (r *Repository) Create(ctx context.Context, p CreateParams) (domain.SettlementPayment, error) {
+// Create inserts the payment once check passes, in one transaction that
+// holds the household's settlement lock (plan 0.8). check runs under the
+// lock and sees every payment committed before it, so the debt it reads
+// cannot change before the insert. An error from check is returned as is.
+func (r *Repository) Create(ctx context.Context, p CreateParams, check func(context.Context) error) (domain.SettlementPayment, error) {
 	amountN, err := money.ToNumeric(p.AmountBase, money.AmountScale), error(nil)
 	if err != nil {
 		return domain.SettlementPayment{}, fmt.Errorf("settlements.Create/amount: %w", err)
@@ -51,15 +55,33 @@ func (r *Repository) Create(ctx context.Context, p CreateParams) (domain.Settlem
 	if p.Note != nil {
 		note = pgtype.Text{String: *p.Note, Valid: true}
 	}
-	row, err := r.q.CreateSettlement(ctx, sqlcgen.CreateSettlementParams{
-		HouseholdID:  p.HouseholdID,
-		FromUser:     p.FromUser,
-		ToUser:       p.ToUser,
-		AmountBase:   amountN,
-		BaseCurrency: p.BaseCurrency,
-		Note:         note,
-		PaidAt:       pgtype.Date{Time: p.PaidAt, Valid: true},
+	var (
+		row      sqlcgen.SettlementPayment
+		checkErr error
+	)
+	err = pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		q := r.q.WithTx(tx)
+		if err := q.LockHouseholdForSettlement(ctx, p.HouseholdID); err != nil {
+			return err
+		}
+		if checkErr = check(ctx); checkErr != nil {
+			return checkErr
+		}
+		var err error
+		row, err = q.CreateSettlement(ctx, sqlcgen.CreateSettlementParams{
+			HouseholdID:  p.HouseholdID,
+			FromUser:     p.FromUser,
+			ToUser:       p.ToUser,
+			AmountBase:   amountN,
+			BaseCurrency: p.BaseCurrency,
+			Note:         note,
+			PaidAt:       pgtype.Date{Time: p.PaidAt, Valid: true},
+		})
+		return err
 	})
+	if checkErr != nil {
+		return domain.SettlementPayment{}, checkErr
+	}
 	if err != nil {
 		return domain.SettlementPayment{}, fmt.Errorf("settlements.Create: %w", err)
 	}

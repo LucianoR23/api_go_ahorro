@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"log/slog"
 	"net/mail"
 	"strings"
@@ -20,12 +21,12 @@ import (
 // Definirla acá (y no en el paquete users) es el patrón "interface en el
 // consumidor": permite mockear en tests sin acoplar users al mock.
 type userRepository interface {
-	Create(ctx context.Context, email, passwordHash, firstName, lastName string) (domain.User, error)
+	CreateTx(ctx context.Context, tx pgx.Tx, email, passwordHash, firstName, lastName string) (domain.User, error)
 	CreateWithoutPassword(ctx context.Context, email, firstName, lastName string) (domain.User, error)
 	GetByID(ctx context.Context, id uuid.UUID) (domain.User, error)
 	GetCredentialsByEmail(ctx context.Context, email string) (users.Credentials, error)
 	UpdateProfile(ctx context.Context, id uuid.UUID, firstName, lastName, email string) (domain.User, error)
-	MarkEmailVerified(ctx context.Context, id uuid.UUID) error
+	MarkEmailVerifiedTx(ctx context.Context, tx pgx.Tx, id uuid.UUID) error
 	SetPendingEmail(ctx context.Context, id uuid.UUID, email *string) error
 }
 
@@ -43,22 +44,18 @@ type identityRepository interface {
 	Create(ctx context.Context, provider, subject string, userID uuid.UUID, email string) error
 }
 
-// registerBootstrap es lo mínimo que el service necesita para poblar los
-// defaults de un user recién creado (Efectivo, y en futuros CPs: hogar
-// "Mi hogar" + split_rule + categorías default).
-//
-// Interface en el consumidor → el concreto vive en paymethods. Si falla,
-// logueamos pero no abortamos Register: el user sigue existiendo y puede
-// crear el medio de pago manualmente.
+// registerBootstrap creates a new user's defaults (the "Efectivo" payment
+// method). Register runs it in the registration's transaction; the Google
+// sign-up path still runs it after the user insert and only logs a failure.
 type registerBootstrap interface {
 	CreateEfectivoFor(ctx context.Context, userID uuid.UUID) (domain.PaymentMethod, error)
+	CreateEfectivoForTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID) (domain.PaymentMethod, error)
 }
 
-// inviteAccepter: opcional. Si viene seteado, Register acepta un
-// inviteToken y agrega al user al hogar correspondiente. Si falla,
-// logueamos pero seguimos — el user ya existe; puede pedir otra invite.
+// inviteAccepter: optional. When set, Register accepts an inviteToken
+// inside the registration's transaction; notify runs after the commit.
 type inviteAccepter interface {
-	AcceptOnRegister(ctx context.Context, userID uuid.UUID, userEmail, token string) error
+	AcceptOnRegisterTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID, userEmail, token string) (notify func(context.Context), err error)
 }
 
 // emailVerifier: opcional. Si viene seteado, Register sin invite dispara
@@ -73,6 +70,7 @@ type emailVerifier interface {
 
 // Service orquesta register/login. No toca HTTP.
 type Service struct {
+	db             txBeginner
 	repo           userRepository
 	tokens         *TokenIssuer
 	sessions       *SessionStore
@@ -84,8 +82,13 @@ type Service struct {
 	logger         *slog.Logger
 }
 
-func NewService(repo userRepository, tokens *TokenIssuer, sessions *SessionStore, bootstrap registerBootstrap, logger *slog.Logger) *Service {
-	return &Service{repo: repo, tokens: tokens, sessions: sessions, bootstrap: bootstrap, logger: logger}
+// txBeginner starts the registration transaction (the pool in production).
+type txBeginner interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
+func NewService(db txBeginner, repo userRepository, tokens *TokenIssuer, sessions *SessionStore, bootstrap registerBootstrap, logger *slog.Logger) *Service {
+	return &Service{db: db, repo: repo, tokens: tokens, sessions: sessions, bootstrap: bootstrap, logger: logger}
 }
 
 // SetInviteAccepter cablea post-construcción para evitar dependencia
@@ -123,10 +126,8 @@ type AuthResult struct {
 // Register crea un user nuevo con password hasheado y devuelve tokens
 // listos para la sesión. Valida formato de email y largo mínimo de password.
 //
-// Después de crear el user dispara el bootstrap (Efectivo por ahora; en CPs
-// futuros sumará "Mi hogar" + split_rule + categorías default). No es
-// transaccional con el INSERT del user — si el bootstrap falla, logueamos
-// y seguimos: el user puede completar el setup manualmente.
+// The user, their "Efectivo" payment method and an accepted invite are one
+// transaction (plan 0.8).
 func (s *Service) Register(ctx context.Context, email, password, firstName, lastName, inviteToken string) (AuthResult, error) {
 	email = normalizeEmail(email)
 	firstName = strings.TrimSpace(firstName)
@@ -151,46 +152,60 @@ func (s *Service) Register(ctx context.Context, email, password, firstName, last
 		return AuthResult{}, fmt.Errorf("auth.Register: %w", err)
 	}
 
-	user, err := s.repo.Create(ctx, email, hash, firstName, lastName)
+	// One transaction (plan 0.8): the user, their "Efectivo" and, with an
+	// invite, the membership and the verified email are created together or
+	// not at all. An invite that cannot be accepted (expired, used, for
+	// another email) does not block the registration: it is tried in a
+	// savepoint and the user registers without it, as before.
+	var (
+		user           domain.User
+		inviteAccepted bool
+		notifyInviter  func(context.Context)
+	)
+	hasInvite := s.invites != nil && strings.TrimSpace(inviteToken) != ""
+	err = pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		var err error
+		// Si el email ya existe, el repo devuelve ErrConflict envuelto; el
+		// handler lo mapea a 409.
+		user, err = s.repo.CreateTx(ctx, tx, email, hash, firstName, lastName)
+		if err != nil {
+			return err
+		}
+		if s.bootstrap != nil {
+			if _, err := s.bootstrap.CreateEfectivoForTx(ctx, tx, user.ID); err != nil {
+				return fmt.Errorf("auth.Register: bootstrap: %w", err)
+			}
+		}
+		if !hasInvite {
+			return nil
+		}
+		sp, err := tx.Begin(ctx) // savepoint
+		if err != nil {
+			return err
+		}
+		notify, err := s.invites.AcceptOnRegisterTx(ctx, sp, user.ID, user.Email, inviteToken)
+		if err != nil {
+			s.logger.WarnContext(ctx, "aceptar invitación en registro falló", "user_id", user.ID, "error", err)
+			return sp.Rollback(ctx)
+		}
+		if err := sp.Commit(ctx); err != nil {
+			return err
+		}
+		// El invite implica que el email fue recibido: verificado sin mail.
+		if err := s.repo.MarkEmailVerifiedTx(ctx, tx, user.ID); err != nil {
+			return err
+		}
+		now := time.Now()
+		user.EmailVerifiedAt = &now
+		inviteAccepted, notifyInviter = true, notify
+		return nil
+	})
 	if err != nil {
-		// Si el email ya existe, el repo devuelve ErrConflict envuelto.
-		// Lo pasamos tal cual para que el handler lo mapee a 409.
 		return AuthResult{}, err
 	}
 
-	if s.bootstrap != nil {
-		if _, err := s.bootstrap.CreateEfectivoFor(ctx, user.ID); err != nil {
-			// No abortamos: el user ya existe. Logueamos para detectarlo.
-			s.logger.Warn("bootstrap de registro falló, user sin Efectivo",
-				"user_id", user.ID, "error", err)
-		}
-	}
-
-	// Si el registro vino con un invite token, aceptamos acá. Errores
-	// no abortan: el user queda creado y puede pedir re-invitación.
-	//
-	// El invite implica que el email fue recibido → lo marcamos verificado
-	// directamente y no disparamos el mail de verificación. Si el invite
-	// acceptOnRegister falla, igual el email se queda sin verificar y el
-	// user puede usar /auth/resend-verification-email para pedirlo.
-	inviteAccepted := false
-	hasInvite := s.invites != nil && strings.TrimSpace(inviteToken) != ""
-	if hasInvite {
-		if err := s.invites.AcceptOnRegister(ctx, user.ID, user.Email, inviteToken); err != nil {
-			s.logger.Warn("aceptar invitación en registro falló",
-				"user_id", user.ID, "error", err)
-		} else {
-			inviteAccepted = true
-		}
-	}
 	if inviteAccepted {
-		if err := s.repo.MarkEmailVerified(ctx, user.ID); err != nil {
-			s.logger.Warn("no se pudo marcar email verificado tras aceptar invite",
-				"user_id", user.ID, "error", err)
-		} else {
-			now := time.Now()
-			user.EmailVerifiedAt = &now
-		}
+		notifyInviter(ctx)
 	} else if s.verifier != nil {
 		// Registro directo: mandá el mail de verificación. Si falla, el user
 		// ya existe y queda creado — puede reintentar.

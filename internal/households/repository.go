@@ -345,15 +345,6 @@ func (r *Repository) RemoveMember(ctx context.Context, householdID, userID uuid.
 	return nil
 }
 
-// RemoveAllMembershipsForUser desvincula al user de todos los hogares.
-// Usado por la baja de cuenta después de validar que no sea owner activo.
-func (r *Repository) RemoveAllMembershipsForUser(ctx context.Context, userID uuid.UUID) error {
-	if err := r.q.RemoveAllMembershipsForUser(ctx, userID); err != nil {
-		return fmt.Errorf("households.RemoveAllMembershipsForUser: %w", err)
-	}
-	return nil
-}
-
 // ListMembers devuelve los miembros con info del user (nombre, email)
 // para que el frontend no tenga que hacer N+1 queries.
 func (r *Repository) ListMembers(ctx context.Context, householdID uuid.UUID) ([]domain.HouseholdMemberDetail, error) {

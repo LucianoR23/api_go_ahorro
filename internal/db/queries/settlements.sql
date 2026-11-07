@@ -92,3 +92,10 @@ SELECT
 FROM settlement_payments
 WHERE household_id = $1
 GROUP BY household_id, from_user, to_user;
+
+
+-- name: LockHouseholdForSettlement :exec
+-- Serializes settlements per household (plan 0.8): the debt check and the
+-- insert run while this lock is held, so two payments cannot both pass the
+-- check. NO KEY UPDATE does not block inserts that reference the household.
+SELECT id FROM households WHERE id = $1 FOR NO KEY UPDATE;

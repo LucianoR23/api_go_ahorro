@@ -47,11 +47,27 @@ WHERE id = $1 AND deleted_at IS NULL;
 
 
 -- name: CountHouseholdsOwnedByUser :one
--- Cuenta cuántos hogares tienen a este user como owner. Usado por la baja
--- de cuenta para exigir transferencia previa.
+-- Active households the user owns. Account deletion requires a transfer
+-- first; a soft-deleted household does not count (plan 0.8).
 SELECT COUNT(*) AS count
-FROM household_members
-WHERE user_id = $1 AND role = 'owner';
+FROM household_members hm
+JOIN households h ON h.id = hm.household_id
+WHERE hm.user_id = $1 AND hm.role = 'owner' AND h.deleted_at IS NULL;
+
+
+-- name: LockUserForDeletion :one
+-- Account deletion: locks the user row and, through the second statement,
+-- their memberships, so an ownership transfer to them waits for the
+-- deletion to commit.
+SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE;
+
+
+-- name: LockUserMemberships :exec
+SELECT 1 FROM household_members WHERE user_id = $1 FOR UPDATE;
+
+
+-- name: DeleteUserPushSubscriptions :exec
+DELETE FROM push_subscriptions WHERE user_id = $1;
 
 
 -- name: UpdateUserProfile :one
