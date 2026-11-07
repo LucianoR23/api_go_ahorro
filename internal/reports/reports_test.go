@@ -272,7 +272,9 @@ func TestMonthlyEmail(t *testing.T) {
 	h := newHouse(t, s)
 	h.spend(t, 1234, "2026-02-10", nil)
 
-	s.Jobs.MonthlyReports(context.Background(), time.Date(2026, 3, 1, 8, 0, 0, 0, time.UTC))
+	if err := s.Jobs.MonthlyReports(context.Background(), time.Date(2026, 3, 1, 8, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, u := range []apitest.User{h.owner, h.member} {
 		var mail *apitest.Mail

@@ -42,7 +42,9 @@ func TestRetention(t *testing.T) {
 		('week_old', '2.2.2.2', now() - interval '8 days'),
 		('year_old', '3.3.3.3', now() - interval '13 months')`)
 
-	NewWorker(pool, 3, 30, slog.New(slog.DiscardHandler)).RunOnce(ctx)
+	if err := ApplyRetention(ctx, pool, slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatal(err)
+	}
 
 	rows, err := pool.Query(ctx, `SELECT action, ip IS NOT NULL FROM audit_events ORDER BY created_at DESC`)
 	if err != nil {
