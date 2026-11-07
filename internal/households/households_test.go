@@ -21,6 +21,7 @@ type householdJSON struct {
 	ID           string    `json:"id"`
 	Name         string    `json:"name"`
 	BaseCurrency string    `json:"baseCurrency"`
+	Kind         string    `json:"kind"`
 	CreatedBy    string    `json:"createdBy"`
 	CreatedAt    time.Time `json:"createdAt"`
 	DeletedAt    *string   `json:"deletedAt"`
@@ -81,17 +82,12 @@ func TestCreateAndListHouseholds(t *testing.T) {
 
 	t.Run("list shows only the caller's households", func(t *testing.T) {
 		a, b := s.Register(t), s.Register(t)
-		ha1 := s.CreateHousehold(t, a, "A1")
-		ha2 := s.CreateHousehold(t, a, "A2")
+		ha := s.CreateHousehold(t, a, "A1")
 		s.CreateHousehold(t, b, "B1")
 
 		var list []householdJSON
 		s.Do(t, req(http.MethodGet, "/households", a.Token, nil)).Status(t, http.StatusOK).JSON(t, &list)
-		got := map[string]bool{}
-		for _, h := range list {
-			got[h.ID] = true
-		}
-		if len(list) != 2 || !got[ha1.ID] || !got[ha2.ID] {
+		if len(list) != 1 || list[0].ID != ha.ID {
 			t.Errorf("a's households = %+v", list)
 		}
 	})

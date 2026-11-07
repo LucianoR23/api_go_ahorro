@@ -55,12 +55,14 @@ func (h *Handler) Mount(r chi.Router) {
 // ===================== DTOs =====================
 
 type householdDTO struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	BaseCurrency string    `json:"baseCurrency"`
-	CreatedBy    string    `json:"createdBy"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	BaseCurrency string `json:"baseCurrency"`
+	// Kind: "personal" ("Mi plata") or "shared" ("Hogar"), plan 1.2.
+	Kind      string    `json:"kind"`
+	CreatedBy string    `json:"createdBy"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type memberDTO struct {
@@ -296,6 +298,7 @@ func toHouseholdDTO(h domain.Household) householdDTO {
 		ID:           h.ID.String(),
 		Name:         h.Name,
 		BaseCurrency: h.BaseCurrency,
+		Kind:         string(h.Kind),
 		CreatedBy:    h.CreatedBy.String(),
 		CreatedAt:    h.CreatedAt,
 		UpdatedAt:    h.UpdatedAt,

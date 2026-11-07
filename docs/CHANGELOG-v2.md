@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 1.2 (API part 1): space rules ("Mi plata" + one Hogar)
+- Migration 000032: `households.kind` (`personal` = "Mi plata", `shared` = "Hogar"; existing rows are `shared`), one personal space per user, and two triggers. A personal space only admits its owner; a user belongs to at most one active shared space (soft-deleted ones don't count; the user row is locked so two simultaneous joins can't both win); restoring a hogar fails if a member joined another one meanwhile; `kind` never changes.
+- `POST /households` creates a hogar and answers 409 "Ya sos parte del hogar X. Para crear otro, primero salí de X." when the user already has one. Accepting an invite while in another hogar answers 409 "Ya sos parte del hogar X. Para unirte a Y, primero salí de X." and leaves the invite pending.
+- "Mi plata" cannot be deleted or invited to (422). Households carry `kind` in every response, admin listings included.
+- Not here: creating "Mi plata" for each user (part 2). The plan's "pick your main hogar" flow is skipped on purpose: every current account is a test account; one with several hogares keeps them.
+
 ### 1.1 (API part): brand switch to Valuo
 - `BRAND_NAME` defaults to `Valuo` (was `Ahorro`): emails, push titles, from-names and the startup banner say Valuo unless the variable is set. On staging, delete `BRAND_NAME` or set it to `Valuo`.
 - Every other trace of the old brand is gone (the user confirmed every current account is a test account, so nothing is kept for compatibility):

@@ -92,7 +92,15 @@ func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, name, baseCurre
 			return s.splitRules.SeedForMemberTx(ctx, tx, householdID, userID)
 		}
 	}
-	return s.repo.CreateWithOwner(ctx, name, baseCurrency, ownerID, createHook, memberHook)
+	// One shared space per user (plan 1.2). The database enforces it too;
+	// checking here gives the user the name of the hogar they are in.
+	if current, err := s.repo.ActiveSharedForUser(ctx, ownerID); err == nil {
+		return domain.Household{}, domain.NewConflictError(
+			"Ya sos parte del hogar " + current.Name + ". Para crear otro, primero salí de " + current.Name + ".")
+	} else if !errors.Is(err, domain.ErrNotFound) {
+		return domain.Household{}, err
+	}
+	return s.repo.CreateWithOwner(ctx, name, baseCurrency, domain.HouseholdShared, ownerID, createHook, memberHook)
 }
 
 // List devuelve los hogares del user. Sin filtros por ahora.
@@ -128,6 +136,9 @@ func (s *Service) Update(ctx context.Context, userID, householdID uuid.UUID, nam
 // Delete requiere owner. CASCADE en household_members limpia la membresía.
 func (s *Service) Delete(ctx context.Context, userID, householdID uuid.UUID) error {
 	if err := s.requireOwner(ctx, householdID, userID); err != nil {
+		return err
+	}
+	if err := s.requireShared(ctx, householdID); err != nil {
 		return err
 	}
 	return s.repo.Delete(ctx, householdID)
@@ -232,6 +243,19 @@ func (s *Service) Purge(ctx context.Context, id uuid.UUID) error {
 }
 
 // ===================== helpers internos =====================
+
+// requireShared rejects operations that only make sense in a "Hogar" (delete,
+// invite) when the target is "Mi plata" (plan 1.2).
+func (s *Service) requireShared(ctx context.Context, householdID uuid.UUID) error {
+	h, err := s.repo.GetByID(ctx, householdID)
+	if err != nil {
+		return err
+	}
+	if h.Kind == domain.HouseholdPersonal {
+		return domain.NewValidationError("household", "Mi plata es solo tuya: no se puede borrar ni compartir")
+	}
+	return nil
+}
 
 func (s *Service) requireOwner(ctx context.Context, householdID, userID uuid.UUID) error {
 	role, err := s.repo.GetMemberRole(ctx, householdID, userID)

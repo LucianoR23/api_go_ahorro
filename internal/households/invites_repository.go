@@ -122,6 +122,9 @@ func (r *InvitesRepository) AcceptAndAddMemberTx(ctx context.Context, tx pgx.Tx,
 			Role:        string(domain.RoleMember),
 		})
 		if err != nil {
+			if ruleErr := spaceRuleError(err); ruleErr != nil {
+				return ruleErr
+			}
 			if isUniqueViolation(err) {
 				// Ya era miembro — devolvemos conflict para que el handler
 				// no cuente como éxito.

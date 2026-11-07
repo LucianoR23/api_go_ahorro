@@ -151,6 +151,9 @@ type Querier interface {
 	DeleteUserPushSubscriptions(ctx context.Context, userID uuid.UUID) error
 	DeleteWaitlistEntry(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteWaitlistEntryByEmail(ctx context.Context, email string) (int64, error)
+	// The shared space ("Hogar") the user belongs to, if any (plan 1.2: at most
+	// one active). Oldest first so accounts from before the rule pick the same.
+	GetActiveSharedHouseholdForUser(ctx context.Context, userID uuid.UUID) (Household, error)
 	GetBankByID(ctx context.Context, id uuid.UUID) (Bank, error)
 	// Usada por CreateBank para detectar un match inactivo y "revivirlo" en
 	// vez de fallar por conflicto. El índice parcial (is_active=true) no

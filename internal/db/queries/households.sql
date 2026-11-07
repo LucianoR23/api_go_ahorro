@@ -2,9 +2,20 @@
 
 
 -- name: CreateHousehold :one
-INSERT INTO households (name, base_currency, created_by)
-VALUES ($1, $2, $3)
+INSERT INTO households (name, base_currency, created_by, kind)
+VALUES ($1, $2, $3, $4)
 RETURNING *;
+
+
+-- name: GetActiveSharedHouseholdForUser :one
+-- The shared space ("Hogar") the user belongs to, if any (plan 1.2: at most
+-- one active). Oldest first so accounts from before the rule pick the same.
+SELECT h.*
+FROM households h
+INNER JOIN household_members hm ON hm.household_id = h.id
+WHERE hm.user_id = $1 AND h.kind = 'shared' AND h.deleted_at IS NULL
+ORDER BY h.created_at ASC
+LIMIT 1;
 
 
 -- name: GetHouseholdByID :one
@@ -48,6 +59,7 @@ SELECT
     h.id,
     h.name,
     h.base_currency,
+    h.kind,
     h.created_by,
     h.created_at,
     h.updated_at,
