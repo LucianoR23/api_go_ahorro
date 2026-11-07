@@ -115,6 +115,7 @@ func (r *Repository) CreateTx(ctx context.Context, b CreateBundle) (domain.Expen
 
 			iRow, err := qTx.CreateInstallment(ctx, sqlcgen.CreateInstallmentParams{
 				ExpenseID:             eRow.ID,
+				HouseholdID:           eRow.HouseholdID,
 				InstallmentNumber:     int32(iw.Installment.InstallmentNumber),
 				InstallmentAmount:     instAmount,
 				InstallmentAmountBase: instAmountBase,

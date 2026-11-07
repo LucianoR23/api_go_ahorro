@@ -194,6 +194,7 @@ type ExpenseInstallment struct {
 	PaidAt                pgtype.Timestamptz `json:"paid_at"`
 	CreatedAt             pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	HouseholdID           uuid.UUID          `json:"household_id"`
 }
 
 type ExpenseInstallmentShare struct {

@@ -343,37 +343,27 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	insightsSvc.SetNotifier(func(ctx context.Context, ev insights.Event) error {
 		return insights.Notify(ctx, pool, ev)
 	})
-	// Deps para genCreditPeriodReminders: iteramos miembros del hogar y, por
-	// cada uno, sus tarjetas activas. Latest period via creditperiods.Repository.
+	// Deps para genCreditPeriodReminders: one query for the household's
+	// active cards with their latest period (plan 0.14).
 	creditCardsAdapter := insights.CreditCardsAdapter(func(ctx context.Context, hhID uuid.UUID) ([]insights.CreditCardForReminder, error) {
-		members, err := householdsRepo.ListMembers(ctx, hhID)
+		cards, err := creditPeriodsRepo.ListActiveCardsWithLatestPeriodByHousehold(ctx, hhID)
 		if err != nil {
 			return nil, err
 		}
-		var out []insights.CreditCardForReminder
-		for _, m := range members {
-			cards, err := paymethodsSvc.ListCreditCards(ctx, m.User.ID)
-			if err != nil {
-				return nil, err
-			}
-			for _, c := range cards {
-				if !c.PaymentMethod.IsActive || c.CreditCard == nil {
-					continue
-				}
-				out = append(out, insights.CreditCardForReminder{
-					PaymentMethodID: c.PaymentMethod.ID,
-					OwnerUserID:     c.PaymentMethod.OwnerUserID,
-					CreditCardID:    c.CreditCard.ID,
-					Alias:           c.CreditCard.Alias,
-				})
+		out := make([]insights.CreditCardForReminder, len(cards))
+		for i, c := range cards {
+			out[i] = insights.CreditCardForReminder{
+				PaymentMethodID:   c.PaymentMethodID,
+				OwnerUserID:       c.OwnerUserID,
+				CreditCardID:      c.CreditCardID,
+				Alias:             c.Alias,
+				LatestPeriodYM:    c.Latest.PeriodYM,
+				LatestClosingDate: c.Latest.ClosingDate,
 			}
 		}
 		return out, nil
 	})
-	periodLatestAdapter := insights.PeriodLatestAdapter(func(ctx context.Context, ccID uuid.UUID) (domain.CreditCardPeriod, error) {
-		return creditPeriodsRepo.GetLatest(ctx, ccID)
-	})
-	insightsSvc.SetCreditPeriodDeps(creditCardsAdapter, periodLatestAdapter)
+	insightsSvc.SetCreditPeriodDeps(creditCardsAdapter)
 	insightsSvc.SetPushNotifier(pushAdapter)
 	insightsSvc.SetInstallmentsDueDep(insights.InstallmentsDueAdapter(listInstallmentsDueOn(pool)))
 	insightsHub := insights.NewHub(logger)
@@ -707,16 +697,14 @@ func (a pushNotifierAdapter) NotifyUsers(ctx context.Context, userIDs []uuid.UUI
 	})
 }
 
-// listInstallmentsDueOn devuelve un closure que el worker de insights usa
-// para encontrar cuotas con due_date = X. Query directa contra el pool
-// (no necesita sqlc): aprovecha el índice parcial
-// idx_installments_due_unpaid ON (due_date) WHERE is_paid = false.
-func listInstallmentsDueOn(pool *pgxpool.Pool) func(ctx context.Context, due time.Time) ([]insights.InstallmentDueForReminder, error) {
-	return func(ctx context.Context, due time.Time) ([]insights.InstallmentDueForReminder, error) {
+// listInstallmentsDueOn returns the unpaid installments of a household due
+// on a date, for the due-soon reminder. Direct query on the pool; it uses
+// idx_installments_household_due_unpaid (migration 000030).
+func listInstallmentsDueOn(pool *pgxpool.Pool) func(ctx context.Context, householdID uuid.UUID, due time.Time) ([]insights.InstallmentDueForReminder, error) {
+	return func(ctx context.Context, householdID uuid.UUID, due time.Time) ([]insights.InstallmentDueForReminder, error) {
 		const q = `
 			SELECT
 				ei.expense_id,
-				e.household_id,
 				e.created_by,
 				e.description,
 				ei.installment_number,
@@ -726,11 +714,12 @@ func listInstallmentsDueOn(pool *pgxpool.Pool) func(ctx context.Context, due tim
 				ei.due_date
 			FROM expense_installments ei
 			JOIN expenses e ON e.id = ei.expense_id
-			WHERE ei.is_paid = false
+			WHERE ei.household_id = $1
+			  AND ei.is_paid = false
+			  AND ei.due_date = $2
 			  AND e.status = 'confirmed'
-			  AND ei.due_date = $1
 		`
-		rows, err := pool.Query(ctx, q, pgtype.Date{Time: due, Valid: true})
+		rows, err := pool.Query(ctx, q, householdID, pgtype.Date{Time: due, Valid: true})
 		if err != nil {
 			return nil, err
 		}
@@ -741,7 +730,6 @@ func listInstallmentsDueOn(pool *pgxpool.Pool) func(ctx context.Context, due tim
 			var dueDate pgtype.Date
 			if err := rows.Scan(
 				&r.ExpenseID,
-				&r.HouseholdID,
 				&r.CreatedBy,
 				&r.Description,
 				&r.InstallmentNumber,

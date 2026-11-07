@@ -2,7 +2,6 @@ package insights
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/shopspring/decimal"
 	"log/slog"
@@ -45,50 +44,36 @@ func (g GoalsAdapter) ProgressList(ctx context.Context, householdID uuid.UUID, f
 type notifier func(ctx context.Context, ev Event) error
 
 // CreditCardForReminder: vista mínima que necesita el generador de
-// recordatorios. La provee el adapter de main.go iterando miembros del
-// hogar + sus tarjetas activas.
+// recordatorios: una tarjeta activa de un miembro del hogar con su último
+// período cargado. La provee app.go con una sola query (plan 0.14).
 type CreditCardForReminder struct {
-	PaymentMethodID uuid.UUID
-	OwnerUserID     uuid.UUID
-	CreditCardID    uuid.UUID
-	Alias           string
+	PaymentMethodID   uuid.UUID
+	OwnerUserID       uuid.UUID
+	CreditCardID      uuid.UUID
+	Alias             string
+	LatestPeriodYM    string
+	LatestClosingDate time.Time
 }
 
 // creditCardsByHouseholdLister: lista las tarjetas de crédito activas de
-// todos los miembros del hogar. Optional (puede ser nil si no se cablea,
+// todos los miembros del hogar que tienen algún período cargado. Optional (puede ser nil si no se cablea,
 // en cuyo caso el generador de recordatorios es no-op).
 type creditCardsByHouseholdLister interface {
 	ListActiveCreditCardsByHousehold(ctx context.Context, householdID uuid.UUID) ([]CreditCardForReminder, error)
 }
 
-// periodLatestReader: último período cargado de una tarjeta. Devuelve
-// ErrNotFound si no hay períodos.
-type periodLatestReader interface {
-	GetLatest(ctx context.Context, creditCardID uuid.UUID) (domain.CreditCardPeriod, error)
-}
-
 // CreditCardsAdapter: adapter funcional para no acoplar insights →
-// paymethods/households en el import graph. main.go arma el closure que
-// compone households.ListMembers + paymethods.ListCreditCards.
+// creditperiods en el import graph.
 type CreditCardsAdapter func(ctx context.Context, householdID uuid.UUID) ([]CreditCardForReminder, error)
 
 func (a CreditCardsAdapter) ListActiveCreditCardsByHousehold(ctx context.Context, householdID uuid.UUID) ([]CreditCardForReminder, error) {
 	return a(ctx, householdID)
 }
 
-// PeriodLatestAdapter: adapter funcional para no acoplar insights →
-// creditperiods. main.go envuelve creditperiods.Repository.GetLatest.
-type PeriodLatestAdapter func(ctx context.Context, creditCardID uuid.UUID) (domain.CreditCardPeriod, error)
-
-func (a PeriodLatestAdapter) GetLatest(ctx context.Context, creditCardID uuid.UUID) (domain.CreditCardPeriod, error) {
-	return a(ctx, creditCardID)
-}
-
 // InstallmentDueForReminder: shape mínimo que precisa el generador de
 // avisos de cuota próxima a vencer.
 type InstallmentDueForReminder struct {
 	ExpenseID         uuid.UUID
-	HouseholdID       uuid.UUID
 	CreatedBy         uuid.UUID
 	Description       string
 	InstallmentNumber int
@@ -99,15 +84,15 @@ type InstallmentDueForReminder struct {
 }
 
 type installmentsDueLister interface {
-	ListInstallmentsDueOn(ctx context.Context, dueDate time.Time) ([]InstallmentDueForReminder, error)
+	ListInstallmentsDueOn(ctx context.Context, householdID uuid.UUID, dueDate time.Time) ([]InstallmentDueForReminder, error)
 }
 
-// InstallmentsDueAdapter: adapter funcional. main.go envuelve una query
+// InstallmentsDueAdapter: adapter funcional. app.go envuelve una query
 // SQL directa contra expense_installments.
-type InstallmentsDueAdapter func(ctx context.Context, dueDate time.Time) ([]InstallmentDueForReminder, error)
+type InstallmentsDueAdapter func(ctx context.Context, householdID uuid.UUID, dueDate time.Time) ([]InstallmentDueForReminder, error)
 
-func (a InstallmentsDueAdapter) ListInstallmentsDueOn(ctx context.Context, dueDate time.Time) ([]InstallmentDueForReminder, error) {
-	return a(ctx, dueDate)
+func (a InstallmentsDueAdapter) ListInstallmentsDueOn(ctx context.Context, householdID uuid.UUID, dueDate time.Time) ([]InstallmentDueForReminder, error) {
+	return a(ctx, householdID, dueDate)
 }
 
 // pushNotifier: dependencia opcional para fire-and-forget de web push.
@@ -123,7 +108,6 @@ type Service struct {
 	logger          *slog.Logger
 	notify          notifier
 	creditCards     creditCardsByHouseholdLister // opcional; cableado via SetCreditPeriodDeps
-	periods         periodLatestReader           // opcional; cableado via SetCreditPeriodDeps
 	push            pushNotifier                 // opcional; cableado via SetPushNotifier
 	installmentsDue installmentsDueLister        // opcional; cableado via SetInstallmentsDueDep
 }
@@ -140,9 +124,8 @@ func (s *Service) SetNotifier(n notifier) { s.notify = n }
 // SetCreditPeriodDeps cablea las dependencias necesarias para el generador
 // de recordatorios de período de tarjeta. Si no se llama, el generador es
 // no-op (los demás insights se generan igual).
-func (s *Service) SetCreditPeriodDeps(cc creditCardsByHouseholdLister, p periodLatestReader) {
+func (s *Service) SetCreditPeriodDeps(cc creditCardsByHouseholdLister) {
 	s.creditCards = cc
-	s.periods = p
 }
 
 // SetPushNotifier cablea web push para insights generados por el worker.
@@ -436,7 +419,7 @@ func (s *Service) genWeeklyReview(ctx context.Context, householdID uuid.UUID, at
 //
 // No-op si las deps no están cableadas (SetCreditPeriodDeps no llamado).
 func (s *Service) genCreditPeriodReminders(ctx context.Context, householdID uuid.UUID, at time.Time) (int, int) {
-	if s.creditCards == nil || s.periods == nil {
+	if s.creditCards == nil {
 		return 0, 0
 	}
 	cards, err := s.creditCards.ListActiveCreditCardsByHousehold(ctx, householdID)
@@ -447,17 +430,7 @@ func (s *Service) genCreditPeriodReminders(ctx context.Context, householdID uuid
 	today := dayStart(at.UTC())
 	created, failed := 0, 0
 	for _, card := range cards {
-		latest, err := s.periods.GetLatest(ctx, card.CreditCardID)
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
-				continue
-			}
-			failed++
-			s.logWarn(ctx, "latest period falló",
-				"creditCardId", card.CreditCardID.String(), "error", err)
-			continue
-		}
-		closing := dayStart(latest.ClosingDate.UTC())
+		closing := dayStart(card.LatestClosingDate.UTC())
 		if !closing.Equal(today) {
 			continue
 		}
@@ -466,7 +439,7 @@ func (s *Service) genCreditPeriodReminders(ctx context.Context, householdID uuid
 		title := fmt.Sprintf("Cargá el próximo período de %s", card.Alias)
 		body := fmt.Sprintf(
 			"Hoy cerró el período %s. Cargá el siguiente para que los gastos se asignen al ciclo correcto.",
-			latest.PeriodYM,
+			card.LatestPeriodYM,
 		)
 		ins, c, err := s.repo.Create(ctx, CreateParams{
 			HouseholdID: householdID,
@@ -479,7 +452,7 @@ func (s *Service) genCreditPeriodReminders(ctx context.Context, householdID uuid
 			Metadata: map[string]any{
 				"payment_method_id": card.PaymentMethodID.String(),
 				"credit_card_id":    card.CreditCardID.String(),
-				"latest_period_ym":  latest.PeriodYM,
+				"latest_period_ym":  card.LatestPeriodYM,
 				"alias":             card.Alias,
 			},
 			RefID: &refID,
@@ -525,16 +498,15 @@ func (s *Service) genInstallmentsDueSoon(ctx context.Context, householdID uuid.U
 		return 0, 0
 	}
 	targetDue := dayStart(at.UTC()).AddDate(0, 0, 3)
-	rows, err := s.installmentsDue.ListInstallmentsDueOn(ctx, targetDue)
+	// Only this household's rows (plan 0.14: this used to read every
+	// household's installments once per household).
+	rows, err := s.installmentsDue.ListInstallmentsDueOn(ctx, householdID, targetDue)
 	if err != nil {
 		s.logWarn(ctx, "installments due lookup falló", "householdId", householdID.String(), "error", err)
 		return 0, 1
 	}
 	created, failed := 0, 0
 	for _, row := range rows {
-		if row.HouseholdID != householdID {
-			continue
-		}
 		owner := row.CreatedBy
 		refID := row.ExpenseID
 		title := "Cuota próxima a vencer"

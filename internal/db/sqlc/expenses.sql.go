@@ -146,16 +146,17 @@ func (q *Queries) CreateExpense(ctx context.Context, arg CreateExpenseParams) (E
 const createInstallment = `-- name: CreateInstallment :one
 
 INSERT INTO expense_installments (
-    expense_id, installment_number,
+    expense_id, household_id, installment_number,
     installment_amount, installment_amount_base,
     billing_date, due_date, is_paid, paid_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, expense_id, installment_number, installment_amount, installment_amount_base, billing_date, due_date, is_paid, paid_at, created_at, updated_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, expense_id, installment_number, installment_amount, installment_amount_base, billing_date, due_date, is_paid, paid_at, created_at, updated_at, household_id
 `
 
 type CreateInstallmentParams struct {
 	ExpenseID             uuid.UUID          `json:"expense_id"`
+	HouseholdID           uuid.UUID          `json:"household_id"`
 	InstallmentNumber     int32              `json:"installment_number"`
 	InstallmentAmount     pgtype.Numeric     `json:"installment_amount"`
 	InstallmentAmountBase pgtype.Numeric     `json:"installment_amount_base"`
@@ -166,9 +167,11 @@ type CreateInstallmentParams struct {
 }
 
 // ===== installments =====
+// household_id is the expense's (composite foreign key, migration 000030).
 func (q *Queries) CreateInstallment(ctx context.Context, arg CreateInstallmentParams) (ExpenseInstallment, error) {
 	row := q.db.QueryRow(ctx, createInstallment,
 		arg.ExpenseID,
+		arg.HouseholdID,
 		arg.InstallmentNumber,
 		arg.InstallmentAmount,
 		arg.InstallmentAmountBase,
@@ -190,6 +193,7 @@ func (q *Queries) CreateInstallment(ctx context.Context, arg CreateInstallmentPa
 		&i.PaidAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HouseholdID,
 	)
 	return i, err
 }
@@ -253,7 +257,7 @@ func (q *Queries) GetExpenseByID(ctx context.Context, id uuid.UUID) (Expense, er
 }
 
 const getInstallmentByExpenseAndNumber = `-- name: GetInstallmentByExpenseAndNumber :one
-SELECT id, expense_id, installment_number, installment_amount, installment_amount_base, billing_date, due_date, is_paid, paid_at, created_at, updated_at FROM expense_installments
+SELECT id, expense_id, installment_number, installment_amount, installment_amount_base, billing_date, due_date, is_paid, paid_at, created_at, updated_at, household_id FROM expense_installments
 WHERE expense_id = $1 AND installment_number = $2
 `
 
@@ -277,6 +281,7 @@ func (q *Queries) GetInstallmentByExpenseAndNumber(ctx context.Context, arg GetI
 		&i.PaidAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HouseholdID,
 	)
 	return i, err
 }
@@ -385,7 +390,7 @@ func (q *Queries) ListExpensesBySeries(ctx context.Context, arg ListExpensesBySe
 }
 
 const listInstallmentsByExpense = `-- name: ListInstallmentsByExpense :many
-SELECT id, expense_id, installment_number, installment_amount, installment_amount_base, billing_date, due_date, is_paid, paid_at, created_at, updated_at FROM expense_installments
+SELECT id, expense_id, installment_number, installment_amount, installment_amount_base, billing_date, due_date, is_paid, paid_at, created_at, updated_at, household_id FROM expense_installments
 WHERE expense_id = $1
 ORDER BY installment_number ASC
 `
@@ -411,6 +416,7 @@ func (q *Queries) ListInstallmentsByExpense(ctx context.Context, expenseID uuid.
 			&i.PaidAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.HouseholdID,
 		); err != nil {
 			return nil, err
 		}
@@ -456,7 +462,7 @@ SET is_paid = $2,
     paid_at = CASE WHEN $2 THEN NOW() ELSE NULL END,
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, expense_id, installment_number, installment_amount, installment_amount_base, billing_date, due_date, is_paid, paid_at, created_at, updated_at
+RETURNING id, expense_id, installment_number, installment_amount, installment_amount_base, billing_date, due_date, is_paid, paid_at, created_at, updated_at, household_id
 `
 
 type SetInstallmentPaidParams struct {
@@ -479,6 +485,7 @@ func (q *Queries) SetInstallmentPaid(ctx context.Context, arg SetInstallmentPaid
 		&i.PaidAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HouseholdID,
 	)
 	return i, err
 }
@@ -540,7 +547,7 @@ SET billing_date = $2,
     due_date = $3,
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, expense_id, installment_number, installment_amount, installment_amount_base, billing_date, due_date, is_paid, paid_at, created_at, updated_at
+RETURNING id, expense_id, installment_number, installment_amount, installment_amount_base, billing_date, due_date, is_paid, paid_at, created_at, updated_at, household_id
 `
 
 type UpdateInstallmentDatesParams struct {
@@ -564,6 +571,7 @@ func (q *Queries) UpdateInstallmentDates(ctx context.Context, arg UpdateInstallm
 		&i.PaidAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HouseholdID,
 	)
 	return i, err
 }

@@ -91,6 +91,42 @@ func (r *Repository) GetLatest(ctx context.Context, creditCardID uuid.UUID) (dom
 	return toDomain(row), nil
 }
 
+// CardWithLatestPeriod is an active credit card of a household member with
+// its most recent period.
+type CardWithLatestPeriod struct {
+	PaymentMethodID uuid.UUID
+	OwnerUserID     uuid.UUID
+	CreditCardID    uuid.UUID
+	Alias           string
+	Latest          domain.CreditCardPeriod
+}
+
+// ListActiveCardsWithLatestPeriodByHousehold returns, in one query, the
+// active credit cards of every member of the household with their latest
+// period. Cards without periods are left out.
+func (r *Repository) ListActiveCardsWithLatestPeriodByHousehold(ctx context.Context, householdID uuid.UUID) ([]CardWithLatestPeriod, error) {
+	rows, err := r.q.ListActiveCardsWithLatestPeriodByHousehold(ctx, householdID)
+	if err != nil {
+		return nil, fmt.Errorf("creditperiods.ListActiveCardsWithLatestPeriodByHousehold: %w", err)
+	}
+	out := make([]CardWithLatestPeriod, len(rows))
+	for i, row := range rows {
+		out[i] = CardWithLatestPeriod{
+			PaymentMethodID: row.PaymentMethodID,
+			OwnerUserID:     row.OwnerUserID,
+			CreditCardID:    row.CreditCardID,
+			Alias:           row.Alias,
+			Latest: domain.CreditCardPeriod{
+				CreditCardID: row.CreditCardID,
+				PeriodYM:     row.PeriodYm,
+				ClosingDate:  row.ClosingDate.Time,
+				DueDate:      row.DueDate.Time,
+			},
+		}
+	}
+	return out, nil
+}
+
 func toDomain(p sqlcgen.CreditCardPeriod) domain.CreditCardPeriod {
 	return domain.CreditCardPeriod{
 		CreditCardID: p.CreditCardID,
