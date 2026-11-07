@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 // periodsReader es la dependencia mínima que el resolver necesita del

@@ -3,9 +3,9 @@ package auth
 import (
 	"net/http"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/audit"
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
-	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
+	"github.com/LucianoR23/valuo_api/internal/audit"
+	"github.com/LucianoR23/valuo_api/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/httpx"
 )
 
 // Los endpoints de reset/change-password se montan en el Handler principal

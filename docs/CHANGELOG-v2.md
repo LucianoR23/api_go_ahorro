@@ -6,7 +6,13 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ### 1.1 (API part): brand switch to Valuo
 - `BRAND_NAME` defaults to `Valuo` (was `Ahorro`): emails, push titles, from-names and the startup banner say Valuo unless the variable is set. On staging, delete `BRAND_NAME` or set it to `Valuo`.
-- Unchanged on purpose: the JWT issuer (`ahorra-api`; changing it would end every live session and no user sees it) and the `@ahorra.deleted` placeholder of deleted accounts (stored data).
+- Every other trace of the old brand is gone (the user confirmed every current account is a test account, so nothing is kept for compatibility):
+  - Repo renamed to `valuo_api`; Go module path `github.com/LucianoR23/valuo_api`.
+  - JWT issuer `valuo-api`. Access tokens issued before the deploy are rejected; the app renews them with the refresh cookie.
+  - Deleted accounts get `deleted+<id>@deleted.invalid` (reserved TLD). Migration 000031 updates the existing rows (data only; the down migration restores them).
+  - `VAPID_SUBJECT` lost its `mailto:admin@ahorra.app` default (not our domain). With `VAPID_PUBLIC_KEY` set, the API refuses to start unless the subject is a `mailto:` or `https://` URL.
+  - Request logger name `api`; local dev Postgres: container `valuo-postgres-dev`, volume `valuo_pgdata18`, role and DB `valuo` (a fresh volume: recreate local data).
+  - README, DEPLOY and code comments. Kept: applied migrations, this changelog's history and the real name of today's production DB (`ahorra`).
 
 ### 0.14: performance (migration 000030)
 - Indexes on the 18 foreign keys that had none: the 10 in the audit (§11) and 8 more the catalog check found. New test `TestForeignKeysAreIndexed` reads the catalog and fails when any foreign key lacks an index, so later migrations keep it.

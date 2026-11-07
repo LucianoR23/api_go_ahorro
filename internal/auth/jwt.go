@@ -8,7 +8,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 // AccessTokenTTL: 15 min. Long enough for the PWA not to refresh on every
@@ -53,7 +53,7 @@ func NewTokenIssuer(accessSecret string) (*TokenIssuer, error) {
 	if accessSecret == "" {
 		return nil, errors.New("auth: JWT_SECRET no puede estar vacío")
 	}
-	return &TokenIssuer{accessSecret: []byte(accessSecret), issuer: "ahorra-api"}, nil
+	return &TokenIssuer{accessSecret: []byte(accessSecret), issuer: "valuo-api"}, nil
 }
 
 // IssueAccessToken signs an access token for the user and session.

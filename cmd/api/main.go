@@ -10,13 +10,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/app"
-	"github.com/LucianoR23/api_go_ahorra/internal/config"
-	"github.com/LucianoR23/api_go_ahorra/internal/db"
-	"github.com/LucianoR23/api_go_ahorra/internal/dbmigrate"
-	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
-	"github.com/LucianoR23/api_go_ahorra/internal/monitoring"
-	"github.com/LucianoR23/api_go_ahorra/migrations"
+	"github.com/LucianoR23/valuo_api/internal/app"
+	"github.com/LucianoR23/valuo_api/internal/config"
+	"github.com/LucianoR23/valuo_api/internal/db"
+	"github.com/LucianoR23/valuo_api/internal/dbmigrate"
+	"github.com/LucianoR23/valuo_api/internal/httpx"
+	"github.com/LucianoR23/valuo_api/internal/monitoring"
+	"github.com/LucianoR23/valuo_api/migrations"
 )
 
 func main() {

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
+	"github.com/LucianoR23/valuo_api/internal/testutil/apitest"
 )
 
 func verifyEmail(t testing.TB, s *apitest.Server, token string) *apitest.Res {

@@ -3,7 +3,7 @@ package expenses
 import (
 	"encoding/json"
 	"errors"
-	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/LucianoR23/valuo_api/internal/money"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -14,10 +14,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/auth"
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
-	"github.com/LucianoR23/api_go_ahorra/internal/households"
-	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
+	"github.com/LucianoR23/valuo_api/internal/auth"
+	"github.com/LucianoR23/valuo_api/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/households"
+	"github.com/LucianoR23/valuo_api/internal/httpx"
 )
 
 type Handler struct {

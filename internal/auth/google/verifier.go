@@ -11,7 +11,7 @@ import (
 
 	"google.golang.org/api/idtoken"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 // Claims es lo que extraemos del ID token. Subject es el identificador

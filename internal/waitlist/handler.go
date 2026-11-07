@@ -12,7 +12,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/go-chi/httprate"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
+	"github.com/LucianoR23/valuo_api/internal/httpx"
 )
 
 // maxBody: the contract rejects bodies over 4 KB.

@@ -8,9 +8,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/audit"
-	"github.com/LucianoR23/api_go_ahorra/internal/auth"
-	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
+	"github.com/LucianoR23/valuo_api/internal/audit"
+	"github.com/LucianoR23/valuo_api/internal/auth"
+	"github.com/LucianoR23/valuo_api/internal/httpx"
 )
 
 // AdminHandler: superadmin operations on the waitlist (contract section 5),

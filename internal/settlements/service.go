@@ -3,15 +3,15 @@ package settlements
 import (
 	"context"
 	"fmt"
-	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/LucianoR23/valuo_api/internal/money"
 	"github.com/shopspring/decimal"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/dates"
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/dates"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 // householdLookup: interface mínima del paquete households. Lo usamos para

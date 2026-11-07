@@ -15,8 +15,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/db/sqlc"
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/db/sqlc"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 type Repository struct {

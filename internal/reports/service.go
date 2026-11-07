@@ -3,14 +3,14 @@ package reports
 import (
 	"context"
 	"fmt"
-	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/LucianoR23/valuo_api/internal/money"
 	"github.com/shopspring/decimal"
 	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 // householdLookup: necesitamos baseCurrency para los totales.

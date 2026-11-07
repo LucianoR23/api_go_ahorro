@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/LucianoR23/valuo_api/internal/money"
 	"github.com/shopspring/decimal"
 	"strings"
 	"time"
@@ -18,8 +18,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	sqlcgen "github.com/LucianoR23/api_go_ahorra/internal/db/sqlc"
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	sqlcgen "github.com/LucianoR23/valuo_api/internal/db/sqlc"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 type Repository struct {

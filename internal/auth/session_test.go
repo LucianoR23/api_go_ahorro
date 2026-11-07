@@ -10,7 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
+	"github.com/LucianoR23/valuo_api/internal/testutil/apitest"
 )
 
 func TestLogin(t *testing.T) {
@@ -76,7 +76,7 @@ func TestAccessTokenIsRequired(t *testing.T) {
 	}
 	now := time.Now()
 	claims := func(typ string, exp time.Time) jwt.MapClaims {
-		return jwt.MapClaims{"typ": typ, "sub": u.ID, "iss": "ahorra-api",
+		return jwt.MapClaims{"typ": typ, "sub": u.ID, "iss": "valuo-api",
 			"iat": now.Add(-time.Hour).Unix(), "nbf": now.Add(-time.Hour).Unix(), "exp": exp.Unix()}
 	}
 

@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/dates"
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/dates"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 // householdsLister: el worker necesita iterar todos los hogares.

@@ -16,7 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 // inviteEmailSender: el service depende de esta interface (no del
@@ -54,7 +54,7 @@ type InvitesService struct {
 	insights   invitesInsightCreator
 	logger     *slog.Logger
 
-	appBaseURL string        // ej: https://app.ahorra.app  (para el link del mail)
+	appBaseURL string        // ej: https://app.example.com  (para el link del mail)
 	ttl        time.Duration // default 7 días
 }
 

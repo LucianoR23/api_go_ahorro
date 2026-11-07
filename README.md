@@ -1,6 +1,6 @@
-# Ahorra API
+# Valuo API
 
-Backend en Go para Ahorra — app de gestión de gastos multi-hogar, multi-moneda (ARS / USD / EUR).
+Backend en Go de Valuo: app de gestión de gastos multi-hogar, multi-moneda (ARS / USD / EUR).
 
 ## Stack
 
@@ -141,8 +141,8 @@ Se despliega en Coolify desde el `Dockerfile`. Pasos, roles de DB y variables: [
 La imagen Docker es multi-stage (alpine build + alpine runtime) y pesa ~45MB. Expose `:8080`. Healthcheck incluido en `/health/live`.
 
 ```bash
-docker build -t ahorra-api .
-docker run --rm -p 8080:8080 --env-file .env ahorra-api
+docker build -t valuo-api .
+docker run --rm -p 8080:8080 --env-file .env valuo-api
 ```
 
 ## Convenciones

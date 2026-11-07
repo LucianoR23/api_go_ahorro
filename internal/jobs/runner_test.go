@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
+	"github.com/LucianoR23/valuo_api/internal/testutil"
+	"github.com/LucianoR23/valuo_api/internal/testutil/testdb"
 )
 
 func TestMain(m *testing.M) { os.Exit(testdb.Main(m)) }

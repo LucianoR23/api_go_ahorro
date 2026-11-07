@@ -7,9 +7,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/auth"
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
-	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
+	"github.com/LucianoR23/valuo_api/internal/auth"
+	"github.com/LucianoR23/valuo_api/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/httpx"
 )
 
 // Header que usamos para seleccionar el hogar activo en cada request.

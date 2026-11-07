@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
+	"github.com/LucianoR23/valuo_api/internal/testutil/apitest"
 )
 
 func patchMe(t testing.TB, s *apitest.Server, token string, body any) *apitest.Res {
@@ -155,7 +155,7 @@ func TestDeleteMe(t *testing.T) {
 			`SELECT email, deleted_at IS NOT NULL FROM users WHERE id = $1`, u.ID).Scan(&email, &deleted); err != nil {
 			t.Fatal(err)
 		}
-		if !deleted || email != "deleted+"+u.ID+"@ahorra.deleted" {
+		if !deleted || email != "deleted+"+u.ID+"@deleted.invalid" {
 			t.Errorf("row after delete: email %q, deleted %v", email, deleted)
 		}
 

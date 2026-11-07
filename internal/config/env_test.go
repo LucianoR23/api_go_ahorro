@@ -124,3 +124,36 @@ func TestLoadTimezone(t *testing.T) {
 		}
 	})
 }
+
+func TestLoadVAPIDSubject(t *testing.T) {
+	tests := []struct {
+		name, key, subject string
+		wantErr            bool
+	}{
+		{name: "push off needs no subject", key: "", subject: ""},
+		{name: "keys without subject fail", key: "pub", subject: "", wantErr: true},
+		{name: "subject must be mailto or https", key: "pub", subject: "admin@example.com", wantErr: true},
+		{name: "mailto subject", key: "pub", subject: "mailto:hola@example.com"},
+		{name: "https subject", key: "pub", subject: "https://example.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setRequired(t)
+			t.Setenv("VAPID_PUBLIC_KEY", tt.key)
+			t.Setenv("VAPID_SUBJECT", tt.subject)
+			cfg, err := Load()
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "VAPID_SUBJECT") {
+					t.Fatalf("err = %v, want a VAPID_SUBJECT error", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.VAPIDSubject != tt.subject {
+				t.Errorf("VAPIDSubject = %q, want %q", cfg.VAPIDSubject, tt.subject)
+			}
+		})
+	}
+}

@@ -7,14 +7,14 @@ package balances
 import (
 	"context"
 	"fmt"
-	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/LucianoR23/valuo_api/internal/money"
 	"github.com/shopspring/decimal"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/dates"
-	sqlcgen "github.com/LucianoR23/api_go_ahorra/internal/db/sqlc"
+	"github.com/LucianoR23/valuo_api/internal/dates"
+	sqlcgen "github.com/LucianoR23/valuo_api/internal/db/sqlc"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 

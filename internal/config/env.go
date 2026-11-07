@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/dates"
-	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
+	"github.com/LucianoR23/valuo_api/internal/dates"
+	"github.com/LucianoR23/valuo_api/internal/httpx"
 )
 
 // Config concentra todas las variables de entorno tipadas que la app necesita.
@@ -72,7 +72,7 @@ type Config struct {
 	AppTimezone string
 	Location    *time.Location
 
-	// AppBaseURL: URL pública del frontend (ej: https://app.ahorra.app).
+	// AppBaseURL: URL pública del frontend (ej: https://app.example.com).
 	// Se usa para armar los links de invitación que van en los mails.
 	// En dev cae a http://localhost:3005.
 	AppBaseURL string
@@ -88,7 +88,7 @@ type Config struct {
 	// secret en Coolify.
 	VAPIDPublicKey  string
 	VAPIDPrivateKey string
-	VAPIDSubject    string // "mailto:admin@ahorra.app"
+	VAPIDSubject    string // "mailto:<contact>", required when the keys are set
 	// PushExtraHosts (PUSH_EXTRA_HOSTS): push endpoint hosts accepted
 	// besides the known push services. Tests only; leave empty.
 	PushExtraHosts []string
@@ -149,7 +149,7 @@ func Load() (*Config, error) {
 		GoogleOAuthClientID:    os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
 		VAPIDPublicKey:         os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey:        os.Getenv("VAPID_PRIVATE_KEY"),
-		VAPIDSubject:           getOrDefault("VAPID_SUBJECT", "mailto:admin@ahorra.app"),
+		VAPIDSubject:           os.Getenv("VAPID_SUBJECT"),
 		PushExtraHosts:         splitAndTrim(os.Getenv("PUSH_EXTRA_HOSTS"), ","),
 		SupportAPIURL:          getOrDefault("SOPORTE_API_URL", "http://localhost:8081"),
 		SupportAPIKey:          os.Getenv("SOPORTE_API_KEY"),
@@ -190,6 +190,11 @@ func (c *Config) validate() error {
 	}
 	if c.MigrateOnStart && strings.TrimSpace(c.MigrateDatabaseURL) == "" {
 		return fmt.Errorf("config: MIGRATE_DATABASE_URL es obligatorio con MIGRATE_ON_START=true")
+	}
+	// Push services contact the sender through the subject (RFC 8292); there
+	// is no sensible default, so it is required as soon as push is on.
+	if c.VAPIDPublicKey != "" && !strings.HasPrefix(c.VAPIDSubject, "mailto:") && !strings.HasPrefix(c.VAPIDSubject, "https://") {
+		return fmt.Errorf("config: VAPID_SUBJECT (mailto: o https://) es obligatorio con VAPID_PUBLIC_KEY")
 	}
 	if len(c.JWTSecret) < 32 {
 		return fmt.Errorf("config: JWT_SECRET debe tener al menos 32 caracteres")

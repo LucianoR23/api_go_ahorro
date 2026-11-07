@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/LucianoR23/valuo_api/internal/money"
 )
 
 func d(s string) decimal.Decimal { return decimal.RequireFromString(s) }

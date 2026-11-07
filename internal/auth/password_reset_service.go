@@ -14,8 +14,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
-	"github.com/LucianoR23/api_go_ahorra/internal/users"
+	"github.com/LucianoR23/valuo_api/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/users"
 )
 
 // passwordResetRepo es la interface que el service necesita — definida

@@ -10,9 +10,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/paymethods"
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil"
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
+	"github.com/LucianoR23/valuo_api/internal/paymethods"
+	"github.com/LucianoR23/valuo_api/internal/testutil"
+	"github.com/LucianoR23/valuo_api/internal/testutil/testdb"
 )
 
 func TestStatusDayBoundary(t *testing.T) {

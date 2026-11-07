@@ -9,9 +9,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
-	"github.com/LucianoR23/api_go_ahorra/internal/money"
-	"github.com/LucianoR23/api_go_ahorra/internal/ownership"
+	"github.com/LucianoR23/valuo_api/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/money"
+	"github.com/LucianoR23/valuo_api/internal/ownership"
 )
 
 // paymentMethodLookup: dependencia mínima que usamos de paymethods.Service.

@@ -72,7 +72,7 @@ without superuser. Check with `\du`, `\l valuo_next` and `\ddp`.
 | `JWT_SECRET` | `openssl rand -hex 32`, never reused across environments (signs access tokens; refresh tokens are server-side sessions since 0.5, so `JWT_REFRESH_SECRET` can be deleted) |
 | `ALLOWED_ORIGINS` / `APP_BASE_URL` | the front's URL |
 | `GOOGLE_OAUTH_CLIENT_ID` | same value as the front's `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (empty = `/auth/google` responds 500) |
-| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | per environment, from `go run ./cmd/vapidgen`; subject `mailto:...` |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | per environment, from `go run ./cmd/vapidgen`; subject `mailto:...` (required when the keys are set; the API refuses to start without it) |
 | `RESEND_API_KEY` | sending-only key for the verified domain; empty = no emails |
 | `BRAND_NAME` | product name in emails (default `Valuo`) |
 | `TRUSTED_PROXIES` | Traefik's Docker network, the only peer allowed to set `X-Forwarded-For`: `10.0.0.0/8` on this server (Docker `default-address-pools`). Empty trusts nobody (the client IP becomes Traefik's) |
@@ -342,7 +342,7 @@ gitleaks in CI). Rotation, one at a time:
 | `RESEND_API_KEY` | new key in Resend, update, redeploy, revoke the old one | none |
 | `SOPORTE_API_KEY` | new key from the support service, update, redeploy | none |
 | VAPID keys | avoid: new keys invalidate every push subscription | users enable push again |
-| `API_DEPLOY_KEY` (ahorra_app CI) | new read-only deploy key on api_go_ahorro, update the secret, delete the old key | none |
+| `API_DEPLOY_KEY` (valuo_app CI) | new read-only deploy key on valuo_api, update the secret, delete the old key | none |
 
 Staging never receives copies of production data.
 

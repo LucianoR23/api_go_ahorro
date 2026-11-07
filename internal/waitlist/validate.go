@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 // normalizeEmail trims and lowercases, and checks the contract's rules:

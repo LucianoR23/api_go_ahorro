@@ -1,5 +1,5 @@
 // Package support es un proxy stateless hacia el servicio centralizado
-// Lemy Support (https://soporte.lemydev.com). El front de Ahorra no puede
+// Lemy Support (https://soporte.lemydev.com). El front no puede
 // hablar con Soporte directamente porque la API key es server-side only;
 // tampoco hay un backend Next donde meterla. Por eso el proxy vive acá, en
 // el API Go: valida el JWT propio, inyecta X-App-Key + identidad del
@@ -18,7 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 // UserEmailLookup resuelve el email del reporter. El JWT solo guarda el

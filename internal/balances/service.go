@@ -2,13 +2,13 @@ package balances
 
 import (
 	"context"
-	"github.com/LucianoR23/api_go_ahorra/internal/money"
+	"github.com/LucianoR23/valuo_api/internal/money"
 	"github.com/shopspring/decimal"
 	"sort"
 
 	"github.com/google/uuid"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 // Amounts are exact decimals (plan 0.7): a pair is settled when its net is

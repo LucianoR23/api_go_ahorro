@@ -21,7 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	sqlcgen "github.com/LucianoR23/api_go_ahorra/internal/db/sqlc"
+	sqlcgen "github.com/LucianoR23/valuo_api/internal/db/sqlc"
 )
 
 // Actions. Stable strings: the app maps them to Spanish labels.

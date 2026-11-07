@@ -12,7 +12,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/dates"
+	"github.com/LucianoR23/valuo_api/internal/dates"
 )
 
 // Schedules, in the app timezone (the same times the old in-process loops

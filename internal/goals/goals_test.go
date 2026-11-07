@@ -7,8 +7,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil/apitest"
-	"github.com/LucianoR23/api_go_ahorra/internal/testutil/testdb"
+	"github.com/LucianoR23/valuo_api/internal/testutil/apitest"
+	"github.com/LucianoR23/valuo_api/internal/testutil/testdb"
 )
 
 func TestMain(m *testing.M) { os.Exit(testdb.Main(m)) }

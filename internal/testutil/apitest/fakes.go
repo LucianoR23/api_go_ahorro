@@ -6,9 +6,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/LucianoR23/api_go_ahorra/internal/app"
-	"github.com/LucianoR23/api_go_ahorra/internal/auth/google"
-	"github.com/LucianoR23/api_go_ahorra/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/app"
+	"github.com/LucianoR23/valuo_api/internal/auth/google"
+	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
 // Mail is one email the API tried to send.
