@@ -160,7 +160,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	paymethodsSvc := paymethods.NewService(paymethodsRepo)
 
 	sessions := auth.NewSessionStore(pool)
-	authSvc := auth.NewService(userRepo, tokenIssuer, sessions, paymethodsSvc, logger)
+	authSvc := auth.NewService(pool, userRepo, tokenIssuer, sessions, paymethodsSvc, logger)
 	authMW := auth.NewMiddleware(tokenIssuer, logger)
 	// Cablear el lookup de is_superadmin para el middleware RequireSuperadmin.
 	// Sin esto, el middleware rechaza todo /admin/* (fail-closed).
@@ -248,10 +248,9 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	}, logger)
 	pushHandler := push.NewHandler(pushSvc, authMW, logger)
 
-	// AccountService: baja de cuenta (soft delete). Requiere pushRepo para
-	// limpiar subs del user al borrarlo. Se cablea al authHandler vía setter.
-	accountSvc := auth.NewAccountService(userRepo, householdsRepo, pushRepo, logger)
-	accountSvc.SetSessions(sessions)
+	// AccountService: account deletion (soft delete), one transaction in
+	// userRepo. Wired into authHandler through a setter.
+	accountSvc := auth.NewAccountService(userRepo, logger)
 	authHandler.SetAccountService(accountSvc)
 
 	pushAdapter := pushNotifierAdapter{svc: pushSvc}

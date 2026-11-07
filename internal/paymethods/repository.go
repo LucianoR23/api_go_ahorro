@@ -129,7 +129,16 @@ func (r *Repository) SetBankActive(ctx context.Context, id uuid.UUID, active boo
 // Para crear un método de kind=credit hay que usar CreateCreditMethod
 // que orquesta la tx completa.
 func (r *Repository) CreatePaymentMethod(ctx context.Context, p domain.PaymentMethod) (domain.PaymentMethod, error) {
-	row, err := r.q.CreatePaymentMethod(ctx, sqlcgen.CreatePaymentMethodParams{
+	return createPaymentMethod(ctx, r.q, p)
+}
+
+// CreatePaymentMethodTx is CreatePaymentMethod inside the caller's transaction.
+func (r *Repository) CreatePaymentMethodTx(ctx context.Context, tx pgx.Tx, p domain.PaymentMethod) (domain.PaymentMethod, error) {
+	return createPaymentMethod(ctx, r.q.WithTx(tx), p)
+}
+
+func createPaymentMethod(ctx context.Context, q *sqlcgen.Queries, p domain.PaymentMethod) (domain.PaymentMethod, error) {
+	row, err := q.CreatePaymentMethod(ctx, sqlcgen.CreatePaymentMethodParams{
 		OwnerUserID:        p.OwnerUserID,
 		BankID:             p.BankID,
 		Name:               p.Name,

@@ -391,28 +391,25 @@ func (s *InvitesService) Accept(ctx context.Context, userID uuid.UUID, token str
 	return member, nil
 }
 
-// AcceptOnRegister es la variante usada desde /auth/register: el user
-// recién creado acaba de confirmar su email al llegar vía link, entonces
-// saltamos el chequeo estricto de match exacto y solo validamos que el
-// email del registro === email del invite.
-//
-// Corre típicamente en el mismo request que creó el user, pero fuera de
-// la tx del INSERT users (consistente con el bootstrap existente: si falla,
-// logueamos y el user queda creado sin hogar; puede reintentar manualmente).
-func (s *InvitesService) AcceptOnRegister(ctx context.Context, userID uuid.UUID, userEmail, token string) error {
+// AcceptOnRegisterTx accepts an invite for a user being registered, inside
+// the registration's transaction (plan 0.8). The invite must be pending and
+// addressed to the email registered (the user got the link by email, so it
+// counts as verified). On success it returns notify, which tells the inviter
+// and must run only after the transaction commits.
+func (s *InvitesService) AcceptOnRegisterTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID, userEmail, token string) (notify func(context.Context), err error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return nil // no invite, no-op
+		return nil, domain.NewValidationError("inviteToken", "vacío")
 	}
 	inv, err := s.repo.GetByTokenHash(ctx, hashToken(token))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if status := statusOf(inv); status != "pending" {
-		return fmt.Errorf("invitación %s: %w", status, domain.ErrConflict)
+		return nil, fmt.Errorf("invitación %s: %w", status, domain.ErrConflict)
 	}
 	if !strings.EqualFold(strings.TrimSpace(inv.Email), strings.TrimSpace(userEmail)) {
-		return domain.ErrForbidden
+		return nil, domain.ErrForbidden
 	}
 
 	var memberHook AfterMemberHook
@@ -421,14 +418,16 @@ func (s *InvitesService) AcceptOnRegister(ctx context.Context, userID uuid.UUID,
 			return s.splitRules.SeedForMemberTx(ctx, tx, hID, uID)
 		}
 	}
-	_, _, err = s.repo.AcceptAndAddMember(ctx, inv.ID, userID, memberHook)
-	if err != nil {
-		return err
+	if _, _, err := s.repo.AcceptAndAddMemberTx(ctx, tx, inv.ID, userID, memberHook); err != nil {
+		return nil, err
 	}
 
 	// Notificación al inviter (mismo patrón que Accept). En este path no
 	// hay "self-accept" porque el token vino por mail al invitee.
-	if s.push != nil || s.insights != nil {
+	return func(ctx context.Context) {
+		if s.push == nil && s.insights == nil {
+			return
+		}
 		hh, _ := s.households.GetByID(ctx, inv.HouseholdID)
 		title := "Aceptaron tu invitación"
 		body := userEmail + " se unió a " + hh.Name
@@ -444,8 +443,7 @@ func (s *InvitesService) AcceptOnRegister(ctx context.Context, userID uuid.UUID,
 		if s.insights != nil {
 			s.insights.CreateInviteInsight(ctx, inv.HouseholdID, inv.ID, inv.InvitedBy, title, body)
 		}
-	}
-	return nil
+	}, nil
 }
 
 // ===================== helpers =====================

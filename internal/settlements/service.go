@@ -139,16 +139,21 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Settlement
 	}
 
 	// Validación clave: no se puede pagar más de lo que se debe. Amounts are
-	// exact decimals (plan 0.7), so no rounding tolerance is needed.
-	balance, err := s.balances.PairNet(ctx, in.HouseholdID, in.FromUser, in.ToUser)
-	if err != nil {
-		return domain.SettlementPayment{}, err
-	}
-	if balance.Sign() <= 0 {
-		return domain.SettlementPayment{}, domain.NewValidationError("amount", "from no tiene deuda con to")
-	}
-	if in.Amount.GreaterThan(balance) {
-		return domain.SettlementPayment{}, domain.NewValidationError("amount", fmt.Sprintf("excede la deuda actual (%s %s)", balance.StringFixed(2), h.BaseCurrency))
+	// exact decimals (plan 0.7), so no rounding tolerance is needed. The
+	// check runs under the household's settlement lock (plan 0.8), so two
+	// concurrent payments cannot both pass it.
+	checkDebt := func(ctx context.Context) error {
+		balance, err := s.balances.PairNet(ctx, in.HouseholdID, in.FromUser, in.ToUser)
+		if err != nil {
+			return err
+		}
+		if balance.Sign() <= 0 {
+			return domain.NewValidationError("amount", "from no tiene deuda con to")
+		}
+		if in.Amount.GreaterThan(balance) {
+			return domain.NewValidationError("amount", fmt.Sprintf("excede la deuda actual (%s %s)", balance.StringFixed(2), h.BaseCurrency))
+		}
+		return nil
 	}
 
 	sp, err := s.repo.Create(ctx, CreateParams{
@@ -159,7 +164,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Settlement
 		BaseCurrency: h.BaseCurrency,
 		Note:         in.Note,
 		PaidAt:       in.PaidAt,
-	})
+	}, checkDebt)
 	if err != nil {
 		return sp, err
 	}

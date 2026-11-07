@@ -84,8 +84,24 @@ func (r *InvitesRepository) ListPending(ctx context.Context, householdID uuid.UU
 func (r *InvitesRepository) AcceptAndAddMember(ctx context.Context, inviteID, userID uuid.UUID, memberHook AfterMemberHook) (domain.HouseholdInvite, domain.HouseholdMember, error) {
 	var invite domain.HouseholdInvite
 	var member domain.HouseholdMember
-
 	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		var err error
+		invite, member, err = r.AcceptAndAddMemberTx(ctx, tx, inviteID, userID, memberHook)
+		return err
+	})
+	if err != nil {
+		return domain.HouseholdInvite{}, domain.HouseholdMember{}, err
+	}
+	return invite, member, nil
+}
+
+// AcceptAndAddMemberTx is AcceptAndAddMember inside the caller's transaction
+// (registration with an invite, plan 0.8).
+func (r *InvitesRepository) AcceptAndAddMemberTx(ctx context.Context, tx pgx.Tx, inviteID, userID uuid.UUID, memberHook AfterMemberHook) (domain.HouseholdInvite, domain.HouseholdMember, error) {
+	var invite domain.HouseholdInvite
+	var member domain.HouseholdMember
+
+	err := func() error {
 		qTx := r.q.WithTx(tx)
 
 		accepted, err := qTx.MarkInviteAccepted(ctx, sqlcgen.MarkInviteAcceptedParams{
@@ -123,7 +139,7 @@ func (r *InvitesRepository) AcceptAndAddMember(ctx context.Context, inviteID, us
 		invite = toInviteDomain(accepted)
 		member = toDomainMember(m)
 		return nil
-	})
+	}()
 	if err != nil {
 		return domain.HouseholdInvite{}, domain.HouseholdMember{}, err
 	}

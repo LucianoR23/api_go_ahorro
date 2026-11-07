@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"strings"
 	"time"
 
@@ -406,12 +407,22 @@ func (s *Service) UpdateCreditCard(ctx context.Context, ownerID, pmID uuid.UUID,
 // llame durante Register. No es transaccional con el insert del user —
 // si falla, el user queda sin Efectivo y puede crearlo manualmente.
 func (s *Service) CreateEfectivoFor(ctx context.Context, userID uuid.UUID) (domain.PaymentMethod, error) {
-	return s.repo.CreatePaymentMethod(ctx, domain.PaymentMethod{
+	return s.repo.CreatePaymentMethod(ctx, efectivo(userID))
+}
+
+// CreateEfectivoForTx is CreateEfectivoFor inside the caller's transaction
+// (registration, plan 0.8).
+func (s *Service) CreateEfectivoForTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID) (domain.PaymentMethod, error) {
+	return s.repo.CreatePaymentMethodTx(ctx, tx, efectivo(userID))
+}
+
+func efectivo(userID uuid.UUID) domain.PaymentMethod {
+	return domain.PaymentMethod{
 		OwnerUserID:        userID,
 		Name:               "Efectivo",
 		Kind:               domain.KindCash,
 		AllowsInstallments: false,
-	})
+	}
 }
 
 // ===================== helpers internos =====================

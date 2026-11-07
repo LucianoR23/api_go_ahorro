@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.8 (part 2): transactions where they were missing
+- Account deletion (`DELETE /me`) is one transaction: memberships, push subscriptions, sessions and the user's soft delete commit together or not at all. It locks the user's memberships, so an ownership transfer to them waits. Soft-deleted households no longer count as owned: an owner who deleted their only household can now delete the account (the 0.8 known bug is fixed).
+- Settlements: the debt check and the insert run under a per-household lock (`SELECT ... FOR NO KEY UPDATE` on the household), so two payments sent at once can no longer both pass the check and overpay.
+- Coverage floor raised to 80.0 (total 81%).
+- Registration (`POST /auth/register`) is one transaction: the user, their "Efectivo" payment method and, with an invite, the membership, split rule and verified email. A failure midway now returns 500 and leaves nothing behind (before, the account stayed created with a 201). An invite that cannot be accepted (expired, used, for another email) still does not block the registration. The Google sign-up path is unchanged.
+
 ### 0.8 (part 1): background jobs on River
 - New dependency `github.com/riverqueue/river` v0.51.0 with its pgx v5 driver (approved by the user). Migration 000029 adds River's tables (`river_job`, `river_queue`, `river_leader`, `river_notification`, `river_migration`): River's own migrations 001 to 008 copied as one golang-migrate file. River's migrator does not run at startup.
 - The seven in-process loops (FX refresh, recurring incomes, recurring expenses, insights, monthly email, audit retention, waitlist cleanup) are now River jobs in `internal/jobs`. Same times as before, in the app timezone. With several replicas only the leader enqueues periodic jobs and each job runs once; a failed job retries with backoff.

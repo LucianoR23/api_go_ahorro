@@ -51,12 +51,13 @@ func (q *Queries) ApplyUserEmailChange(ctx context.Context, arg ApplyUserEmailCh
 
 const countHouseholdsOwnedByUser = `-- name: CountHouseholdsOwnedByUser :one
 SELECT COUNT(*) AS count
-FROM household_members
-WHERE user_id = $1 AND role = 'owner'
+FROM household_members hm
+JOIN households h ON h.id = hm.household_id
+WHERE hm.user_id = $1 AND hm.role = 'owner' AND h.deleted_at IS NULL
 `
 
-// Cuenta cuántos hogares tienen a este user como owner. Usado por la baja
-// de cuenta para exigir transferencia previa.
+// Active households the user owns. Account deletion requires a transfer
+// first; a soft-deleted household does not count (plan 0.8).
 func (q *Queries) CountHouseholdsOwnedByUser(ctx context.Context, userID uuid.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, countHouseholdsOwnedByUser, userID)
 	var count int64
@@ -146,6 +147,15 @@ func (q *Queries) CreateUserWithoutPassword(ctx context.Context, arg CreateUserW
 	return i, err
 }
 
+const deleteUserPushSubscriptions = `-- name: DeleteUserPushSubscriptions :exec
+DELETE FROM push_subscriptions WHERE user_id = $1
+`
+
+func (q *Queries) DeleteUserPushSubscriptions(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteUserPushSubscriptions, userID)
+	return err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email FROM users WHERE email = $1 AND deleted_at IS NULL
 `
@@ -209,6 +219,28 @@ func (q *Queries) IsUserSuperadmin(ctx context.Context, id uuid.UUID) (bool, err
 	var is_superadmin bool
 	err := row.Scan(&is_superadmin)
 	return is_superadmin, err
+}
+
+const lockUserForDeletion = `-- name: LockUserForDeletion :one
+SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE
+`
+
+// Account deletion: locks the user row and, through the second statement,
+// their memberships, so an ownership transfer to them waits for the
+// deletion to commit.
+func (q *Queries) LockUserForDeletion(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockUserForDeletion, id)
+	err := row.Scan(&id)
+	return id, err
+}
+
+const lockUserMemberships = `-- name: LockUserMemberships :exec
+SELECT 1 FROM household_members WHERE user_id = $1 FOR UPDATE
+`
+
+func (q *Queries) LockUserMemberships(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, lockUserMemberships, userID)
+	return err
 }
 
 const setUserPendingEmail = `-- name: SetUserPendingEmail :exec
