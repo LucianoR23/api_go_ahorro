@@ -14,6 +14,7 @@ func toDomain(h sqlcgen.Household) domain.Household {
 		ID:           h.ID,
 		Name:         h.Name,
 		BaseCurrency: h.BaseCurrency,
+		Kind:         domain.HouseholdKind(h.Kind),
 		CreatedBy:    h.CreatedBy,
 		CreatedAt:    h.CreatedAt.Time,
 		UpdatedAt:    h.UpdatedAt.Time,
@@ -32,6 +33,26 @@ func toDomainMember(m sqlcgen.HouseholdMember) domain.HouseholdMember {
 		Role:        domain.Role(m.Role),
 		JoinedAt:    m.JoinedAt.Time,
 	}
+}
+
+// errOneSharedPerUser is what the user sees when the database refuses a
+// second shared space (the service usually catches it first, with names).
+var errOneSharedPerUser = domain.NewConflictError("Ya sos parte de otro hogar. Para unirte a este, primero salí del otro.")
+
+// spaceRuleError maps the space triggers of migration 000032 to domain
+// errors, or returns nil when err is something else.
+func spaceRuleError(err error) error {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return nil
+	}
+	switch pgErr.ConstraintName {
+	case "household_members_one_shared_per_user":
+		return errOneSharedPerUser
+	case "household_members_personal_single_member":
+		return domain.NewValidationError("household", "Mi plata es solo tuya: no se puede compartir")
+	}
+	return nil
 }
 
 // isUniqueViolation: duplica el helper de internal/users.

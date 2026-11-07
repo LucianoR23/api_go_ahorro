@@ -47,7 +47,7 @@ type AfterMemberHook func(ctx context.Context, tx pgx.Tx, householdID, userID uu
 // pgx.BeginFunc maneja el commit/rollback por nosotros: si la función
 // devuelve error, rollback; si devuelve nil, commit. Es el patrón oficial
 // para evitar el clásico bug de olvidar rollback en early-return.
-func (r *Repository) CreateWithOwner(ctx context.Context, name, baseCurrency string, ownerID uuid.UUID, afterCreate AfterCreateHook, afterMember AfterMemberHook) (domain.Household, error) {
+func (r *Repository) CreateWithOwner(ctx context.Context, name, baseCurrency string, kind domain.HouseholdKind, ownerID uuid.UUID, afterCreate AfterCreateHook, afterMember AfterMemberHook) (domain.Household, error) {
 	var created domain.Household
 
 	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
@@ -58,6 +58,7 @@ func (r *Repository) CreateWithOwner(ctx context.Context, name, baseCurrency str
 			Name:         name,
 			BaseCurrency: baseCurrency,
 			CreatedBy:    ownerID,
+			Kind:         string(kind),
 		})
 		if err != nil {
 			return fmt.Errorf("crear household: %w", err)
@@ -68,6 +69,9 @@ func (r *Repository) CreateWithOwner(ctx context.Context, name, baseCurrency str
 			UserID:      ownerID,
 			Role:        string(domain.RoleOwner),
 		}); err != nil {
+			if ruleErr := spaceRuleError(err); ruleErr != nil {
+				return ruleErr
+			}
 			return fmt.Errorf("agregar owner como member: %w", err)
 		}
 
@@ -183,6 +187,7 @@ func (r *Repository) ListDeleted(ctx context.Context) ([]domain.HouseholdWithOwn
 			ID:           row.ID,
 			Name:         row.Name,
 			BaseCurrency: row.BaseCurrency,
+			Kind:         domain.HouseholdKind(row.Kind),
 			CreatedBy:    row.CreatedBy,
 			CreatedAt:    row.CreatedAt.Time,
 			UpdatedAt:    row.UpdatedAt.Time,
@@ -208,9 +213,25 @@ func (r *Repository) ListDeleted(ctx context.Context) ([]domain.HouseholdWithOwn
 // Solo admin.
 func (r *Repository) Restore(ctx context.Context, id uuid.UUID) error {
 	if err := r.q.RestoreHousehold(ctx, id); err != nil {
+		if spaceRuleError(err) != nil {
+			return domain.NewConflictError("No se puede restaurar: un miembro ya está en otro hogar.")
+		}
 		return fmt.Errorf("households.Restore: %w", err)
 	}
 	return nil
+}
+
+// ActiveSharedForUser returns the user's shared space ("Hogar"), or
+// ErrNotFound when they have none (plan 1.2).
+func (r *Repository) ActiveSharedForUser(ctx context.Context, userID uuid.UUID) (domain.Household, error) {
+	h, err := r.q.GetActiveSharedHouseholdForUser(ctx, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Household{}, domain.ErrNotFound
+		}
+		return domain.Household{}, fmt.Errorf("households.ActiveSharedForUser: %w", err)
+	}
+	return toDomain(h), nil
 }
 
 // Purge hace el DELETE físico. CASCADE arrastra miembros, expenses, goals,
@@ -268,6 +289,9 @@ func (r *Repository) AddMember(ctx context.Context, householdID, userID uuid.UUI
 			Role:        string(role),
 		})
 		if err != nil {
+			if ruleErr := spaceRuleError(err); ruleErr != nil {
+				return ruleErr
+			}
 			// UNIQUE violation en (household_id, user_id) → ya es miembro.
 			if isUniqueViolation(err) {
 				return fmt.Errorf("ya es miembro del hogar: %w", domain.ErrConflict)

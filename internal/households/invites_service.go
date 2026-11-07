@@ -115,6 +115,13 @@ func (s *InvitesService) Create(ctx context.Context, inviterID, householdID uuid
 	if role != domain.RoleOwner {
 		return InviteResult{}, domain.ErrForbidden
 	}
+	hh, err := s.households.GetByID(ctx, householdID)
+	if err != nil {
+		return InviteResult{}, err
+	}
+	if hh.Kind == domain.HouseholdPersonal {
+		return InviteResult{}, domain.NewValidationError("household", "Mi plata es solo tuya: para compartir gastos creá un hogar")
+	}
 
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" {
@@ -150,7 +157,6 @@ func (s *InvitesService) Create(ctx context.Context, inviterID, householdID uuid
 	}
 
 	acceptURL := s.appBaseURL + "/invite/accept?token=" + token
-	hh, _ := s.households.GetByID(ctx, householdID)
 
 	emailSent := false
 	if s.sender != nil && s.sender.Configured() {
@@ -338,6 +344,19 @@ func (s *InvitesService) Accept(ctx context.Context, userID uuid.UUID, token str
 	if u.ID != userID {
 		// No filtramos "ese token es de otro user": devolvemos Forbidden.
 		return domain.HouseholdMember{}, domain.ErrForbidden
+	}
+
+	// One shared space per user (plan 1.2). The database enforces it too;
+	// checking here names both hogares in the message.
+	if current, err := s.households.ActiveSharedForUser(ctx, userID); err == nil && current.ID != inv.HouseholdID {
+		target, err := s.households.GetByID(ctx, inv.HouseholdID)
+		if err != nil {
+			return domain.HouseholdMember{}, err
+		}
+		return domain.HouseholdMember{}, domain.NewConflictError(
+			"Ya sos parte del hogar " + current.Name + ". Para unirte a " + target.Name + ", primero salí de " + current.Name + ".")
+	} else if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return domain.HouseholdMember{}, err
 	}
 
 	var memberHook AfterMemberHook

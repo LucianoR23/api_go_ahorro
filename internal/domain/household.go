@@ -28,16 +28,26 @@ func (r Role) IsValid() bool {
 	return r == RoleOwner || r == RoleMember
 }
 
+// HouseholdKind tells "Mi plata" (personal, one per user, only its owner)
+// from a "Hogar" (shared, at most one active per user). Plan 1.2.
+type HouseholdKind string
+
+const (
+	HouseholdPersonal HouseholdKind = "personal"
+	HouseholdShared   HouseholdKind = "shared"
+)
+
 // Household es la unidad multi-tenant. Un user puede pertenecer a varios.
 // BaseCurrency es la moneda en la que se consolidan montos (ARS/USD/EUR)
 // cuando el gasto se registra en otra moneda.
 type Household struct {
-	ID           uuid.UUID `json:"id"`
-	Name         string    `json:"name"`
-	BaseCurrency string    `json:"baseCurrency"` // ARS, USD, EUR
-	CreatedBy    uuid.UUID `json:"createdBy"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID           uuid.UUID     `json:"id"`
+	Name         string        `json:"name"`
+	BaseCurrency string        `json:"baseCurrency"` // ARS, USD, EUR
+	Kind         HouseholdKind `json:"kind"`
+	CreatedBy    uuid.UUID     `json:"createdBy"`
+	CreatedAt    time.Time     `json:"createdAt"`
+	UpdatedAt    time.Time     `json:"updatedAt"`
 	// DeletedAt != nil indica soft-delete. Los endpoints públicos nunca
 	// devuelven hogares con este campo seteado (los filtra la query). Solo
 	// aparece poblado en los endpoints /admin/*.
