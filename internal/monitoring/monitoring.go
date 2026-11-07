@@ -161,6 +161,9 @@ func (h *Handler) report(r slog.Record) {
 	// The error chain rarely carries a stack: the place it was logged is
 	// the most useful one we have.
 	last := &ev.Exception[len(ev.Exception)-1]
+	// The issue title is "type: value". Wrapped errors are *fmt.wrapError,
+	// which says nothing; the log message says what failed.
+	last.Type = r.Message
 	if last.Stacktrace == nil {
 		last.Stacktrace = sentry.NewStacktrace()
 	}
