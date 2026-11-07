@@ -435,8 +435,8 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	trustedProxies, _ := httpx.ParsePrefixes(cfg.TrustedProxies)
 	cloudflareEdges, _ := httpx.ParsePrefixes(cfg.CloudflareRanges)
 	r.Use(httpx.RealIP(trustedProxies, cloudflareEdges))
-	r.Use(middleware.Recoverer)
-	r.Use(httpx.SecurityHeaders) // plan 0.16
+	r.Use(httpx.Recoverer(logger)) // logs through slog, so panics reach monitoring (plan 0.12)
+	r.Use(httpx.SecurityHeaders)   // plan 0.16
 
 	// CORS: permite al frontend llamar al API desde otro origen. Los orígenes
 	// válidos vienen de la env var ALLOWED_ORIGINS (separada por coma).

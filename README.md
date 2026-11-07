@@ -101,6 +101,8 @@ Ver [`.env.example`](./.env.example). Resumen:
 | `REPORT_FROM_EMAIL` | no | remitente de reportes (dominio verificado en Resend) |
 | `GOOGLE_OAUTH_CLIENT_ID` | no | OAuth web client ID; audiencia de los ID tokens de Google. Sin ella `/auth/google` responde 500 |
 | `APP_BASE_URL` | no (localhost:3005) | URL pública del front para los links de los emails |
+| `GLITCHTIP_DSN` | no | DSN del proyecto en GlitchTip. Vacía = no reporta errores |
+| `GLITCHTIP_ENVIRONMENT` | no (`ENV`) | `staging` / `production` en el dashboard de GlitchTip |
 
 ## Arquitectura
 
