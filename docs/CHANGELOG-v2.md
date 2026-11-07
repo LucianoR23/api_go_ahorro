@@ -4,6 +4,11 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 1.2 (API part 2): "Mi plata" for every user
+- Registering (email or Google) creates the user's "Mi plata": a personal household named "Mi plata", in ARS, with the default categories. With email it happens inside the registration transaction; with Google a failure is logged and the next step below fixes it.
+- `GET /households` creates "Mi plata" when it is missing (accounts from before 1.2) and lists it first. Two concurrent first calls still end with one.
+- Account deletion no longer counts "Mi plata" as a household to hand over; it is soft-deleted with the account, its data kept.
+
 ### 1.2 (API part 1): space rules ("Mi plata" + one Hogar)
 - Migration 000032: `households.kind` (`personal` = "Mi plata", `shared` = "Hogar"; existing rows are `shared`), one personal space per user, and two triggers. A personal space only admits its owner; a user belongs to at most one active shared space (soft-deleted ones don't count; the user row is locked so two simultaneous joins can't both win); restoring a hogar fails if a member joined another one meanwhile; `kind` never changes.
 - `POST /households` creates a hogar and answers 409 "Ya sos parte del hogar X. Para crear otro, primero salí de X." when the user already has one. Accepting an invite while in another hogar answers 409 "Ya sos parte del hogar X. Para unirte a Y, primero salí de X." and leaves the invite pending.

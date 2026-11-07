@@ -33,12 +33,18 @@ SELECT * FROM households WHERE id = $1;
 -- name: ListHouseholdsForUser :many
 -- Lista todos los hogares a los que pertenece un user. Filtra soft-deleted
 -- para que el user no vea hogares que fueron "borrados" (aunque siga su
--- membresía en la tabla).
+-- membresía en la tabla). "Mi plata" first, then the rest by age.
 SELECT h.*
 FROM households h
 INNER JOIN household_members hm ON hm.household_id = h.id
 WHERE hm.user_id = $1 AND h.deleted_at IS NULL
-ORDER BY h.created_at ASC;
+ORDER BY (h.kind = 'personal') DESC, h.created_at ASC;
+
+
+-- name: GetPersonalHouseholdForUser :one
+-- The user's "Mi plata" (plan 1.2), if it was created.
+SELECT * FROM households
+WHERE created_by = $1 AND kind = 'personal' AND deleted_at IS NULL;
 
 
 -- name: ListAllHouseholdIDs :many

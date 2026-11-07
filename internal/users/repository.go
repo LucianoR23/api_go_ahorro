@@ -242,6 +242,9 @@ func (r *Repository) DeleteAccount(ctx context.Context, id uuid.UUID) (owned int
 			owned = n
 			return nil
 		}
+		if err := q.SoftDeletePersonalHouseholdOfUser(ctx, id); err != nil {
+			return err
+		}
 		if err := q.RemoveAllMembershipsForUser(ctx, id); err != nil {
 			return err
 		}

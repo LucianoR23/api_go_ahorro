@@ -13,22 +13,22 @@ func TestSpaces(t *testing.T) {
 	t.Parallel()
 	s := apitest.New(t)
 
-	// personalSpace inserts a "Mi plata" for u directly (PR 2 creates it on
-	// register); returns its id.
+	// personalSpace returns u's "Mi plata" (created on register).
 	personalSpace := func(t *testing.T, u apitest.User) string {
 		t.Helper()
 		var id string
-		err := s.Pool.QueryRow(t.Context(), `
-			WITH h AS (
-			    INSERT INTO households (name, base_currency, created_by, kind)
-			    VALUES ('Mi plata', 'ARS', $1, 'personal') RETURNING id
-			)
-			INSERT INTO household_members (household_id, user_id, role)
-			SELECT id, $1, 'owner' FROM h RETURNING household_id::text`, u.ID).Scan(&id)
-		if err != nil {
+		if err := s.Pool.QueryRow(t.Context(),
+			`SELECT id::text FROM households WHERE created_by = $1 AND kind = 'personal'`, u.ID).Scan(&id); err != nil {
 			t.Fatalf("personal space: %v", err)
 		}
 		return id
+	}
+
+	list := func(t *testing.T, u apitest.User) []householdJSON {
+		t.Helper()
+		var out []householdJSON
+		s.Do(t, req(http.MethodGet, "/households", u.Token, nil)).Status(t, http.StatusOK).JSON(t, &out)
+		return out
 	}
 
 	invite := func(t *testing.T, owner apitest.User, hID, email string) string {
@@ -119,6 +119,44 @@ func TestSpaces(t *testing.T) {
 			WantError(t, http.StatusConflict, "conflict", "")
 		if e.Message != "No se puede restaurar: un miembro ya está en otro hogar." {
 			t.Errorf("message = %q", e.Message)
+		}
+	})
+
+	t.Run("register creates Mi plata, listed first", func(t *testing.T) {
+		u := s.Register(t)
+		h := s.CreateHousehold(t, u, "Casa")
+		got := list(t, u)
+		if len(got) != 2 || got[0].Kind != "personal" || got[0].Name != "Mi plata" || got[0].BaseCurrency != "ARS" || got[1].ID != h.ID {
+			t.Fatalf("households = %+v", got)
+		}
+		if roles := members(t, s, u, got[0].ID); len(roles) != 1 || roles[u.ID] != "owner" {
+			t.Errorf("Mi plata members = %v", roles)
+		}
+		if n := count(t, s, `SELECT count(*) FROM categories WHERE household_id = $1`, got[0].ID); n == 0 {
+			t.Errorf("Mi plata has no default categories")
+		}
+	})
+
+	t.Run("accounts from before 1.2 get Mi plata on first list, once", func(t *testing.T) {
+		u := s.Register(t)
+		if _, err := s.Pool.Exec(t.Context(), `DELETE FROM households WHERE created_by = $1 AND kind = 'personal'`, u.ID); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan []householdJSON, 2)
+		for range 2 {
+			go func() {
+				var out []householdJSON
+				s.Do(t, req(http.MethodGet, "/households", u.Token, nil)).Status(t, http.StatusOK).JSON(t, &out)
+				done <- out
+			}()
+		}
+		for range 2 {
+			if got := <-done; len(got) != 1 || got[0].Kind != "personal" {
+				t.Errorf("households = %+v", got)
+			}
+		}
+		if n := count(t, s, `SELECT count(*) FROM households WHERE created_by = $1 AND kind = 'personal'`, u.ID); n != 1 {
+			t.Errorf("personal spaces = %d, want 1", n)
 		}
 	})
 }

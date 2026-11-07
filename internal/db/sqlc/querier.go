@@ -58,8 +58,9 @@ type Querier interface {
 	// Cuenta los owners vigentes de un hogar. Sirve para invariantes (ej:
 	// no permitir demotions que dejen 0 owners).
 	CountHouseholdOwners(ctx context.Context, householdID uuid.UUID) (int64, error)
-	// Active households the user owns. Account deletion requires a transfer
-	// first; a soft-deleted household does not count (plan 0.8).
+	// Active shared households the user owns. Account deletion requires a
+	// transfer first; a soft-deleted household does not count (plan 0.8), and
+	// "Mi plata" goes with the account (plan 1.2).
 	CountHouseholdsOwnedByUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountIncomesByHousehold(ctx context.Context, arg CountIncomesByHouseholdParams) (int64, error)
 	// Only what the viewer may see: household-level insights and their own
@@ -190,6 +191,8 @@ type Querier interface {
 	// al crear un método: si encuentra una fila inactiva con ese nombre la
 	// reactiva ("revive") preservando id e historial de expenses.
 	GetPaymentMethodByOwnerAndName(ctx context.Context, arg GetPaymentMethodByOwnerAndNameParams) (PaymentMethod, error)
+	// The user's "Mi plata" (plan 1.2), if it was created.
+	GetPersonalHouseholdForUser(ctx context.Context, createdBy uuid.UUID) (Household, error)
 	GetRecurringExpenseByID(ctx context.Context, id uuid.UUID) (RecurringExpense, error)
 	GetRecurringIncomeByID(ctx context.Context, id uuid.UUID) (RecurringIncome, error)
 	GetSettlementByID(ctx context.Context, id uuid.UUID) (SettlementPayment, error)
@@ -277,7 +280,7 @@ type Querier interface {
 	ListHouseholdMembers(ctx context.Context, householdID uuid.UUID) ([]ListHouseholdMembersRow, error)
 	// Lista todos los hogares a los que pertenece un user. Filtra soft-deleted
 	// para que el user no vea hogares que fueron "borrados" (aunque siga su
-	// membresía en la tabla).
+	// membresía en la tabla). "Mi plata" first, then the rest by age.
 	ListHouseholdsForUser(ctx context.Context, userID uuid.UUID) ([]Household, error)
 	// Filtros opcionales: receivedBy, paymentMethodId, source, desde/hasta.
 	ListIncomesByHousehold(ctx context.Context, arg ListIncomesByHouseholdParams) ([]Income, error)
@@ -370,6 +373,9 @@ type Querier interface {
 	// data (expenses, goals, settlements, etc.) queda intacta. El superadmin
 	// puede restaurar o purgar desde /admin/*.
 	SoftDeleteHousehold(ctx context.Context, id uuid.UUID) error
+	// Account deletion: "Mi plata" is soft-deleted with the account, its data
+	// kept like any deleted household (plan 1.2).
+	SoftDeletePersonalHouseholdOfUser(ctx context.Context, createdBy uuid.UUID) error
 	// Marca el user como borrado y anonimiza el email para liberar el UNIQUE
 	// y permitir re-registro con el mismo email. El sufijo incluye el id
 	// (único garantizado) + un dominio que no es deliverable.

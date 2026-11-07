@@ -52,6 +52,13 @@ type registerBootstrap interface {
 	CreateEfectivoForTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID) (domain.PaymentMethod, error)
 }
 
+// personalSpaces creates the user's "Mi plata" (plan 1.2). Optional: when
+// unset (tests), the households list still creates it on first use.
+type personalSpaces interface {
+	EnsurePersonalTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID) error
+	EnsurePersonal(ctx context.Context, userID uuid.UUID) (domain.Household, error)
+}
+
 // inviteAccepter: optional. When set, Register accepts an inviteToken
 // inside the registration's transaction; notify runs after the commit.
 type inviteAccepter interface {
@@ -76,6 +83,7 @@ type Service struct {
 	sessions       *SessionStore
 	bootstrap      registerBootstrap
 	invites        inviteAccepter
+	personal       personalSpaces
 	verifier       emailVerifier
 	googleVerifier googleVerifier
 	identities     identityRepository
@@ -95,6 +103,12 @@ func NewService(db txBeginner, repo userRepository, tokens *TokenIssuer, session
 // cíclica con households (que ya depende de users, donde vive auth).
 func (s *Service) SetInviteAccepter(a inviteAccepter) {
 	s.invites = a
+}
+
+// SetPersonalSpaces wires the households service after construction (same
+// cycle as SetInviteAccepter).
+func (s *Service) SetPersonalSpaces(p personalSpaces) {
+	s.personal = p
 }
 
 // SetEmailVerifier cablea el service de verificación de email.
@@ -174,6 +188,11 @@ func (s *Service) Register(ctx context.Context, email, password, firstName, last
 		if s.bootstrap != nil {
 			if _, err := s.bootstrap.CreateEfectivoForTx(ctx, tx, user.ID); err != nil {
 				return fmt.Errorf("auth.Register: bootstrap: %w", err)
+			}
+		}
+		if s.personal != nil {
+			if err := s.personal.EnsurePersonalTx(ctx, tx, user.ID); err != nil {
+				return fmt.Errorf("auth.Register: Mi plata: %w", err)
 			}
 		}
 		if !hasInvite {
@@ -501,6 +520,12 @@ func (s *Service) LoginWithGoogle(ctx context.Context, idToken string) (AuthResu
 		if _, err := s.bootstrap.CreateEfectivoFor(ctx, user.ID); err != nil {
 			// Mismo criterio que Register: no abortamos, el user ya existe.
 			s.logger.Warn("bootstrap falló para user de Google", "user_id", user.ID, "error", err)
+		}
+	}
+	if s.personal != nil {
+		if _, err := s.personal.EnsurePersonal(ctx, user.ID); err != nil {
+			// Not fatal: listing households creates it later.
+			s.logger.Warn("crear Mi plata falló para user de Google", "user_id", user.ID, "error", err)
 		}
 	}
 

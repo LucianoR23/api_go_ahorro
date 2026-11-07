@@ -87,16 +87,8 @@ func TestCreateAndListHouseholds(t *testing.T) {
 
 		var list []householdJSON
 		s.Do(t, req(http.MethodGet, "/households", a.Token, nil)).Status(t, http.StatusOK).JSON(t, &list)
-		if len(list) != 1 || list[0].ID != ha.ID {
+		if len(list) != 2 || list[0].Kind != "personal" || list[1].ID != ha.ID {
 			t.Errorf("a's households = %+v", list)
-		}
-	})
-
-	t.Run("new user has an empty list, not null", func(t *testing.T) {
-		u := s.Register(t)
-		res := s.Do(t, req(http.MethodGet, "/households", u.Token, nil)).Status(t, http.StatusOK)
-		if strings.TrimSpace(string(res.Body)) != "[]" {
-			t.Errorf("body = %s", res.Body)
 		}
 	})
 

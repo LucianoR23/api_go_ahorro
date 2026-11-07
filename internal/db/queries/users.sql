@@ -47,12 +47,21 @@ WHERE id = $1 AND deleted_at IS NULL;
 
 
 -- name: CountHouseholdsOwnedByUser :one
--- Active households the user owns. Account deletion requires a transfer
--- first; a soft-deleted household does not count (plan 0.8).
+-- Active shared households the user owns. Account deletion requires a
+-- transfer first; a soft-deleted household does not count (plan 0.8), and
+-- "Mi plata" goes with the account (plan 1.2).
 SELECT COUNT(*) AS count
 FROM household_members hm
 JOIN households h ON h.id = hm.household_id
-WHERE hm.user_id = $1 AND hm.role = 'owner' AND h.deleted_at IS NULL;
+WHERE hm.user_id = $1 AND hm.role = 'owner' AND h.kind = 'shared' AND h.deleted_at IS NULL;
+
+
+-- name: SoftDeletePersonalHouseholdOfUser :exec
+-- Account deletion: "Mi plata" is soft-deleted with the account, its data
+-- kept like any deleted household (plan 1.2).
+UPDATE households
+SET deleted_at = now(), updated_at = now()
+WHERE created_by = $1 AND kind = 'personal' AND deleted_at IS NULL;
 
 
 -- name: LockUserForDeletion :one

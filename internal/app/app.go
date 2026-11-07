@@ -210,6 +210,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	householdsRepo := households.NewRepository(pool)
 	splitRulesSvc := splitrules.NewService(splitRulesRepo, householdsRepo)
 	householdsSvc := households.NewService(householdsRepo, userRepo, categoriesRepo, splitRulesSvc)
+	authSvc.SetPersonalSpaces(householdsSvc)
 	householdsMW := households.NewMiddleware(householdsRepo, logger)
 	householdsHandler := households.NewHandler(householdsSvc, authMW, logger)
 	householdsAdminHandler := households.NewAdminHandler(householdsSvc, authMW, logger)

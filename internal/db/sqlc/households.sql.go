@@ -185,6 +185,28 @@ func (q *Queries) GetHouseholdMemberRole(ctx context.Context, arg GetHouseholdMe
 	return role, err
 }
 
+const getPersonalHouseholdForUser = `-- name: GetPersonalHouseholdForUser :one
+SELECT id, name, base_currency, created_by, created_at, updated_at, deleted_at, kind FROM households
+WHERE created_by = $1 AND kind = 'personal' AND deleted_at IS NULL
+`
+
+// The user's "Mi plata" (plan 1.2), if it was created.
+func (q *Queries) GetPersonalHouseholdForUser(ctx context.Context, createdBy uuid.UUID) (Household, error) {
+	row := q.db.QueryRow(ctx, getPersonalHouseholdForUser, createdBy)
+	var i Household
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.BaseCurrency,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.Kind,
+	)
+	return i, err
+}
+
 const isHouseholdMember = `-- name: IsHouseholdMember :one
 SELECT EXISTS (
     SELECT 1 FROM household_members hm
@@ -368,12 +390,12 @@ SELECT h.id, h.name, h.base_currency, h.created_by, h.created_at, h.updated_at, 
 FROM households h
 INNER JOIN household_members hm ON hm.household_id = h.id
 WHERE hm.user_id = $1 AND h.deleted_at IS NULL
-ORDER BY h.created_at ASC
+ORDER BY (h.kind = 'personal') DESC, h.created_at ASC
 `
 
 // Lista todos los hogares a los que pertenece un user. Filtra soft-deleted
 // para que el user no vea hogares que fueron "borrados" (aunque siga su
-// membresía en la tabla).
+// membresía en la tabla). "Mi plata" first, then the rest by age.
 func (q *Queries) ListHouseholdsForUser(ctx context.Context, userID uuid.UUID) ([]Household, error) {
 	rows, err := q.db.Query(ctx, listHouseholdsForUser, userID)
 	if err != nil {

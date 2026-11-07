@@ -50,6 +50,14 @@ func TestGoogleLogin(t *testing.T) {
 		if cash != 1 {
 			t.Errorf("cash payment methods = %d, want the bootstrap Efectivo", cash)
 		}
+		var personal int
+		if err := s.Pool.QueryRow(t.Context(),
+			`SELECT count(*) FROM households WHERE created_by = $1 AND kind = 'personal'`, g.User.ID).Scan(&personal); err != nil {
+			t.Fatal(err)
+		}
+		if personal != 1 {
+			t.Errorf("Mi plata spaces = %d, want 1 (plan 1.2)", personal)
+		}
 
 		t.Run("same subject logs in again", func(t *testing.T) {
 			var again googleJSON
