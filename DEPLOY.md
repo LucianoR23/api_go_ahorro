@@ -74,12 +74,12 @@ without superuser. Check with `\du`, `\l valuo_next` and `\ddp`.
 | `GOOGLE_OAUTH_CLIENT_ID` | same value as the front's `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (empty = `/auth/google` responds 500) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | per environment, from `go run ./cmd/vapidgen`; subject `mailto:...` |
 | `RESEND_API_KEY` | sending-only key for the verified domain; empty = no emails |
-| `BRAND_NAME` | product name in emails (default `Ahorro`; 1.1 sets `Valuo`) |
+| `BRAND_NAME` | product name in emails (default `Valuo`) |
 | `TRUSTED_PROXIES` | Traefik's Docker network, the only peer allowed to set `X-Forwarded-For`: `10.0.0.0/8` on this server (Docker `default-address-pools`). Empty trusts nobody (the client IP becomes Traefik's) |
 | `CLOUDFLARE_RANGES` | leave empty: defaults to Cloudflare's published ranges; `CF-Connecting-IP` is believed only when the connection came from one of them |
 | `WAITLIST_SITE_URL` | the landing origin, e.g. `https://preview.valuo.ar` on staging (confirmation links go to `/confirmar#token=`) |
 | `WAITLIST_ALLOWED_ORIGINS` | CORS origins of `POST /waitlist`, comma separated; defaults to `WAITLIST_SITE_URL` |
-| `WAITLIST_BRAND_NAME` | name in the waitlist mails (`Valuo`; defaults to `BRAND_NAME`) |
+| `WAITLIST_BRAND_NAME` | name in the waitlist mails (defaults to `BRAND_NAME`) |
 | `WAITLIST_FROM_EMAIL` | sender of the confirmation mail, on the verified domain (e.g. `Valuo <hola@valuo.ar>`); Resend **open and click tracking off** for that domain (the privacy policy promises it) |
 | `WAITLIST_CONTACT_EMAIL` | where people ask for deletion (`hola@valuo.ar`) |
 | `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret (widget in Invisible mode, hostname = the landing). Required with `ENV=prod`: without it every sign-up gets 403 |
