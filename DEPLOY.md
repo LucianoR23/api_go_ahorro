@@ -81,6 +81,8 @@ without superuser. Check with `\du`, `\l valuo_next` and `\ddp`.
 | `APP_TIMEZONE` | IANA zone for "today", the current month and the daily jobs (default `America/Argentina/Buenos_Aires`; an invalid value stops startup) |
 | `*_FROM_EMAIL` (4) | sender on the verified domain (default `<BRAND_NAME> <onboarding@resend.dev>`) |
 | `SOPORTE_API_URL` / `SOPORTE_API_KEY` | empty = `/support/*` responds 503 |
+| `GLITCHTIP_DSN` | DSN of the environment's GlitchTip project (section 8); empty = no error reporting |
+| `GLITCHTIP_ENVIRONMENT` | `staging` or `production` (defaults to `ENV`, which is `prod` in both) |
 
 `<DB_HOST>` is the internal hostname Coolify shows in "Postgres URL (internal)". The
 app and the database must be in the same Coolify project/environment to reach it.
@@ -416,3 +418,114 @@ unencrypted copy in R2).
 
 Also keep Coolify's `APP_KEY` (`/data/coolify/source/.env`) in the password
 manager: restoring Coolify itself on a new server needs it.
+
+## 8. Error monitoring: GlitchTip (plan 0.12)
+
+One self-hosted GlitchTip (Sentry compatible) serves staging and production, with one
+project per app and the environment as a tag. It runs all in one (the worker inside the
+web process) with its own Postgres and no Valkey: Postgres also holds the task queue and
+the cache. Expected memory: 400 to 600 MB in total. If volume ever needs it, Valkey is
+one more service and a `VALKEY_URL`, with no data migration.
+
+What the apps send is in section 8.4. GlitchTip's database is not backed up: events
+are diagnostics, kept 30 days.
+
+### 8.1 Coolify resource
+
+1. DNS: `A` record `errors.valuo.ar` to the server, DNS only (no Cloudflare proxy).
+2. In the Valuo project, environment `staging`: New resource, Docker Compose Empty,
+   name `glitchtip`, paste the file below.
+3. In the `web` service, Domains: `https://errors.valuo.ar:8000` (the `:8000` tells
+   Traefik which container port to use; the public URL has no port).
+4. Environment variables: Coolify fills `SERVICE_PASSWORD_POSTGRES` and
+   `SERVICE_BASE64_64_SECRET` on save. Set nothing else by hand.
+5. Deploy. The first start runs the migrations (1 to 2 minutes).
+
+```yaml
+services:
+  postgres:
+    image: postgres:18.6-alpine3.24
+    command: postgres -c max_locks_per_transaction=512
+    environment:
+      POSTGRES_DB: glitchtip
+      POSTGRES_USER: glitchtip
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+    volumes:
+      - pg-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U glitchtip -d glitchtip"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  web:
+    image: glitchtip/glitchtip:6.2.6
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://glitchtip:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/glitchtip
+      SECRET_KEY: ${SERVICE_BASE64_64_SECRET}
+      GLITCHTIP_DOMAIN: https://errors.valuo.ar
+      SERVER_ROLE: all_in_one
+      VALKEY_URL: ""
+      DEFAULT_FROM_EMAIL: errors@valuo.ar
+      EMAIL_URL: consolemail://
+      ENABLE_USER_REGISTRATION: "False"
+      ENABLE_ORGANIZATION_CREATION: "False"
+      GLITCHTIP_ENABLE_UPTIME: "False"
+      GLITCHTIP_ENABLE_LOGS: "False"
+      GLITCHTIP_RETENTION_DAYS: "30"
+      SECURE_HSTS_SECONDS: "31536000"
+    volumes:
+      - uploads:/code/uploads
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+volumes:
+  pg-data:
+  uploads:
+```
+
+`EMAIL_URL: consolemail://` writes mails to the container log: enough until Resend is
+set up for v2 at the production cutover. Then switch to
+`smtp://resend:<RESEND_SMTP_KEY>@smtp.resend.com:587` with a sending-only key, and
+`DEFAULT_FROM_EMAIL` on the verified domain, so alerts reach the inbox.
+
+### 8.2 First login and projects
+
+1. Open `https://errors.valuo.ar` right after the first deploy and sign up: the first
+   account is the only one allowed (`ENABLE_USER_REGISTRATION=False` closes sign-up
+   after it). Turn on two-factor authentication in the profile.
+2. Create the organization `valuo`, then two projects: `api` (platform Go) and `app`
+   (platform Next.js).
+3. Each project's DSN (Settings, Client Keys) goes into the apps:
+
+| App | Variable | Note |
+|---|---|---|
+| API | `GLITCHTIP_DSN`, `GLITCHTIP_ENVIRONMENT=staging` | runtime |
+| App | `NEXT_PUBLIC_GLITCHTIP_DSN`, `NEXT_PUBLIC_GLITCHTIP_ENVIRONMENT=staging` | build variables (inlined in the browser bundle) |
+
+The app's DSN is public by design: it only allows sending events. Set a rate limit per
+project (Settings, Client Keys, e.g. 60 events per minute) so nobody can flood it.
+
+### 8.3 Verify
+
+- API: a 500 or a panic shows up in project `api` within a minute, environment `staging`.
+- App: an error thrown in the browser shows up in project `app`.
+- Open one event of each and check there is no e-mail, name, amount or token anywhere.
+
+### 8.4 What an event contains
+
+- API: the log message, the error chain with a stack trace, and the tags `method`,
+  `path`, `kind`, `job`, `queue` (paths with IDs become `[id]`). No request body,
+  headers, cookies, query string or user. Every string is scrubbed: e-mails, UUIDs,
+  tokens, quoted values, Postgres key details and every number except SQLSTATE codes
+  (`internal/monitoring`). Only ERROR log lines and handler panics are reported:
+  4xx answers never are.

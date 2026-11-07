@@ -99,6 +99,12 @@ type Config struct {
 	// queda deshabilitado (endpoints /support/* responden 503).
 	SupportAPIURL string // dev: http://localhost:8081 — prod: https://api-soporte.lemydev.com
 	SupportAPIKey string
+
+	// Error monitoring (plan 0.12): GlitchTip, Sentry compatible. Empty DSN
+	// turns reporting off. GlitchTipEnvironment tells staging from prod in
+	// the dashboard (both run with ENV=prod); it defaults to Env.
+	GlitchTipDSN         string
+	GlitchTipEnvironment string
 }
 
 // Load lee el archivo .env (si existe) al ambiente del proceso y construye
@@ -147,9 +153,11 @@ func Load() (*Config, error) {
 		PushExtraHosts:         splitAndTrim(os.Getenv("PUSH_EXTRA_HOSTS"), ","),
 		SupportAPIURL:          getOrDefault("SOPORTE_API_URL", "http://localhost:8081"),
 		SupportAPIKey:          os.Getenv("SOPORTE_API_KEY"),
+		GlitchTipDSN:           os.Getenv("GLITCHTIP_DSN"),
 	}
 
 	cfg.WaitlistAllowedOrigins = splitAndTrim(getOrDefault("WAITLIST_ALLOWED_ORIGINS", cfg.WaitlistSiteURL), ",")
+	cfg.GlitchTipEnvironment = getOrDefault("GLITCHTIP_ENVIRONMENT", cfg.Env)
 	cfg.WaitlistBrandName = getOrDefault("WAITLIST_BRAND_NAME", cfg.BrandName)
 	cfg.WaitlistFromEmail = getOrDefault("WAITLIST_FROM_EMAIL", cfg.WaitlistBrandName+" <onboarding@resend.dev>")
 

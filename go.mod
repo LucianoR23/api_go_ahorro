@@ -6,6 +6,7 @@ toolchain go1.27.3
 
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
+	github.com/getsentry/sentry-go v0.50.0
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-chi/cors v1.2.2
 	github.com/go-chi/httplog/v2 v2.1.1

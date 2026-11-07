@@ -15,11 +15,13 @@ import (
 	"github.com/LucianoR23/api_go_ahorra/internal/db"
 	"github.com/LucianoR23/api_go_ahorra/internal/dbmigrate"
 	"github.com/LucianoR23/api_go_ahorra/internal/httpx"
+	"github.com/LucianoR23/api_go_ahorra/internal/monitoring"
 	"github.com/LucianoR23/api_go_ahorra/migrations"
 )
 
 func main() {
-	logger := newLogger()
+	logHandler := newLogHandler()
+	logger := slog.New(logHandler)
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -27,6 +29,24 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("config cargada", "env", cfg.Env, "port", cfg.Port)
+
+	// ---------- error monitoring (plan 0.12) ----------
+	// Every ERROR log line becomes a scrubbed GlitchTip event. exit flushes
+	// the queue first: os.Exit skips deferred calls.
+	flush, err := monitoring.Init(monitoring.Options{DSN: cfg.GlitchTipDSN, Environment: cfg.GlitchTipEnvironment})
+	if err != nil {
+		logger.Error("no se pudo iniciar el monitoreo de errores", "error", err)
+		os.Exit(1)
+	}
+	defer flush()
+	exit := func(code int) {
+		flush()
+		os.Exit(code)
+	}
+	if cfg.GlitchTipDSN != "" {
+		logger = slog.New(monitoring.NewHandler(logHandler, nil))
+		logger.Info("monitoreo de errores activo", "environment", cfg.GlitchTipEnvironment)
+	}
 
 	// ---------- migrations (opt-in) ----------
 	// Run before opening the runtime pool, with the schema-owner role. Any
@@ -36,7 +56,7 @@ func main() {
 		res, err := dbmigrate.Up(cfg.MigrateDatabaseURL, migrations.FS, logger)
 		if err != nil {
 			logger.Error("migrations failed", "error", err, "from_version", res.From, "at_version", res.To)
-			os.Exit(1)
+			exit(1)
 		}
 		logger.Info("migrations applied", "from_version", res.From, "to_version", res.To, "changed", res.Changed)
 	}
@@ -50,7 +70,7 @@ func main() {
 	pool, err := db.NewPool(bootCtx, cfg.DatabaseURL)
 	if err != nil {
 		logger.Error("no se pudo conectar a postgres", "error", err)
-		os.Exit(1)
+		exit(1)
 	}
 	defer pool.Close()
 	logger.Info("postgres conectado")
@@ -59,7 +79,7 @@ func main() {
 	application, err := app.New(bootCtx, cfg, pool, logger, app.Options{})
 	if err != nil {
 		logger.Error("no se pudo construir la app", "error", err)
-		os.Exit(1)
+		exit(1)
 	}
 	stopBackground := application.Start(context.Background())
 	defer stopBackground()
@@ -99,7 +119,7 @@ func main() {
 	select {
 	case err := <-serverErr:
 		logger.Error("server cayó", "error", err)
-		os.Exit(1)
+		exit(1)
 	case sig := <-stopSig:
 		logger.Info("señal recibida, iniciando shutdown", "signal", sig.String())
 	}
@@ -114,7 +134,7 @@ func main() {
 	logger.Info("server detenido")
 }
 
-func newLogger() *slog.Logger {
+func newLogHandler() slog.Handler {
 	level := slog.LevelInfo
 	if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
 		switch lvl {
@@ -126,5 +146,5 @@ func newLogger() *slog.Logger {
 			level = slog.LevelError
 		}
 	}
-	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+	return slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level})
 }
