@@ -4,6 +4,10 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 1.1 (API part): brand switch to Valuo
+- `BRAND_NAME` defaults to `Valuo` (was `Ahorro`): emails, push titles, from-names and the startup banner say Valuo unless the variable is set. On staging, delete `BRAND_NAME` or set it to `Valuo`.
+- Unchanged on purpose: the JWT issuer (`ahorra-api`; changing it would end every live session and no user sees it) and the `@ahorra.deleted` placeholder of deleted accounts (stored data).
+
 ### 0.14: performance (migration 000030)
 - Indexes on the 18 foreign keys that had none: the 10 in the audit (§11) and 8 more the catalog check found. New test `TestForeignKeysAreIndexed` reads the catalog and fails when any foreign key lacks an index, so later migrations keep it.
 - `expense_installments.household_id`, copied from the expense and backfilled. A composite foreign key `(expense_id, household_id) → expenses(id, household_id)` keeps it equal to the expense's household. Reports, goals, balances and the due-soon insight now filter installments by household and date with household-first indexes (`(household_id, billing_date)`, `(household_id, COALESCE(due_date, billing_date))`, unpaid `(household_id, due_date)`) instead of reading every household's installments in the date range.

@@ -66,7 +66,7 @@ func TestLoadMigrateDoesNotFallBackToDatabaseURL(t *testing.T) {
 }
 
 func TestLoadBrand(t *testing.T) {
-	t.Run("defaults to today's name, from-names follow it", func(t *testing.T) {
+	t.Run("defaults to Valuo, from-names follow it", func(t *testing.T) {
 		setRequired(t)
 		t.Setenv("BRAND_NAME", "")
 		t.Setenv("REPORT_FROM_EMAIL", "")
@@ -74,21 +74,21 @@ func TestLoadBrand(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.BrandName != "Ahorro" || cfg.ReportFromEmail != "Ahorro <onboarding@resend.dev>" {
+		if cfg.BrandName != "Valuo" || cfg.ReportFromEmail != "Valuo <onboarding@resend.dev>" {
 			t.Errorf("brand %q, report from %q", cfg.BrandName, cfg.ReportFromEmail)
 		}
 	})
 
 	t.Run("BRAND_NAME drives the defaults; explicit from-names win", func(t *testing.T) {
 		setRequired(t)
-		t.Setenv("BRAND_NAME", "Valuo")
+		t.Setenv("BRAND_NAME", "Otro")
 		t.Setenv("INVITE_FROM_EMAIL", "")
 		t.Setenv("REPORT_FROM_EMAIL", "Resúmenes <reports@valuo.ar>")
 		cfg, err := Load()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.BrandName != "Valuo" || cfg.InviteFromEmail != "Valuo <onboarding@resend.dev>" || cfg.ReportFromEmail != "Resúmenes <reports@valuo.ar>" {
+		if cfg.BrandName != "Otro" || cfg.InviteFromEmail != "Otro <onboarding@resend.dev>" || cfg.ReportFromEmail != "Resúmenes <reports@valuo.ar>" {
 			t.Errorf("cfg = %q / %q / %q", cfg.BrandName, cfg.InviteFromEmail, cfg.ReportFromEmail)
 		}
 	})

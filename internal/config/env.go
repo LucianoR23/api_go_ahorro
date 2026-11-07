@@ -121,7 +121,7 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	brand := getOrDefault("BRAND_NAME", "Ahorro")
+	brand := getOrDefault("BRAND_NAME", "Valuo")
 
 	cfg := &Config{
 		Port:                   getOrDefault("PORT", "8080"),
