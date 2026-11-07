@@ -471,6 +471,7 @@ services:
       DATABASE_URL: postgres://glitchtip:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/glitchtip
       SECRET_KEY: ${SERVICE_BASE64_64_SECRET}
       GLITCHTIP_DOMAIN: https://errors.valuo.ar
+      ALLOWED_HOSTS: errors.valuo.ar
       SERVER_ROLE: all_in_one
       VALKEY_URL: ""
       DEFAULT_FROM_EMAIL: errors@valuo.ar
@@ -493,7 +494,12 @@ volumes:
   uploads:
 ```
 
-`EMAIL_URL: consolemail://` writes mails to the container log: enough until Resend is
+`EMAIL_URL: consolemail://` writes mails to the container log (the `web` service's
+Logs in Coolify). They are quoted-printable: a `=` at the end of a line only joins it
+with the next one, so drop it when copying a link. To verify the first account's e-mail
+without the link, in the `web` terminal:
+`./manage.py shell -c "from allauth.account.models import EmailAddress; print(EmailAddress.objects.filter(email='<EMAIL>').update(verified=True))"`
+(prints `1`). This is enough until Resend is
 set up for v2 at the production cutover. Then switch to
 `smtp://resend:<RESEND_SMTP_KEY>@smtp.resend.com:587` with a sending-only key, and
 `DEFAULT_FROM_EMAIL` on the verified domain, so alerts reach the inbox.
