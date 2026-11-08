@@ -36,18 +36,20 @@ WHERE i.household_id = $1
 -- name: SumExpensesByCategoryInRange :many
 -- Para el resumen mensual: total por categoría usando spent_at.
 -- Incluye categoría NULL (gastos sin categorizar). El JOIN es LEFT.
+-- A subcategory adds up in its parent (plan 1.4): Luz counts as Servicios.
 SELECT
-    e.category_id,
-    COALESCE(c.name, '')::text AS category_name,
+    top.id AS category_id,
+    COALESCE(top.name, '')::text AS category_name,
     COALESCE(SUM(e.amount_base), 0)::numeric AS total_base,
     COUNT(*)::bigint AS tx_count
 FROM expenses e
 LEFT JOIN categories c ON c.id = e.category_id
+LEFT JOIN categories top ON top.id = COALESCE(c.parent_id, c.id)
 WHERE e.household_id = $1
   AND e.status = 'confirmed'
   AND e.spent_at >= $2::date
   AND e.spent_at <= $3::date
-GROUP BY e.category_id, c.name
+GROUP BY top.id, top.name
 ORDER BY total_base DESC;
 
 -- ===================== fijos vs variables =====================

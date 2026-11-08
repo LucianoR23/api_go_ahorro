@@ -11,6 +11,17 @@ import (
 	"github.com/google/uuid"
 )
 
+const categoryHasChildren = `-- name: CategoryHasChildren :one
+SELECT EXISTS (SELECT 1 FROM categories WHERE parent_id = $1)::bool
+`
+
+func (q *Queries) CategoryHasChildren(ctx context.Context, parentID *uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, categoryHasChildren, parentID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const categoryInHousehold = `-- name: CategoryInHousehold :one
 SELECT EXISTS (SELECT 1 FROM categories WHERE id = $1 AND household_id = $2)::bool
 `
@@ -29,16 +40,17 @@ func (q *Queries) CategoryInHousehold(ctx context.Context, arg CategoryInHouseho
 }
 
 const createCategory = `-- name: CreateCategory :one
-INSERT INTO categories (household_id, name, icon, color)
-VALUES ($1, $2, $3, $4)
-RETURNING id, household_id, name, icon, color, created_at, updated_at
+INSERT INTO categories (household_id, name, icon, color, parent_id)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, household_id, name, icon, color, created_at, updated_at, parent_id
 `
 
 type CreateCategoryParams struct {
-	HouseholdID uuid.UUID `json:"household_id"`
-	Name        string    `json:"name"`
-	Icon        string    `json:"icon"`
-	Color       string    `json:"color"`
+	HouseholdID uuid.UUID  `json:"household_id"`
+	Name        string     `json:"name"`
+	Icon        string     `json:"icon"`
+	Color       string     `json:"color"`
+	ParentID    *uuid.UUID `json:"parent_id"`
 }
 
 func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) (Category, error) {
@@ -47,6 +59,7 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 		arg.Name,
 		arg.Icon,
 		arg.Color,
+		arg.ParentID,
 	)
 	var i Category
 	err := row.Scan(
@@ -57,6 +70,7 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 		&i.Color,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ParentID,
 	)
 	return i, err
 }
@@ -71,7 +85,7 @@ func (q *Queries) DeleteCategory(ctx context.Context, id uuid.UUID) error {
 }
 
 const getCategoryByID = `-- name: GetCategoryByID :one
-SELECT id, household_id, name, icon, color, created_at, updated_at FROM categories WHERE id = $1
+SELECT id, household_id, name, icon, color, created_at, updated_at, parent_id FROM categories WHERE id = $1
 `
 
 func (q *Queries) GetCategoryByID(ctx context.Context, id uuid.UUID) (Category, error) {
@@ -85,12 +99,13 @@ func (q *Queries) GetCategoryByID(ctx context.Context, id uuid.UUID) (Category, 
 		&i.Color,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ParentID,
 	)
 	return i, err
 }
 
 const listCategoriesByHousehold = `-- name: ListCategoriesByHousehold :many
-SELECT id, household_id, name, icon, color, created_at, updated_at FROM categories
+SELECT id, household_id, name, icon, color, created_at, updated_at, parent_id FROM categories
 WHERE household_id = $1
 ORDER BY name ASC
 `
@@ -112,6 +127,7 @@ func (q *Queries) ListCategoriesByHousehold(ctx context.Context, householdID uui
 			&i.Color,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ParentID,
 		); err != nil {
 			return nil, err
 		}
@@ -128,16 +144,18 @@ UPDATE categories
 SET name = $2,
     icon = $3,
     color = $4,
+    parent_id = $5,
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, household_id, name, icon, color, created_at, updated_at
+RETURNING id, household_id, name, icon, color, created_at, updated_at, parent_id
 `
 
 type UpdateCategoryParams struct {
-	ID    uuid.UUID `json:"id"`
-	Name  string    `json:"name"`
-	Icon  string    `json:"icon"`
-	Color string    `json:"color"`
+	ID       uuid.UUID  `json:"id"`
+	Name     string     `json:"name"`
+	Icon     string     `json:"icon"`
+	Color    string     `json:"color"`
+	ParentID *uuid.UUID `json:"parent_id"`
 }
 
 func (q *Queries) UpdateCategory(ctx context.Context, arg UpdateCategoryParams) (Category, error) {
@@ -146,6 +164,7 @@ func (q *Queries) UpdateCategory(ctx context.Context, arg UpdateCategoryParams) 
 		arg.Name,
 		arg.Icon,
 		arg.Color,
+		arg.ParentID,
 	)
 	var i Category
 	err := row.Scan(
@@ -156,6 +175,7 @@ func (q *Queries) UpdateCategory(ctx context.Context, arg UpdateCategoryParams) 
 		&i.Color,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ParentID,
 	)
 	return i, err
 }

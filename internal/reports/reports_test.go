@@ -57,6 +57,8 @@ type house struct {
 	id            string
 	owner, member apitest.User
 	category      struct{ ID, Name string }
+	// sub is a seeded subcategory; parent is its parent (plan 1.4).
+	sub, parent struct{ ID, Name string }
 }
 
 func newHouse(t *testing.T, s *apitest.Server) house {
@@ -65,11 +67,27 @@ func newHouse(t *testing.T, s *apitest.Server) house {
 	hh := s.CreateHousehold(t, owner, "Casa Reportes")
 	h := house{s: s, id: hh.ID, owner: owner, member: s.AddMember(t, owner, hh.ID)}
 	var cats []struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
+		ID       string  `json:"id"`
+		Name     string  `json:"name"`
+		ParentID *string `json:"parentId"`
 	}
 	s.Do(t, apitest.Req{Method: http.MethodGet, Path: "/categories", Token: owner.Token, Household: hh.ID}).Status(t, http.StatusOK).JSON(t, &cats)
-	h.category.ID, h.category.Name = cats[0].ID, cats[0].Name
+	byID := map[string]string{}
+	for _, c := range cats {
+		byID[c.ID] = c.Name
+	}
+	for _, c := range cats {
+		switch {
+		case c.ParentID == nil && h.category.ID == "":
+			h.category.ID, h.category.Name = c.ID, c.Name
+		case c.ParentID != nil && h.sub.ID == "":
+			h.sub.ID, h.sub.Name = c.ID, c.Name
+			h.parent.ID, h.parent.Name = *c.ParentID, byID[*c.ParentID]
+		}
+	}
+	if h.category.ID == "" || h.sub.ID == "" {
+		t.Fatal("seeded categories missing")
+	}
 	return h
 }
 
@@ -145,6 +163,22 @@ func TestMonthlyReport(t *testing.T) {
 		}
 		if !cat || !none {
 			t.Errorf("byCategory = %+v", m.ByCategory)
+		}
+	})
+
+	t.Run("a subcategory adds up in its parent", func(t *testing.T) {
+		h := newHouse(t, s)
+		h.spend(t, 700, "2026-03-10", map[string]any{"categoryId": h.sub.ID})
+		h.spend(t, 300, "2026-03-11", map[string]any{"categoryId": h.parent.ID})
+
+		var m monthlyJSON
+		h.get(t, "/reports/monthly?month=2026-03", &m)
+		if len(m.ByCategory) != 1 {
+			t.Fatalf("byCategory = %+v, want only %s", m.ByCategory, h.parent.Name)
+		}
+		c := m.ByCategory[0]
+		if c.CategoryID == nil || *c.CategoryID != h.parent.ID || c.CategoryName != h.parent.Name || c.Total != 1000 || c.TxCount != 2 {
+			t.Errorf("byCategory = %+v, want %s with 1000 in 2", c, h.parent.Name)
 		}
 	})
 

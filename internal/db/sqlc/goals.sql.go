@@ -200,7 +200,9 @@ FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
 WHERE i.household_id = $1
   AND e.status = 'confirmed'
-  AND ($4::uuid IS NULL OR e.category_id = $4::uuid)
+  AND ($4::uuid IS NULL OR e.category_id IN (
+              SELECT c.id FROM categories c
+              WHERE c.id = $4::uuid OR c.parent_id = $4::uuid))
   AND COALESCE(i.due_date, i.billing_date) >= $2::date
   AND COALESCE(i.due_date, i.billing_date) <= $3::date
 `
@@ -214,7 +216,7 @@ type SumInstallmentsForHouseholdGoalParams struct {
 
 // ===================== progress helpers =====================
 // Suma base de cuotas del hogar dentro del período, filtrando por categoría
-// opcional. Usa COALESCE(due_date, billing_date): crédito cuenta cuando vence,
+// opcional (a category also counts its subcategories, plan 1.4). Usa COALESCE(due_date, billing_date): crédito cuenta cuando vence,
 // el resto cuando se pagó (billing_date = spent_at).
 func (q *Queries) SumInstallmentsForHouseholdGoal(ctx context.Context, arg SumInstallmentsForHouseholdGoalParams) (pgtype.Numeric, error) {
 	row := q.db.QueryRow(ctx, sumInstallmentsForHouseholdGoal,
@@ -239,7 +241,9 @@ SELECT (
           AND e.status = 'confirmed'
           AND e.is_shared = true
           AND s.user_id = $2
-          AND ($5::uuid IS NULL OR e.category_id = $5::uuid)
+          AND ($5::uuid IS NULL OR e.category_id IN (
+              SELECT c.id FROM categories c
+              WHERE c.id = $5::uuid OR c.parent_id = $5::uuid))
           AND COALESCE(i.due_date, i.billing_date) >= $3::date
           AND COALESCE(i.due_date, i.billing_date) <= $4::date
     ), 0)
@@ -252,7 +256,9 @@ SELECT (
           AND e.status = 'confirmed'
           AND e.is_shared = false
           AND e.created_by = $2
-          AND ($5::uuid IS NULL OR e.category_id = $5::uuid)
+          AND ($5::uuid IS NULL OR e.category_id IN (
+              SELECT c.id FROM categories c
+              WHERE c.id = $5::uuid OR c.parent_id = $5::uuid))
           AND COALESCE(i.due_date, i.billing_date) >= $3::date
           AND COALESCE(i.due_date, i.billing_date) <= $4::date
     ), 0)

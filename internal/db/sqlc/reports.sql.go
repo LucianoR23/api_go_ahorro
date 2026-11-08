@@ -15,17 +15,18 @@ import (
 const sumExpensesByCategoryInRange = `-- name: SumExpensesByCategoryInRange :many
 
 SELECT
-    e.category_id,
-    COALESCE(c.name, '')::text AS category_name,
+    top.id AS category_id,
+    COALESCE(top.name, '')::text AS category_name,
     COALESCE(SUM(e.amount_base), 0)::numeric AS total_base,
     COUNT(*)::bigint AS tx_count
 FROM expenses e
 LEFT JOIN categories c ON c.id = e.category_id
+LEFT JOIN categories top ON top.id = COALESCE(c.parent_id, c.id)
 WHERE e.household_id = $1
   AND e.status = 'confirmed'
   AND e.spent_at >= $2::date
   AND e.spent_at <= $3::date
-GROUP BY e.category_id, c.name
+GROUP BY top.id, top.name
 ORDER BY total_base DESC
 `
 
@@ -45,6 +46,7 @@ type SumExpensesByCategoryInRangeRow struct {
 // ===================== breakdown por categoría =====================
 // Para el resumen mensual: total por categoría usando spent_at.
 // Incluye categoría NULL (gastos sin categorizar). El JOIN es LEFT.
+// A subcategory adds up in its parent (plan 1.4): Luz counts as Servicios.
 func (q *Queries) SumExpensesByCategoryInRange(ctx context.Context, arg SumExpensesByCategoryInRangeParams) ([]SumExpensesByCategoryInRangeRow, error) {
 	rows, err := q.db.Query(ctx, sumExpensesByCategoryInRange, arg.HouseholdID, arg.Column2, arg.Column3)
 	if err != nil {
