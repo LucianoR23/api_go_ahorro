@@ -262,10 +262,15 @@ func TestReadAndFilterExpenses(t *testing.T) {
 		Name string `json:"name"`
 	}
 	h.do(t, h.owner, http.MethodGet, "/categories", nil).Status(t, http.StatusOK).JSON(t, &cats)
-	cat := cats[0].ID
+	byName := map[string]string{}
+	for _, c := range cats {
+		byName[c.Name] = c.ID
+	}
+	// Luz is a subcategory of Servicios (plan 1.4).
+	cat, sub := byName["Servicios"], byName["Luz"]
 
 	a := h.cashExpense(t, h.owner, 100, map[string]any{"description": "Verdulería del barrio", "spentAt": "2026-01-05", "categoryId": cat}).Expense
-	b := h.cashExpense(t, h.owner, 200, map[string]any{"description": "Nafta", "spentAt": "2026-02-10"}).Expense
+	b := h.cashExpense(t, h.owner, 200, map[string]any{"description": "Nafta", "spentAt": "2026-02-10", "categoryId": sub}).Expense
 	c := h.cashExpense(t, h.member, 300, map[string]any{"description": "Farmacia", "spentAt": "2026-03-15"}).Expense
 
 	type listJSON struct {
@@ -298,7 +303,8 @@ func TestReadAndFilterExpenses(t *testing.T) {
 
 	for _, tc := range []struct{ query, want string }{
 		{"", "c,b,a"}, // newest spentAt first, every member's expenses
-		{"?categoryId=" + cat, "a"},
+		{"?categoryId=" + cat, "b,a"}, // a parent brings its subcategories
+		{"?categoryId=" + sub, "b"},
 		{"?paymentMethodId=" + h.memberCash, "c"},
 		{"?from=2026-02-01", "c,b"},
 		{"?to=2026-02-10", "b,a"},

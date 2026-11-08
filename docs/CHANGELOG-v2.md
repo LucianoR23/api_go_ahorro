@@ -10,6 +10,7 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 - `POST /categories` takes `parentId`; `PATCH /categories/{id}` takes it too (`null` makes it top-level, leaving it out keeps it). Every category response carries `parentId`. A parent that is missing, from another household or itself a subcategory answers 422 on `parentId`.
 - New households and personal spaces start with 19 categories: Súper, Almacén, Delivery, Restaurantes, Transporte (SUBE, Taxi y apps), Combustible, Expensas, Alquiler, Servicios (Luz, Gas, Agua, Internet, Celular), Salud (Prepaga, Farmacia), Educación, Suscripciones, Mascotas, Ropa, Hogar, Regalos, Viajes, Impuestos, Otros. Existing households keep theirs: the database is emptied at launch.
 - A subcategory adds up in its parent in the monthly report by category and in category limits: Servicios counts Luz, Gas, etc. A limit on Luz counts only Luz.
+- `GET /expenses?categoryId=` on a parent also lists the expenses of its subcategories.
 
 ### 1.3 (API part): onboarding support
 - Migration 000033: `credit_cards.network`, nullable, one of `visa`, `mastercard`, `amex`, `cabal`, `naranja`, `maestro`, `other`. Cards take it on create (`creditCard.network`) and on `PATCH /payment-methods/{id}/credit-card` (`null` clears it; leaving it out keeps it). Any other value answers 422 on `network`.

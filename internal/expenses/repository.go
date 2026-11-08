@@ -237,7 +237,8 @@ func (r *Repository) List(ctx context.Context, householdID uuid.UUID, f ListFilt
 		where = append(where, fmt.Sprintf(clause, len(args)))
 	}
 	if f.CategoryID != nil {
-		add("category_id = $%d", *f.CategoryID)
+		// A category brings its subcategories too (plan 1.4).
+		add("category_id IN (SELECT id FROM categories WHERE id = $%[1]d OR parent_id = $%[1]d)", *f.CategoryID)
 	}
 	if f.PaymentMethodID != nil {
 		add("payment_method_id = $%d", *f.PaymentMethodID)
