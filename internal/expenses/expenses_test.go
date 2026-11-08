@@ -302,7 +302,7 @@ func TestReadAndFilterExpenses(t *testing.T) {
 	}
 
 	for _, tc := range []struct{ query, want string }{
-		{"", "c,b,a"}, // newest spentAt first, every member's expenses
+		{"", "c,b,a"},                 // newest spentAt first, every member's expenses
 		{"?categoryId=" + cat, "b,a"}, // a parent brings its subcategories
 		{"?categoryId=" + sub, "b"},
 		{"?paymentMethodId=" + h.memberCash, "c"},
