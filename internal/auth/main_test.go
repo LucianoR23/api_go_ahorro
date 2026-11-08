@@ -26,6 +26,7 @@ type userJSON struct {
 	EmailVerifiedAt *time.Time `json:"emailVerifiedAt"`
 	PendingEmail    *string    `json:"pendingEmail"`
 	IsSuperadmin    bool       `json:"isSuperadmin"`
+	OnboardedAt     *time.Time `json:"onboardedAt"`
 }
 
 type authJSON struct {

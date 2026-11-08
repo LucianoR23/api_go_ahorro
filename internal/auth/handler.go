@@ -174,6 +174,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/me/activity", h.Activity)
 		r.Get("/me", h.Me)
 		r.Patch("/me", h.UpdateMe)
+		r.Post("/me/onboarding/complete", h.CompleteOnboarding)
 		r.Delete("/me", h.DeleteMe)
 	})
 }
@@ -206,6 +207,8 @@ type userDTO struct {
 	// IsSuperadmin: el front lo usa para mostrar la sección /admin de
 	// households borrados. Se devuelve en login/register/me/refresh.
 	IsSuperadmin bool `json:"isSuperadmin"`
+	// OnboardedAt: nil sends the app to /onboarding (plan 1.3).
+	OnboardedAt *time.Time `json:"onboardedAt,omitempty"`
 }
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
@@ -362,6 +365,22 @@ func (h *Handler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Email != nil && user.PendingEmail != nil {
 		h.audit.Record(r.Context(), r, audit.Event{UserID: &userID, ActorID: &userID, Action: audit.EmailChangeRequest})
+	}
+	httpx.WriteJSON(w, http.StatusOK, toUserDTO(user))
+}
+
+// CompleteOnboarding marks onboarding as finished or skipped (plan 1.3) and
+// returns the user. Idempotent.
+func (h *Handler) CompleteOnboarding(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, r, h.logger, domain.ErrUnauthorized)
+		return
+	}
+	user, err := h.svc.CompleteOnboarding(r.Context(), userID)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, toUserDTO(user))
 }
@@ -569,6 +588,7 @@ func toUserDTO(u domain.User) userDTO {
 		EmailVerifiedAt: u.EmailVerifiedAt,
 		PendingEmail:    u.PendingEmail,
 		IsSuperadmin:    u.IsSuperadmin,
+		OnboardedAt:     u.OnboardedAt,
 	}
 }
 

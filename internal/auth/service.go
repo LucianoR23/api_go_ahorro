@@ -28,6 +28,7 @@ type userRepository interface {
 	UpdateProfile(ctx context.Context, id uuid.UUID, firstName, lastName, email string) (domain.User, error)
 	MarkEmailVerifiedTx(ctx context.Context, tx pgx.Tx, id uuid.UUID) error
 	SetPendingEmail(ctx context.Context, id uuid.UUID, email *string) error
+	MarkOnboarded(ctx context.Context, id uuid.UUID) (domain.User, error)
 }
 
 // googleVerifier valida ID tokens de Google. Interface en el consumidor
@@ -286,6 +287,16 @@ func (s *Service) Me(ctx context.Context, userID uuid.UUID) (domain.User, error)
 		return domain.User{}, err
 	}
 	return user, nil
+}
+
+// CompleteOnboarding records that the user finished or skipped onboarding
+// (plan 1.3).
+func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID) (domain.User, error) {
+	user, err := s.repo.MarkOnboarded(ctx, userID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return domain.User{}, domain.NewAuthError("sesión inválida")
+	}
+	return user, err
 }
 
 // UpdateMeInput: campos opcionales (punteros → nil == "no cambiar").

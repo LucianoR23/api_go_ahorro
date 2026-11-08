@@ -22,6 +22,7 @@ type PaymentMethod struct {
 		DefaultClosingDay    int     `json:"defaultClosingDay"`
 		DefaultDueDay        int     `json:"defaultDueDay"`
 		DebitPaymentMethodID *string `json:"debitPaymentMethodId"`
+		Network              *string `json:"network"`
 	} `json:"creditCard"`
 	Periods []struct {
 		PeriodYM    string `json:"periodYm"`

@@ -319,6 +319,9 @@ type Querier interface {
 	MarkRecurringIncomeGenerated(ctx context.Context, arg MarkRecurringIncomeGeneratedParams) error
 	// Idempotente: si ya estaba verificado no hace nada.
 	MarkUserEmailVerified(ctx context.Context, id uuid.UUID) error
+	// Plan 1.3: onboarding finished or skipped. Keeps the first timestamp, so
+	// calling it twice is harmless.
+	MarkUserOnboarded(ctx context.Context, id uuid.UUID) (User, error)
 	// A payment method id sent by a client belongs to that user (plan 0.6).
 	PaymentMethodOwnedBy(ctx context.Context, arg PaymentMethodOwnedByParams) (bool, error)
 	// Admin-only: borrado físico. ON DELETE CASCADE arrastra miembros,

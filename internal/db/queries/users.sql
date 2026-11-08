@@ -92,6 +92,16 @@ WHERE id = $1
 RETURNING *;
 
 
+-- name: MarkUserOnboarded :one
+-- Plan 1.3: onboarding finished or skipped. Keeps the first timestamp, so
+-- calling it twice is harmless.
+UPDATE users
+SET onboarded_at = COALESCE(onboarded_at, now()),
+    updated_at   = now()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING *;
+
+
 -- name: SetUserPendingEmail :exec
 -- An email change waiting for the link sent to the new address (plan 0.5).
 UPDATE users SET pending_email = $2, updated_at = now() WHERE id = $1;

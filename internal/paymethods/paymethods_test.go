@@ -337,6 +337,47 @@ func TestPaymentMethods(t *testing.T) {
 		do(t, s, http.MethodGet, "/payment-methods/"+debit.ID+"/credit-card", u, nil).WantError(t, http.StatusNotFound, "not_found", "")
 	})
 
+	t.Run("card network", func(t *testing.T) {
+		u := s.Register(t)
+		type cardJSON struct {
+			Network *string `json:"network"`
+			Alias   string  `json:"alias"`
+		}
+		withNetwork := func(name string, network any) map[string]any {
+			b := card(name)
+			b["creditCard"].(map[string]any)["network"] = network
+			return b
+		}
+
+		visa := s.CreatePaymentMethod(t, u, withNetwork("Visa Galicia", "visa"))
+		if visa.CreditCard == nil || visa.CreditCard.Network == nil || *visa.CreditCard.Network != "visa" {
+			t.Fatalf("created card = %+v", visa.CreditCard)
+		}
+		if old := s.CreatePaymentMethod(t, u, card("Sin red")); old.CreditCard.Network != nil {
+			t.Errorf("network without one = %q, want none", *old.CreditCard.Network)
+		}
+		do(t, s, http.MethodPost, "/payment-methods", u, withNetwork("Diners", "diners")).
+			WantError(t, http.StatusUnprocessableEntity, "validation", "network")
+
+		path := "/payment-methods/" + visa.ID + "/credit-card"
+		var got cardJSON
+		do(t, s, http.MethodPatch, path, u, map[string]any{"alias": "Visa Gold"}).Status(t, http.StatusOK).JSON(t, &got)
+		if got.Network == nil || *got.Network != "visa" {
+			t.Errorf("network lost by an edit that did not mention it: %+v", got)
+		}
+		do(t, s, http.MethodPatch, path, u, map[string]any{"network": "mastercard"}).Status(t, http.StatusOK).JSON(t, &got)
+		if got.Network == nil || *got.Network != "mastercard" {
+			t.Errorf("network after change = %+v", got)
+		}
+		do(t, s, http.MethodPatch, path, u, map[string]any{"network": "diners"}).
+			WantError(t, http.StatusUnprocessableEntity, "validation", "network")
+		got = cardJSON{}
+		do(t, s, http.MethodPatch, path, u, map[string]any{"network": nil}).Status(t, http.StatusOK).JSON(t, &got)
+		if got.Network != nil || got.Alias != "Visa Gold" {
+			t.Errorf("null did not clear only the network: %+v", got)
+		}
+	})
+
 	t.Run("payment methods are private to their owner", func(t *testing.T) {
 		a, b := s.Register(t), s.Register(t)
 		aBank := createBank(t, s, a, "Supervielle")

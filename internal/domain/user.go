@@ -25,9 +25,11 @@ type User struct {
 	// IsSuperadmin habilita endpoints /admin/*. Se setea manualmente por DB.
 	// Independiente del rol por-hogar: un superadmin es "user normal" en sus
 	// hogares y solo obtiene poderes extra en las rutas /admin/*.
-	IsSuperadmin bool      `json:"isSuperadmin"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	IsSuperadmin bool `json:"isSuperadmin"`
+	// OnboardedAt: when onboarding was finished or skipped (plan 1.3).
+	OnboardedAt *time.Time `json:"onboardedAt,omitempty"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
 // FullName devuelve "first last" limpio. Si el last está vacío (mononombres),

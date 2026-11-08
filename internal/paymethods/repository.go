@@ -182,10 +182,11 @@ func (r *Repository) CreateCreditMethod(
 		ccRow, err := qTx.CreateCreditCard(ctx, sqlcgen.CreateCreditCardParams{
 			PaymentMethodID:      pmRow.ID,
 			Alias:                cc.Alias,
-			LastFour:             lastFourToPG(cc.LastFour),
+			LastFour:             textToPG(cc.LastFour),
 			DefaultClosingDay:    int32(cc.DefaultClosingDay),
 			DefaultDueDay:        int32(cc.DefaultDueDay),
 			DebitPaymentMethodID: cc.DebitPaymentMethodID,
+			Network:              textToPG(cc.Network),
 		})
 		if err != nil {
 			return fmt.Errorf("crear credit_card: %w", err)
@@ -308,10 +309,11 @@ func (r *Repository) ReviveCreditMethod(
 		ccRow, err := qTx.UpdateCreditCard(ctx, sqlcgen.UpdateCreditCardParams{
 			ID:                   existingCC.ID,
 			Alias:                cc.Alias,
-			LastFour:             lastFourToPG(cc.LastFour),
+			LastFour:             textToPG(cc.LastFour),
 			DefaultClosingDay:    int32(cc.DefaultClosingDay),
 			DefaultDueDay:        int32(cc.DefaultDueDay),
 			DebitPaymentMethodID: cc.DebitPaymentMethodID,
+			Network:              textToPG(cc.Network),
 		})
 		if err != nil {
 			return fmt.Errorf("revive: update credit_card: %w", err)
@@ -446,10 +448,11 @@ func (r *Repository) UpdateCreditCard(ctx context.Context, cc domain.CreditCard)
 	row, err := r.q.UpdateCreditCard(ctx, sqlcgen.UpdateCreditCardParams{
 		ID:                   cc.ID,
 		Alias:                cc.Alias,
-		LastFour:             lastFourToPG(cc.LastFour),
+		LastFour:             textToPG(cc.LastFour),
 		DefaultClosingDay:    int32(cc.DefaultClosingDay),
 		DefaultDueDay:        int32(cc.DefaultDueDay),
 		DebitPaymentMethodID: cc.DebitPaymentMethodID,
+		Network:              textToPG(cc.Network),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.CreditCard{}, domain.ErrNotFound

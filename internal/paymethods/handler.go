@@ -83,6 +83,7 @@ type creditCardDTO struct {
 	DefaultClosingDay    int       `json:"defaultClosingDay"`
 	DefaultDueDay        int       `json:"defaultDueDay"`
 	DebitPaymentMethodID *string   `json:"debitPaymentMethodId,omitempty"`
+	Network              *string   `json:"network,omitempty"`
 	CreatedAt            time.Time `json:"createdAt"`
 }
 
@@ -117,6 +118,7 @@ type createCreditCardReq struct {
 	DefaultClosingDay    int        `json:"defaultClosingDay"`
 	DefaultDueDay        int        `json:"defaultDueDay"`
 	DebitPaymentMethodID *uuid.UUID `json:"debitPaymentMethodId,omitempty"`
+	Network              *string    `json:"network,omitempty"`
 	CurrentPeriod        *periodReq `json:"currentPeriod,omitempty"`
 	NextPeriod           *periodReq `json:"nextPeriod,omitempty"`
 }
@@ -150,6 +152,7 @@ type updateCreditCardReq struct {
 	DefaultClosingDay    *int                      `json:"defaultClosingDay"`
 	DefaultDueDay        *int                      `json:"defaultDueDay"`
 	DebitPaymentMethodID httpx.Optional[uuid.UUID] `json:"debitPaymentMethodId"`
+	Network              httpx.Optional[string]    `json:"network"`
 }
 
 // ===================== handlers: banks =====================
@@ -299,6 +302,7 @@ func (h *Handler) CreatePaymentMethod(w http.ResponseWriter, r *http.Request) {
 			DefaultClosingDay:    req.CreditCard.DefaultClosingDay,
 			DefaultDueDay:        req.CreditCard.DefaultDueDay,
 			DebitPaymentMethodID: req.CreditCard.DebitPaymentMethodID,
+			Network:              req.CreditCard.Network,
 		}
 		if req.CreditCard.CurrentPeriod != nil {
 			p, err := parsePeriodReq("currentPeriod", *req.CreditCard.CurrentPeriod)
@@ -420,6 +424,10 @@ func (h *Handler) UpdateCreditCard(w http.ResponseWriter, r *http.Request) {
 		DefaultDueDay:     req.DefaultDueDay,
 		SetLastFour:       req.LastFour.Set,
 		SetDebit:          req.DebitPaymentMethodID.Set,
+		SetNetwork:        req.Network.Set,
+	}
+	if req.Network.Set && !req.Network.Null {
+		in.Network = &req.Network.Value
 	}
 	if req.LastFour.Set && !req.LastFour.Null {
 		in.LastFour = &req.LastFour.Value
@@ -479,6 +487,7 @@ func toCreditCardDTO(cc domain.CreditCard) creditCardDTO {
 		DefaultClosingDay:    cc.DefaultClosingDay,
 		DefaultDueDay:        cc.DefaultDueDay,
 		DebitPaymentMethodID: debitID,
+		Network:              cc.Network,
 		CreatedAt:            cc.CreatedAt,
 	}
 }

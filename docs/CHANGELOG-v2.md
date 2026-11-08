@@ -4,6 +4,11 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 1.3 (API part): onboarding support
+- Migration 000033: `credit_cards.network`, nullable, one of `visa`, `mastercard`, `amex`, `cabal`, `naranja`, `maestro`, `other`. Cards take it on create (`creditCard.network`) and on `PATCH /payment-methods/{id}/credit-card` (`null` clears it; leaving it out keeps it). Any other value answers 422 on `network`.
+- Migration 000033: `users.onboarded_at`. Every user response carries `onboardedAt` once set; the app sends users without it to `/onboarding`. No backfill: every existing account is a test account and will see onboarding once.
+- `POST /me/onboarding/complete` records that onboarding was finished or skipped. Calling it again keeps the first timestamp.
+
 ### 1.2 (API part 2): "Mi plata" for every user
 - Registering (email or Google) creates the user's "Mi plata": a personal household named "Mi plata", in ARS, with the default categories. With email it happens inside the registration transaction; with Google a failure is logged and the next step below fixes it.
 - `GET /households` creates "Mi plata" when it is missing (accounts from before 1.2) and lists it first. Two concurrent first calls still end with one.

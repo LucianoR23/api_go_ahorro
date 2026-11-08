@@ -21,10 +21,11 @@ INSERT INTO credit_cards (
     last_four,
     default_closing_day,
     default_due_day,
-    debit_payment_method_id
+    debit_payment_method_id,
+    network
 )
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, payment_method_id, alias, last_four, default_closing_day, default_due_day, debit_payment_method_id, created_at
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, payment_method_id, alias, last_four, default_closing_day, default_due_day, debit_payment_method_id, created_at, network
 `
 
 type CreateCreditCardParams struct {
@@ -34,6 +35,7 @@ type CreateCreditCardParams struct {
 	DefaultClosingDay    int32       `json:"default_closing_day"`
 	DefaultDueDay        int32       `json:"default_due_day"`
 	DebitPaymentMethodID *uuid.UUID  `json:"debit_payment_method_id"`
+	Network              pgtype.Text `json:"network"`
 }
 
 // Queries de credit_cards. 1-a-1 con payment_methods de kind='credit'.
@@ -46,6 +48,7 @@ func (q *Queries) CreateCreditCard(ctx context.Context, arg CreateCreditCardPara
 		arg.DefaultClosingDay,
 		arg.DefaultDueDay,
 		arg.DebitPaymentMethodID,
+		arg.Network,
 	)
 	var i CreditCard
 	err := row.Scan(
@@ -57,12 +60,13 @@ func (q *Queries) CreateCreditCard(ctx context.Context, arg CreateCreditCardPara
 		&i.DefaultDueDay,
 		&i.DebitPaymentMethodID,
 		&i.CreatedAt,
+		&i.Network,
 	)
 	return i, err
 }
 
 const getCreditCardByPaymentMethodID = `-- name: GetCreditCardByPaymentMethodID :one
-SELECT id, payment_method_id, alias, last_four, default_closing_day, default_due_day, debit_payment_method_id, created_at FROM credit_cards WHERE payment_method_id = $1
+SELECT id, payment_method_id, alias, last_four, default_closing_day, default_due_day, debit_payment_method_id, created_at, network FROM credit_cards WHERE payment_method_id = $1
 `
 
 // Devuelve el detalle de tarjeta asociado al payment_method dado.
@@ -79,12 +83,13 @@ func (q *Queries) GetCreditCardByPaymentMethodID(ctx context.Context, paymentMet
 		&i.DefaultDueDay,
 		&i.DebitPaymentMethodID,
 		&i.CreatedAt,
+		&i.Network,
 	)
 	return i, err
 }
 
 const listCreditCardsByOwner = `-- name: ListCreditCardsByOwner :many
-SELECT cc.id, cc.payment_method_id, cc.alias, cc.last_four, cc.default_closing_day, cc.default_due_day, cc.debit_payment_method_id, cc.created_at, pm.id, pm.owner_user_id, pm.bank_id, pm.name, pm.kind, pm.allows_installments, pm.is_active, pm.created_at
+SELECT cc.id, cc.payment_method_id, cc.alias, cc.last_four, cc.default_closing_day, cc.default_due_day, cc.debit_payment_method_id, cc.created_at, cc.network, pm.id, pm.owner_user_id, pm.bank_id, pm.name, pm.kind, pm.allows_installments, pm.is_active, pm.created_at
 FROM credit_cards cc
 INNER JOIN payment_methods pm ON pm.id = cc.payment_method_id
 WHERE pm.owner_user_id = $1
@@ -119,6 +124,7 @@ func (q *Queries) ListCreditCardsByOwner(ctx context.Context, ownerUserID uuid.U
 			&i.CreditCard.DefaultDueDay,
 			&i.CreditCard.DebitPaymentMethodID,
 			&i.CreditCard.CreatedAt,
+			&i.CreditCard.Network,
 			&i.PaymentMethod.ID,
 			&i.PaymentMethod.OwnerUserID,
 			&i.PaymentMethod.BankID,
@@ -144,9 +150,10 @@ SET alias                   = $2,
     last_four               = $3,
     default_closing_day     = $4,
     default_due_day         = $5,
-    debit_payment_method_id = $6
+    debit_payment_method_id = $6,
+    network                 = $7
 WHERE id = $1
-RETURNING id, payment_method_id, alias, last_four, default_closing_day, default_due_day, debit_payment_method_id, created_at
+RETURNING id, payment_method_id, alias, last_four, default_closing_day, default_due_day, debit_payment_method_id, created_at, network
 `
 
 type UpdateCreditCardParams struct {
@@ -156,6 +163,7 @@ type UpdateCreditCardParams struct {
 	DefaultClosingDay    int32       `json:"default_closing_day"`
 	DefaultDueDay        int32       `json:"default_due_day"`
 	DebitPaymentMethodID *uuid.UUID  `json:"debit_payment_method_id"`
+	Network              pgtype.Text `json:"network"`
 }
 
 // Alias, last_four y ciclo son editables. payment_method_id es inmutable.
@@ -169,6 +177,7 @@ func (q *Queries) UpdateCreditCard(ctx context.Context, arg UpdateCreditCardPara
 		arg.DefaultClosingDay,
 		arg.DefaultDueDay,
 		arg.DebitPaymentMethodID,
+		arg.Network,
 	)
 	var i CreditCard
 	err := row.Scan(
@@ -180,6 +189,7 @@ func (q *Queries) UpdateCreditCard(ctx context.Context, arg UpdateCreditCardPara
 		&i.DefaultDueDay,
 		&i.DebitPaymentMethodID,
 		&i.CreatedAt,
+		&i.Network,
 	)
 	return i, err
 }

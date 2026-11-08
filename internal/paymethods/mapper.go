@@ -47,13 +47,23 @@ func ccToDomain(cc sqlcgen.CreditCard) domain.CreditCard {
 		DefaultClosingDay:    int(cc.DefaultClosingDay),
 		DefaultDueDay:        int(cc.DefaultDueDay),
 		DebitPaymentMethodID: cc.DebitPaymentMethodID,
+		Network:              textToPtr(cc.Network),
 		CreatedAt:            cc.CreatedAt.Time,
 	}
 }
 
-// lastFourToPG convierte *string al pgtype.Text que espera sqlc.
+// textToPtr: NULL → nil.
+func textToPtr(t pgtype.Text) *string {
+	if !t.Valid {
+		return nil
+	}
+	v := t.String
+	return &v
+}
+
+// textToPG converts an optional string (lastFour, network) to pgtype.Text.
 // nil o puntero a "" → Valid=false (NULL en DB).
-func lastFourToPG(s *string) pgtype.Text {
+func textToPG(s *string) pgtype.Text {
 	if s == nil || *s == "" {
 		return pgtype.Text{Valid: false}
 	}
