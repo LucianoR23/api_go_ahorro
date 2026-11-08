@@ -9,9 +9,10 @@ INSERT INTO credit_cards (
     last_four,
     default_closing_day,
     default_due_day,
-    debit_payment_method_id
+    debit_payment_method_id,
+    network
 )
-VALUES ($1, $2, $3, $4, $5, $6)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
 
@@ -43,6 +44,7 @@ SET alias                   = $2,
     last_four               = $3,
     default_closing_day     = $4,
     default_due_day         = $5,
-    debit_payment_method_id = $6
+    debit_payment_method_id = $6,
+    network                 = $7
 WHERE id = $1
 RETURNING *;

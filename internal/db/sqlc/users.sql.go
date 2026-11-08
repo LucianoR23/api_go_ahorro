@@ -19,7 +19,7 @@ SET email             = $2,
     email_verified_at = now(),
     updated_at        = now()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email, onboarded_at
 `
 
 type ApplyUserEmailChangeParams struct {
@@ -45,6 +45,7 @@ func (q *Queries) ApplyUserEmailChange(ctx context.Context, arg ApplyUserEmailCh
 		&i.EmailVerifiedAt,
 		&i.IsSuperadmin,
 		&i.PendingEmail,
+		&i.OnboardedAt,
 	)
 	return i, err
 }
@@ -71,7 +72,7 @@ const createUser = `-- name: CreateUser :one
 
 INSERT INTO users (email, password_hash, first_name, last_name)
 VALUES ($1, $2, $3, $4)
-RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email, onboarded_at
 `
 
 type CreateUserParams struct {
@@ -111,6 +112,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.EmailVerifiedAt,
 		&i.IsSuperadmin,
 		&i.PendingEmail,
+		&i.OnboardedAt,
 	)
 	return i, err
 }
@@ -118,7 +120,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 const createUserWithoutPassword = `-- name: CreateUserWithoutPassword :one
 INSERT INTO users (email, password_hash, first_name, last_name, email_verified_at)
 VALUES ($1, NULL, $2, $3, now())
-RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email, onboarded_at
 `
 
 type CreateUserWithoutPasswordParams struct {
@@ -144,6 +146,7 @@ func (q *Queries) CreateUserWithoutPassword(ctx context.Context, arg CreateUserW
 		&i.EmailVerifiedAt,
 		&i.IsSuperadmin,
 		&i.PendingEmail,
+		&i.OnboardedAt,
 	)
 	return i, err
 }
@@ -158,7 +161,7 @@ func (q *Queries) DeleteUserPushSubscriptions(ctx context.Context, userID uuid.U
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email FROM users WHERE email = $1 AND deleted_at IS NULL
+SELECT id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email, onboarded_at FROM users WHERE email = $1 AND deleted_at IS NULL
 `
 
 // Usado en login. Devuelve pgx.ErrNoRows si no existe → mapeamos a error de dominio.
@@ -179,12 +182,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.EmailVerifiedAt,
 		&i.IsSuperadmin,
 		&i.PendingEmail,
+		&i.OnboardedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email FROM users WHERE id = $1 AND deleted_at IS NULL
+SELECT id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email, onboarded_at FROM users WHERE id = $1 AND deleted_at IS NULL
 `
 
 // Filtra soft-deleted. Un token viejo de una cuenta borrada → pgx.ErrNoRows
@@ -204,6 +208,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.EmailVerifiedAt,
 		&i.IsSuperadmin,
 		&i.PendingEmail,
+		&i.OnboardedAt,
 	)
 	return i, err
 }
@@ -242,6 +247,36 @@ SELECT 1 FROM household_members WHERE user_id = $1 FOR UPDATE
 func (q *Queries) LockUserMemberships(ctx context.Context, userID uuid.UUID) error {
 	_, err := q.db.Exec(ctx, lockUserMemberships, userID)
 	return err
+}
+
+const markUserOnboarded = `-- name: MarkUserOnboarded :one
+UPDATE users
+SET onboarded_at = COALESCE(onboarded_at, now()),
+    updated_at   = now()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email, onboarded_at
+`
+
+// Plan 1.3: onboarding finished or skipped. Keeps the first timestamp, so
+// calling it twice is harmless.
+func (q *Queries) MarkUserOnboarded(ctx context.Context, id uuid.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, markUserOnboarded, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.FirstName,
+		&i.LastName,
+		&i.DeletedAt,
+		&i.EmailVerifiedAt,
+		&i.IsSuperadmin,
+		&i.PendingEmail,
+		&i.OnboardedAt,
+	)
+	return i, err
 }
 
 const setUserPendingEmail = `-- name: SetUserPendingEmail :exec
@@ -312,7 +347,7 @@ SET first_name = $2,
     email      = $4,
     updated_at = now()
 WHERE id = $1
-RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email
+RETURNING id, email, password_hash, created_at, updated_at, first_name, last_name, deleted_at, email_verified_at, is_superadmin, pending_email, onboarded_at
 `
 
 type UpdateUserProfileParams struct {
@@ -345,6 +380,7 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 		&i.EmailVerifiedAt,
 		&i.IsSuperadmin,
 		&i.PendingEmail,
+		&i.OnboardedAt,
 	)
 	return i, err
 }

@@ -182,3 +182,34 @@ func TestDeleteMe(t *testing.T) {
 		getMe(t, s, u.Token) // still there
 	})
 }
+
+func TestCompleteOnboarding(t *testing.T) {
+	t.Parallel()
+	s := apitest.New(t)
+	complete := func(token string) *apitest.Res {
+		return s.Do(t, apitest.Req{Method: http.MethodPost, Path: "/me/onboarding/complete", Token: token})
+	}
+
+	t.Run("new users have not onboarded; completing is recorded once", func(t *testing.T) {
+		u := s.Register(t)
+		if me := getMe(t, s, u.Token); me.OnboardedAt != nil {
+			t.Fatalf("new user onboardedAt = %v, want none", me.OnboardedAt)
+		}
+		var first, second userJSON
+		complete(u.Token).Status(t, http.StatusOK).JSON(t, &first)
+		if first.OnboardedAt == nil || first.ID != u.ID {
+			t.Fatalf("after complete = %+v", first)
+		}
+		complete(u.Token).Status(t, http.StatusOK).JSON(t, &second)
+		if second.OnboardedAt == nil || !second.OnboardedAt.Equal(*first.OnboardedAt) {
+			t.Errorf("second call moved onboardedAt: %v then %v", first.OnboardedAt, second.OnboardedAt)
+		}
+		if me := getMe(t, s, u.Token); me.OnboardedAt == nil {
+			t.Errorf("not persisted: %+v", me)
+		}
+	})
+
+	t.Run("needs a session", func(t *testing.T) {
+		complete("").Status(t, http.StatusUnauthorized)
+	})
+}

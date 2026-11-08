@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -83,7 +84,18 @@ type CreditCard struct {
 	DefaultClosingDay    int        `json:"defaultClosingDay"`
 	DefaultDueDay        int        `json:"defaultDueDay"`
 	DebitPaymentMethodID *uuid.UUID `json:"debitPaymentMethodId,omitempty"`
-	CreatedAt            time.Time  `json:"createdAt"`
+	// Network: visa, mastercard, ... (plan 1.3). nil for older cards.
+	Network   *string   `json:"network,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// CardNetworks: the closed list of credit_cards.network (plan 1.3). Keep in
+// sync with credit_cards_network_check (migration 000033).
+var CardNetworks = []string{"visa", "mastercard", "amex", "cabal", "naranja", "maestro", "other"}
+
+// IsCardNetwork reports whether s is one of CardNetworks.
+func IsCardNetwork(s string) bool {
+	return slices.Contains(CardNetworks, s)
 }
 
 // PaymentMethodWithCard: vista combinada método + tarjeta (opcional).

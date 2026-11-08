@@ -142,6 +142,19 @@ func (r *Repository) UpdateProfile(ctx context.Context, id uuid.UUID, firstName,
 	return toDomain(row), nil
 }
 
+// MarkOnboarded records that onboarding was finished or skipped (plan 1.3).
+// Idempotent: the first timestamp stays.
+func (r *Repository) MarkOnboarded(ctx context.Context, id uuid.UUID) (domain.User, error) {
+	row, err := r.q.MarkUserOnboarded(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.User{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.User{}, fmt.Errorf("users.MarkOnboarded: %w", err)
+	}
+	return toDomain(row), nil
+}
+
 // UpdatePasswordHash pisa el hash del user. Usado por change-password y
 // reset-password. El caller debe haber hasheado con bcrypt antes.
 func (r *Repository) UpdatePasswordHash(ctx context.Context, id uuid.UUID, newHash string) error {
@@ -321,6 +334,10 @@ func toDomain(u sqlcgen.User) domain.User {
 	if u.PendingEmail.Valid {
 		e := u.PendingEmail.String
 		d.PendingEmail = &e
+	}
+	if u.OnboardedAt.Valid {
+		t := u.OnboardedAt.Time
+		d.OnboardedAt = &t
 	}
 	return d
 }

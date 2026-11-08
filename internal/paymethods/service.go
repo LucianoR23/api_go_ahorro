@@ -92,6 +92,7 @@ type CreateCreditCardInput struct {
 	DefaultClosingDay    int
 	DefaultDueDay        int
 	DebitPaymentMethodID *uuid.UUID
+	Network              *string
 	CurrentPeriod        *PeriodInput
 	NextPeriod           *PeriodInput
 }
@@ -187,6 +188,7 @@ func (s *Service) CreatePaymentMethod(ctx context.Context, in CreatePaymentMetho
 			DefaultClosingDay:    in.CreditCard.DefaultClosingDay,
 			DefaultDueDay:        in.CreditCard.DefaultDueDay,
 			DebitPaymentMethodID: in.CreditCard.DebitPaymentMethodID,
+			Network:              in.CreditCard.Network,
 		}
 
 		// Validar periodos opcionales antes de abrir tx.
@@ -341,6 +343,8 @@ type UpdateCreditCardInput struct {
 	DefaultDueDay        *int
 	DebitPaymentMethodID *uuid.UUID
 	SetDebit             bool
+	Network              *string
+	SetNetwork           bool
 }
 
 func (s *Service) UpdateCreditCard(ctx context.Context, ownerID, pmID uuid.UUID, in UpdateCreditCardInput) (domain.CreditCard, error) {
@@ -352,7 +356,7 @@ func (s *Service) UpdateCreditCard(ctx context.Context, ownerID, pmID uuid.UUID,
 		return domain.CreditCard{}, err
 	}
 
-	if in.Alias == nil && !in.SetLastFour && in.DefaultClosingDay == nil && in.DefaultDueDay == nil && !in.SetDebit {
+	if in.Alias == nil && !in.SetLastFour && in.DefaultClosingDay == nil && in.DefaultDueDay == nil && !in.SetDebit && !in.SetNetwork {
 		return domain.CreditCard{}, domain.NewValidationError("body", "debe enviar al menos un campo")
 	}
 	merged := existing
@@ -371,12 +375,16 @@ func (s *Service) UpdateCreditCard(ctx context.Context, ownerID, pmID uuid.UUID,
 	if in.SetDebit {
 		merged.DebitPaymentMethodID = in.DebitPaymentMethodID
 	}
+	if in.SetNetwork {
+		merged.Network = in.Network
+	}
 
 	if err := validateCardInput(CreateCreditCardInput{
 		Alias:             merged.Alias,
 		LastFour:          merged.LastFour,
 		DefaultClosingDay: merged.DefaultClosingDay,
 		DefaultDueDay:     merged.DefaultDueDay,
+		Network:           merged.Network,
 	}); err != nil {
 		return domain.CreditCard{}, err
 	}
@@ -397,6 +405,7 @@ func (s *Service) UpdateCreditCard(ctx context.Context, ownerID, pmID uuid.UUID,
 		DefaultClosingDay:    merged.DefaultClosingDay,
 		DefaultDueDay:        merged.DefaultDueDay,
 		DebitPaymentMethodID: merged.DebitPaymentMethodID,
+		Network:              merged.Network,
 	})
 }
 
@@ -502,6 +511,9 @@ func validateCardInput(in CreateCreditCardInput) error {
 	}
 	if in.DefaultDueDay < 1 || in.DefaultDueDay > 31 {
 		return domain.NewValidationError("defaultDueDay", "debe estar entre 1 y 31")
+	}
+	if in.Network != nil && *in.Network != "" && !domain.IsCardNetwork(*in.Network) {
+		return domain.NewValidationError("network", "no es una red válida")
 	}
 	if in.LastFour != nil && *in.LastFour != "" {
 		lf := *in.LastFour

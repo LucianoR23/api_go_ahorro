@@ -114,6 +114,7 @@ type CreditCard struct {
 	DefaultDueDay        int32              `json:"default_due_day"`
 	DebitPaymentMethodID *uuid.UUID         `json:"debit_payment_method_id"`
 	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	Network              pgtype.Text        `json:"network"`
 }
 
 type CreditCardPeriod struct {
@@ -409,6 +410,7 @@ type User struct {
 	EmailVerifiedAt pgtype.Timestamptz `json:"email_verified_at"`
 	IsSuperadmin    bool               `json:"is_superadmin"`
 	PendingEmail    pgtype.Text        `json:"pending_email"`
+	OnboardedAt     pgtype.Timestamptz `json:"onboarded_at"`
 }
 
 type UserIdentity struct {
