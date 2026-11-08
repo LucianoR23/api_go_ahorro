@@ -200,6 +200,35 @@ func TestGoalProgress(t *testing.T) {
 		}
 	})
 
+	t.Run("a category limit counts its subcategories", func(t *testing.T) {
+		h := newHouse(t, s)
+		var cats []struct {
+			ID       string  `json:"id"`
+			Name     string  `json:"name"`
+			ParentID *string `json:"parentId"`
+		}
+		h.do(t, h.owner, http.MethodGet, "/categories", nil).Status(t, http.StatusOK).JSON(t, &cats)
+		ids := map[string]string{}
+		for _, c := range cats {
+			ids[c.Name] = c.ID
+		}
+		servicios, luz := ids["Servicios"], ids["Luz"]
+		parent := h.goal(t, map[string]any{"goalType": "category_limit", "categoryId": servicios, "targetAmount": 1000})
+		child := h.goal(t, map[string]any{"goalType": "category_limit", "categoryId": luz, "targetAmount": 1000})
+
+		h.spend(t, h.owner, 300, "2026-03-10", map[string]any{"categoryId": servicios})
+		h.spend(t, h.owner, 200, "2026-03-11", map[string]any{"categoryId": luz})
+		h.spend(t, h.owner, 400, "2026-03-12", map[string]any{"categoryId": ids["Gas"]})
+		h.spend(t, h.owner, 999, "2026-03-13", map[string]any{"categoryId": ids["Súper"]})
+
+		if p := h.progress(t, parent, "2026-03-15"); p.CurrentAmount != 900 {
+			t.Errorf("Servicios = %v, want 900 (itself, Luz and Gas)", p.CurrentAmount)
+		}
+		if p := h.progress(t, child, "2026-03-15"); p.CurrentAmount != 200 {
+			t.Errorf("Luz = %v, want 200 (only itself)", p.CurrentAmount)
+		}
+	})
+
 	t.Run("weekly period runs Monday to Sunday", func(t *testing.T) {
 		h := newHouse(t, s)
 		g := h.goal(t, map[string]any{"goalType": "total_limit", "targetAmount": 1000, "period": "weekly"})

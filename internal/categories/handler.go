@@ -47,6 +47,7 @@ func (h *Handler) Mount(r chi.Router) {
 type categoryDTO struct {
 	ID          string    `json:"id"`
 	HouseholdID string    `json:"householdId"`
+	ParentID    *string   `json:"parentId"`
 	Name        string    `json:"name"`
 	Icon        string    `json:"icon"`
 	Color       string    `json:"color"`
@@ -55,15 +56,19 @@ type categoryDTO struct {
 }
 
 type createRequest struct {
-	Name  string `json:"name"`
-	Icon  string `json:"icon"`
-	Color string `json:"color"`
+	Name     string     `json:"name"`
+	Icon     string     `json:"icon"`
+	Color    string     `json:"color"`
+	ParentID *uuid.UUID `json:"parentId"`
 }
 
+// updateRequest replaces name, icon and color. parentId left out keeps the
+// parent; null makes the category top-level.
 type updateRequest struct {
-	Name  string `json:"name"`
-	Icon  string `json:"icon"`
-	Color string `json:"color"`
+	Name     string                    `json:"name"`
+	Icon     string                    `json:"icon"`
+	Color    string                    `json:"color"`
+	ParentID httpx.Optional[uuid.UUID] `json:"parentId"`
 }
 
 // ===================== handlers =====================
@@ -97,7 +102,9 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	cat, err := h.svc.Create(r.Context(), householdID, req.Name, req.Icon, req.Color)
+	cat, err := h.svc.Create(r.Context(), householdID, CreateInput{
+		Name: req.Name, Icon: req.Icon, Color: req.Color, ParentID: req.ParentID,
+	})
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -116,7 +123,10 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	cat, err := h.svc.Update(r.Context(), householdID, categoryID, req.Name, req.Icon, req.Color)
+	cat, err := h.svc.Update(r.Context(), householdID, categoryID, UpdateInput{
+		Name: req.Name, Icon: req.Icon, Color: req.Color,
+		SetParent: req.ParentID.Set, ParentID: optionalID(req.ParentID),
+	})
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -151,10 +161,23 @@ func (h *Handler) householdAndCategory(r *http.Request) (uuid.UUID, uuid.UUID, e
 	return householdID, categoryID, nil
 }
 
+func optionalID(o httpx.Optional[uuid.UUID]) *uuid.UUID {
+	if !o.Set || o.Null {
+		return nil
+	}
+	return &o.Value
+}
+
 func toDTO(c domain.Category) categoryDTO {
+	var parentID *string
+	if c.ParentID != nil {
+		id := c.ParentID.String()
+		parentID = &id
+	}
 	return categoryDTO{
 		ID:          c.ID.String(),
 		HouseholdID: c.HouseholdID.String(),
+		ParentID:    parentID,
 		Name:        c.Name,
 		Icon:        c.Icon,
 		Color:       c.Color,

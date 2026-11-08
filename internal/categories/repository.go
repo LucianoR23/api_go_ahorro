@@ -15,6 +15,14 @@ import (
 	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
+// CategoryFields are the writable fields of a category, already validated.
+type CategoryFields struct {
+	Name     string
+	Icon     string
+	Color    string
+	ParentID *uuid.UUID
+}
+
 type Repository struct {
 	pool *pgxpool.Pool
 	q    *sqlcgen.Queries
@@ -26,18 +34,16 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 // Create inserta una categoría en el hogar. UNIQUE(household_id, name)
 // se traduce a ErrConflict si ya existe otra con ese nombre.
-func (r *Repository) Create(ctx context.Context, householdID uuid.UUID, name, icon, color string) (domain.Category, error) {
+func (r *Repository) Create(ctx context.Context, householdID uuid.UUID, in CategoryFields) (domain.Category, error) {
 	row, err := r.q.CreateCategory(ctx, sqlcgen.CreateCategoryParams{
 		HouseholdID: householdID,
-		Name:        name,
-		Icon:        icon,
-		Color:       color,
+		Name:        in.Name,
+		Icon:        in.Icon,
+		Color:       in.Color,
+		ParentID:    in.ParentID,
 	})
 	if err != nil {
-		if isUniqueViolation(err) {
-			return domain.Category{}, fmt.Errorf("nombre de categoría repetido: %w", domain.ErrConflict)
-		}
-		return domain.Category{}, fmt.Errorf("categories.Create: %w", err)
+		return domain.Category{}, writeErr("categories.Create", err)
 	}
 	return toDomain(row), nil
 }
@@ -48,13 +54,25 @@ func (r *Repository) Create(ctx context.Context, householdID uuid.UUID, name, ic
 func (r *Repository) SeedDefaultsTx(ctx context.Context, tx pgx.Tx, householdID uuid.UUID) error {
 	qTx := r.q.WithTx(tx)
 	for _, seed := range domain.DefaultCategories {
-		if _, err := qTx.CreateCategory(ctx, sqlcgen.CreateCategoryParams{
+		parent, err := qTx.CreateCategory(ctx, sqlcgen.CreateCategoryParams{
 			HouseholdID: householdID,
 			Name:        seed.Name,
 			Icon:        seed.Icon,
 			Color:       seed.Color,
-		}); err != nil {
+		})
+		if err != nil {
 			return fmt.Errorf("seed default category %q: %w", seed.Name, err)
+		}
+		for _, child := range seed.Children {
+			if _, err := qTx.CreateCategory(ctx, sqlcgen.CreateCategoryParams{
+				HouseholdID: householdID,
+				Name:        child.Name,
+				Icon:        child.Icon,
+				Color:       seed.Color,
+				ParentID:    &parent.ID,
+			}); err != nil {
+				return fmt.Errorf("seed default category %q: %w", child.Name, err)
+			}
 		}
 	}
 	return nil
@@ -83,23 +101,30 @@ func (r *Repository) ListByHousehold(ctx context.Context, householdID uuid.UUID)
 	return out, nil
 }
 
-func (r *Repository) Update(ctx context.Context, id uuid.UUID, name, icon, color string) (domain.Category, error) {
+func (r *Repository) Update(ctx context.Context, id uuid.UUID, in CategoryFields) (domain.Category, error) {
 	row, err := r.q.UpdateCategory(ctx, sqlcgen.UpdateCategoryParams{
-		ID:    id,
-		Name:  name,
-		Icon:  icon,
-		Color: color,
+		ID:       id,
+		Name:     in.Name,
+		Icon:     in.Icon,
+		Color:    in.Color,
+		ParentID: in.ParentID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Category{}, domain.ErrNotFound
 	}
 	if err != nil {
-		if isUniqueViolation(err) {
-			return domain.Category{}, fmt.Errorf("nombre de categoría repetido: %w", domain.ErrConflict)
-		}
-		return domain.Category{}, fmt.Errorf("categories.Update: %w", err)
+		return domain.Category{}, writeErr("categories.Update", err)
 	}
 	return toDomain(row), nil
+}
+
+// HasChildren reports whether the category has subcategories.
+func (r *Repository) HasChildren(ctx context.Context, id uuid.UUID) (bool, error) {
+	has, err := r.q.CategoryHasChildren(ctx, &id)
+	if err != nil {
+		return false, fmt.Errorf("categories.HasChildren: %w", err)
+	}
+	return has, nil
 }
 
 func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
@@ -113,6 +138,7 @@ func toDomain(c sqlcgen.Category) domain.Category {
 	return domain.Category{
 		ID:          c.ID,
 		HouseholdID: c.HouseholdID,
+		ParentID:    c.ParentID,
 		Name:        c.Name,
 		Icon:        c.Icon,
 		Color:       c.Color,
@@ -121,10 +147,18 @@ func toDomain(c sqlcgen.Category) domain.Category {
 	}
 }
 
-func isUniqueViolation(err error) bool {
+// writeErr maps constraint violations of a create or update: a repeated
+// name, and the one-level rule when a concurrent write beat the service's
+// own check.
+func writeErr(op string, err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23505"
+		switch {
+		case pgErr.Code == "23505":
+			return fmt.Errorf("nombre de categoría repetido: %w", domain.ErrConflict)
+		case pgErr.ConstraintName == "categories_one_level", pgErr.ConstraintName == "categories_parent_fk":
+			return domain.NewValidationError("parentId", "no puede ser la categoría madre")
+		}
 	}
-	return false
+	return fmt.Errorf("%s: %w", op, err)
 }

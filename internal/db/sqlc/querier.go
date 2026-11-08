@@ -41,6 +41,7 @@ type Querier interface {
 	// > 0 → from_user debe ese monto a to_user
 	// < 0 → to_user debe a from_user (el signo lo resuelve el service)
 	BalanceOwedBetween(ctx context.Context, arg BalanceOwedBetweenParams) (BalanceOwedBetweenRow, error)
+	CategoryHasChildren(ctx context.Context, parentID *uuid.UUID) (bool, error)
 	// A category id sent by a client belongs to that household (plan 0.6).
 	CategoryInHousehold(ctx context.Context, arg CategoryInHouseholdParams) (bool, error)
 	ClearOldAuditIPs(ctx context.Context) (int64, error)
@@ -386,6 +387,7 @@ type Querier interface {
 	// ===================== breakdown por categoría =====================
 	// Para el resumen mensual: total por categoría usando spent_at.
 	// Incluye categoría NULL (gastos sin categorizar). El JOIN es LEFT.
+	// A subcategory adds up in its parent (plan 1.4): Luz counts as Servicios.
 	SumExpensesByCategoryInRange(ctx context.Context, arg SumExpensesByCategoryInRangeParams) ([]SumExpensesByCategoryInRangeRow, error)
 	// ===================== fijos vs variables =====================
 	// Split por origen: gastos con recurring_expense_id NOT NULL son "fijos"
@@ -425,7 +427,7 @@ type Querier interface {
 	SumInstallmentsDueInRange(ctx context.Context, arg SumInstallmentsDueInRangeParams) (pgtype.Numeric, error)
 	// ===================== progress helpers =====================
 	// Suma base de cuotas del hogar dentro del período, filtrando por categoría
-	// opcional. Usa COALESCE(due_date, billing_date): crédito cuenta cuando vence,
+	// opcional (a category also counts its subcategories, plan 1.4). Usa COALESCE(due_date, billing_date): crédito cuenta cuando vence,
 	// el resto cuando se pagó (billing_date = spent_at).
 	SumInstallmentsForHouseholdGoal(ctx context.Context, arg SumInstallmentsForHouseholdGoalParams) (pgtype.Numeric, error)
 	// Suma la porción del usuario en cuotas del hogar dentro del período.
