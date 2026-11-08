@@ -51,6 +51,9 @@ type splitRulesReader interface {
 // Definido como interface local para no acoplar expenses → push.
 type pushNotifier interface {
 	NotifyUsers(ctx context.Context, userIDs []uuid.UUID, title, body, url, tag string)
+	// NotifyUsersWithAmounts: body never shows an amount (lock screen, plan
+	// 1.9); bodyWithAmounts is shown only on devices that opted in.
+	NotifyUsersWithAmounts(ctx context.Context, userIDs []uuid.UUID, title, body, bodyWithAmounts, url, tag string)
 }
 
 // insightCreator: dependencia opcional para persistir un insight visible en
@@ -311,13 +314,13 @@ func (s *Service) notifySharedExpense(ctx context.Context, d domain.ExpenseDetai
 
 	title := "Nuevo gasto compartido"
 	for uid, owed := range recipients {
-		body := fmt.Sprintf("%s cargó \"%s\" — te toca %s %s",
-			creatorName, d.Expense.Description, owed.StringFixed(2), d.Expense.BaseCurrency)
+		lockScreen, body := sharedExpenseMessage(creatorName, d.Expense.Description, owed, d.Expense.BaseCurrency)
 		if s.push != nil {
-			s.push.NotifyUsers(
+			s.push.NotifyUsersWithAmounts(
 				ctx,
 				[]uuid.UUID{uid},
 				title,
+				lockScreen,
 				body,
 				"/movimientos/"+d.Expense.ID.String(),
 				"expense:"+d.Expense.ID.String(),
@@ -997,4 +1000,11 @@ func normalizeStatus(s string) string {
 	default:
 		return "confirmed"
 	}
+}
+
+// sharedExpenseMessage returns the push text without the amount (lock
+// screen, plan 1.9) and the full text the in-app notification keeps.
+func sharedExpenseMessage(creator, description string, owed decimal.Decimal, currency string) (lockScreen, full string) {
+	return fmt.Sprintf("%s cargó \"%s\". Tocá para ver tu parte.", creator, description),
+		fmt.Sprintf("%s cargó \"%s\". Te toca %s %s.", creator, description, owed.StringFixed(2), currency)
 }
