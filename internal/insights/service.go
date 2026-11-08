@@ -99,6 +99,9 @@ func (a InstallmentsDueAdapter) ListInstallmentsDueOn(ctx context.Context, house
 // Misma shape que el de expenses/settlements para reusar el adapter de main.
 type pushNotifier interface {
 	NotifyUsers(ctx context.Context, userIDs []uuid.UUID, title, body, url, tag string)
+	// NotifyUsersWithAmounts: body never shows an amount (lock screen, plan
+	// 1.9); bodyWithAmounts is shown only on devices that opted in.
+	NotifyUsersWithAmounts(ctx context.Context, userIDs []uuid.UUID, title, body, bodyWithAmounts, url, tag string)
 }
 
 type Service struct {
@@ -510,11 +513,7 @@ func (s *Service) genInstallmentsDueSoon(ctx context.Context, householdID uuid.U
 		owner := row.CreatedBy
 		refID := row.ExpenseID
 		title := "Cuota próxima a vencer"
-		body := fmt.Sprintf(
-			"En 3 días vence la cuota %d/%d de \"%s\" (%.2f %s).",
-			row.InstallmentNumber, row.TotalInstallments, row.Description,
-			row.AmountBase, row.BaseCurrency,
-		)
+		lockScreen, body := installmentDueMessage(row)
 		ins, c, err := s.repo.Create(ctx, CreateParams{
 			HouseholdID: householdID,
 			UserID:      &owner,
@@ -544,10 +543,10 @@ func (s *Service) genInstallmentsDueSoon(ctx context.Context, householdID uuid.U
 			created++
 			s.publish(ctx, ins)
 			if s.push != nil {
-				s.push.NotifyUsers(
+				s.push.NotifyUsersWithAmounts(
 					ctx,
 					[]uuid.UUID{owner},
-					title, body,
+					title, lockScreen, body,
 					"/movimientos/"+row.ExpenseID.String(),
 					"installment-due-soon:"+row.ExpenseID.String(),
 				)
@@ -660,4 +659,11 @@ func (s *Service) logWarn(ctx context.Context, msg string, kv ...any) {
 		return
 	}
 	s.logger.WarnContext(ctx, msg, kv...)
+}
+
+// installmentDueMessage returns the push text without the amount (lock
+// screen, plan 1.9) and the full text the in-app notification keeps.
+func installmentDueMessage(row InstallmentDueForReminder) (lockScreen, full string) {
+	head := fmt.Sprintf("En 3 días vence la cuota %d/%d de \"%s\"", row.InstallmentNumber, row.TotalInstallments, row.Description)
+	return head + ".", fmt.Sprintf("%s (%.2f %s).", head, row.AmountBase, row.BaseCurrency)
 }

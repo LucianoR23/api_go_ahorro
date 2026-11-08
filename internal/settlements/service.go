@@ -34,6 +34,9 @@ type balanceReader interface {
 // un pago (le avisa al receptor).
 type pushNotifier interface {
 	NotifyUsers(ctx context.Context, userIDs []uuid.UUID, title, body, url, tag string)
+	// NotifyUsersWithAmounts: body never shows an amount (lock screen, plan
+	// 1.9); bodyWithAmounts is shown only on devices that opted in.
+	NotifyUsersWithAmounts(ctx context.Context, userIDs []uuid.UUID, title, body, bodyWithAmounts, url, tag string)
 }
 
 // userLookup: para obtener el nombre del from user en el título del push.
@@ -188,12 +191,12 @@ func (s *Service) notifySettlement(ctx context.Context, sp domain.SettlementPaym
 		}
 	}
 	title := "Pago registrado"
-	body := fmt.Sprintf("%s registró un pago de %.2f %s", fromName, sp.AmountBase, sp.BaseCurrency)
+	lockScreen, body := settlementMessage(fromName, sp)
 	if s.push != nil {
-		s.push.NotifyUsers(
+		s.push.NotifyUsersWithAmounts(
 			ctx,
 			[]uuid.UUID{sp.ToUser},
-			title, body,
+			title, lockScreen, body,
 			"/deudas",
 			"settlement:"+sp.ID.String(),
 		)
@@ -201,6 +204,13 @@ func (s *Service) notifySettlement(ctx context.Context, sp domain.SettlementPaym
 	if s.insights != nil {
 		s.insights.CreateSettlementInsight(ctx, sp.HouseholdID, sp.ID, sp.ToUser, title, body)
 	}
+}
+
+// settlementMessage returns the push text without the amount (lock screen)
+// and the full text the in-app notification keeps.
+func settlementMessage(fromName string, sp domain.SettlementPayment) (lockScreen, full string) {
+	return fmt.Sprintf("%s registró un pago.", fromName),
+		fmt.Sprintf("%s registró un pago de %s %s", fromName, sp.AmountBase.StringFixed(2), sp.BaseCurrency)
 }
 
 // Get devuelve el settlement validando que pertenezca al hogar del caller.

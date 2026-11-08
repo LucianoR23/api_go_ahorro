@@ -4,6 +4,11 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 1.9 (API part): push without amounts
+- A push can show on a locked screen, so its `body` no longer carries an amount. The three pushes that did (shared expense, installment due in 3 days, payment registered) now say "Ana cargó "Súper". Tocá para ver tu parte.", "En 3 días vence la cuota 2/6 de "Heladera".", "Ana registró un pago.".
+- The payload gains `bodyWithAmounts` with the full text; the app's service worker shows it only on devices where the user opted in (app part). In-app notifications keep the amount.
+- The shared expense text drops its dash: "Ana cargó "Súper". Te toca 1234.50 ARS."
+
 ### 1.4 (API part): Argentine categories
 - Migration 000034: `categories.parent_id` for subcategories, one level deep. The parent must belong to the same household (composite foreign key), a subcategory cannot have subcategories and a category with subcategories cannot become one (trigger). Deleting a parent keeps its subcategories as top-level categories, so no expense loses its category.
 - Migration 000034: icons are Lucide keys (`shopping-cart`) instead of emojis. Stored emojis are translated with the map the app used until now; anything else becomes `tag`, the new default. The API accepts lowercase words joined by hyphens, up to 32 characters, and answers 422 on `icon` otherwise.

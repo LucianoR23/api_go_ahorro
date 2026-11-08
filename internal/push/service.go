@@ -77,12 +77,17 @@ func (c Config) Enabled() bool {
 //
 // URL: deep-link para el notificationclick handler (ej: "/movimientos/{id}").
 // Tag: agrupa notifs (un mismo tag reemplaza la anterior).
+//
+// Body never carries an amount: it can show on a locked screen (plan 1.9).
+// BodyWithAmounts is the same message with amounts; the service worker
+// shows it instead only on devices where the user opted in.
 type Payload struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
-	URL   string `json:"url,omitempty"`
-	Tag   string `json:"tag,omitempty"`
-	Icon  string `json:"icon,omitempty"`
+	Title           string `json:"title"`
+	Body            string `json:"body"`
+	BodyWithAmounts string `json:"bodyWithAmounts,omitempty"`
+	URL             string `json:"url,omitempty"`
+	Tag             string `json:"tag,omitempty"`
+	Icon            string `json:"icon,omitempty"`
 }
 
 // Service envía push notifications. Busca las subs del user, firma con VAPID

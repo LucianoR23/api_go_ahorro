@@ -698,6 +698,16 @@ func (a pushNotifierAdapter) NotifyUsers(ctx context.Context, userIDs []uuid.UUI
 	})
 }
 
+func (a pushNotifierAdapter) NotifyUsersWithAmounts(ctx context.Context, userIDs []uuid.UUID, title, body, bodyWithAmounts, url, tag string) {
+	a.svc.NotifyUsers(ctx, userIDs, push.Payload{
+		Title:           title,
+		Body:            body,
+		BodyWithAmounts: bodyWithAmounts,
+		URL:             url,
+		Tag:             tag,
+	})
+}
+
 // listInstallmentsDueOn returns the unpaid installments of a household due
 // on a date, for the due-soon reminder. Direct query on the pool; it uses
 // idx_installments_household_due_unpaid (migration 000030).
