@@ -92,6 +92,29 @@ func (r *Repository) CategoryBreakdown(ctx context.Context, householdID uuid.UUI
 	return out, nil
 }
 
+// PayerRow: what one member paid in a range.
+type PayerRow struct {
+	UserID uuid.UUID
+	Total  decimal.Decimal
+}
+
+// ByPayer: total per member who loaded the expenses (plan 1.10b).
+func (r *Repository) ByPayer(ctx context.Context, householdID uuid.UUID, from, to time.Time) ([]PayerRow, error) {
+	rows, err := r.q.SumExpensesByPayerInRange(ctx, sqlcgen.SumExpensesByPayerInRangeParams{
+		HouseholdID: householdID,
+		Column2:     pgtype.Date{Time: from, Valid: true},
+		Column3:     pgtype.Date{Time: to, Valid: true},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("reports.ByPayer: %w", err)
+	}
+	out := make([]PayerRow, len(rows))
+	for i, rr := range rows {
+		out[i] = PayerRow{UserID: rr.UserID, Total: money.FromNumeric(rr.TotalBase)}
+	}
+	return out, nil
+}
+
 // FixedVariable: split entre gastos recurrentes (fijos) y manuales (variables).
 type FixedVariableSplit struct {
 	FixedTotal    decimal.Decimal

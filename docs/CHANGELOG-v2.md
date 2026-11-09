@@ -4,6 +4,9 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 1.10b (API part): what each member paid
+- `GET /reports/monthly` gains `byPayer`: what each member paid in the month (`userId`, `total` in the base currency), largest first, for "Pusiste vos / Puso Ana" in Inicio · Hogar. Whoever loads an expense is the one who paid it. Same rules as `spentThisMonth`: confirmed expenses by purchase date.
+
 ### 4.3 (API part): card reminders and the open period
 - Two fixed reminders per card, as a notification and a push, to the card owner in Mi plata only (before, a card owner with a hogar got the old reminder once per space): "Mañana cierra tu Visa" the day before the closing, and "En 3 días vence tu Visa" three days before the due date when the statement has something to pay and is not paid. The push never carries the amount (plan 1.9); the in-app text and the opt-in push body do ("El resumen de tu Visa vence el sábado 7/3: 300.00 ARS."). Dates follow the loaded period or the card's default days.
 - They replace the old "Cargá el próximo período" reminder on the closing day (no longer generated) and the per-installment "Cuota próxima a vencer" alert for credit cards (the statement reminder covers them).

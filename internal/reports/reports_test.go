@@ -39,6 +39,10 @@ type monthlyJSON struct {
 		FixedCount    int64   `json:"fixedCount"`
 		VariableCount int64   `json:"variableCount"`
 	} `json:"fixedVariable"`
+	ByPayer []struct {
+		UserID string  `json:"userId"`
+		Total  float64 `json:"total"`
+	} `json:"byPayer"`
 }
 
 type trendsJSON struct {
@@ -182,11 +186,27 @@ func TestMonthlyReport(t *testing.T) {
 		}
 	})
 
+	t.Run("what each member paid", func(t *testing.T) {
+		h := newHouse(t, s)
+		h.spend(t, 1000, "2026-03-10", nil)
+		h.spend(t, 500, "2026-03-20", nil)
+		h.spend(t, 999, "2026-02-28", nil) // previous month
+		s.CreateExpense(t, h.member, h.id, map[string]any{"paymentMethodId": s.Cash(t, h.member).ID, "amount": 400, "spentAt": "2026-03-12"})
+
+		var m monthlyJSON
+		h.get(t, "/reports/monthly?month=2026-03", &m)
+		if len(m.ByPayer) != 2 ||
+			m.ByPayer[0].UserID != h.owner.ID || m.ByPayer[0].Total != 1500 ||
+			m.ByPayer[1].UserID != h.member.ID || m.ByPayer[1].Total != 400 {
+			t.Errorf("byPayer = %+v, want owner 1500 then member 400", m.ByPayer)
+		}
+	})
+
 	t.Run("empty month and validation", func(t *testing.T) {
 		h := newHouse(t, s)
 		var m monthlyJSON
 		h.get(t, "/reports/monthly?month=2020-01", &m)
-		if m.Spent != 0 || len(m.ByCategory) != 0 {
+		if m.Spent != 0 || len(m.ByCategory) != 0 || m.ByPayer == nil || len(m.ByPayer) != 0 {
 			t.Errorf("empty month = %+v", m)
 		}
 		h.get(t, "/reports/monthly", &m) // default: this month

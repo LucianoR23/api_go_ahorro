@@ -72,6 +72,52 @@ func (q *Queries) SumExpensesByCategoryInRange(ctx context.Context, arg SumExpen
 	return items, nil
 }
 
+const sumExpensesByPayerInRange = `-- name: SumExpensesByPayerInRange :many
+SELECT
+    e.created_by AS user_id,
+    COALESCE(SUM(e.amount_base), 0)::numeric AS total_base
+FROM expenses e
+WHERE e.household_id = $1
+  AND e.status = 'confirmed'
+  AND e.spent_at >= $2::date
+  AND e.spent_at <= $3::date
+GROUP BY e.created_by
+ORDER BY total_base DESC
+`
+
+type SumExpensesByPayerInRangeParams struct {
+	HouseholdID uuid.UUID   `json:"household_id"`
+	Column2     pgtype.Date `json:"column_2"`
+	Column3     pgtype.Date `json:"column_3"`
+}
+
+type SumExpensesByPayerInRangeRow struct {
+	UserID    uuid.UUID      `json:"user_id"`
+	TotalBase pgtype.Numeric `json:"total_base"`
+}
+
+// Inicio · Hogar (plan 1.10b): what each member paid in the range, by
+// spent_at. Whoever loads an expense is the one who paid it.
+func (q *Queries) SumExpensesByPayerInRange(ctx context.Context, arg SumExpensesByPayerInRangeParams) ([]SumExpensesByPayerInRangeRow, error) {
+	rows, err := q.db.Query(ctx, sumExpensesByPayerInRange, arg.HouseholdID, arg.Column2, arg.Column3)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SumExpensesByPayerInRangeRow{}
+	for rows.Next() {
+		var i SumExpensesByPayerInRangeRow
+		if err := rows.Scan(&i.UserID, &i.TotalBase); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const sumExpensesFixedVariableInRange = `-- name: SumExpensesFixedVariableInRange :one
 
 SELECT

@@ -52,6 +52,20 @@ WHERE e.household_id = $1
 GROUP BY top.id, top.name
 ORDER BY total_base DESC;
 
+-- name: SumExpensesByPayerInRange :many
+-- Inicio · Hogar (plan 1.10b): what each member paid in the range, by
+-- spent_at. Whoever loads an expense is the one who paid it.
+SELECT
+    e.created_by AS user_id,
+    COALESCE(SUM(e.amount_base), 0)::numeric AS total_base
+FROM expenses e
+WHERE e.household_id = $1
+  AND e.status = 'confirmed'
+  AND e.spent_at >= $2::date
+  AND e.spent_at <= $3::date
+GROUP BY e.created_by
+ORDER BY total_base DESC;
+
 -- ===================== fijos vs variables =====================
 
 -- name: SumExpensesFixedVariableInRange :one
