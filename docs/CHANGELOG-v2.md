@@ -4,6 +4,10 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 1.10d: month-end card purchases no longer skip a statement
+- A credit card purchase on the 29th to 31st went to the wrong statement: moving its date by whole months overflowed (Oct 31 + 1 month = Dec 1), so a purchase after the closing landed two statements later, and installments could skip a month (Jan 30 with a closing on the 31st gave January, March and March). Installment months are now counted from the first day of the month.
+- Existing installments keep their dates (no recompute): production starts empty in v2 and staging holds test data. Clearing an installment's manual billing date already uses the fixed calculation.
+
 ### 1.10b (API part): the month's total in Movimientos
 - `GET /expenses` gains `totalAmountBase`: what the whole filtered list adds up to in the base currency (not just the page), next to `totalCount`, for "Gastaste $ 486.320 · 38 gastos".
 
