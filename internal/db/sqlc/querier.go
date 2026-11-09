@@ -74,6 +74,7 @@ type Querier interface {
 	CreateBank(ctx context.Context, arg CreateBankParams) (Bank, error)
 	// ===================== budget_goals =====================
 	CreateBudgetGoal(ctx context.Context, arg CreateBudgetGoalParams) (BudgetGoal, error)
+	CreateCardStatementAdjustment(ctx context.Context, arg CreateCardStatementAdjustmentParams) (CreditCardStatementAdjustment, error)
 	CreateCategory(ctx context.Context, arg CreateCategoryParams) (Category, error)
 	// Queries de credit_cards. 1-a-1 con payment_methods de kind='credit'.
 	// Se crean siempre en la misma transacción que el payment_method (opción A).
@@ -133,6 +134,7 @@ type Querier interface {
 	CreateWaitlistEntry(ctx context.Context, arg CreateWaitlistEntryParams) (WaitlistEntry, error)
 	DeleteAuditEventsForUser(ctx context.Context, userID *uuid.UUID) error
 	DeleteBudgetGoal(ctx context.Context, id uuid.UUID) error
+	DeleteCardStatementAdjustment(ctx context.Context, arg DeleteCardStatementAdjustmentParams) (int64, error)
 	DeleteCategory(ctx context.Context, id uuid.UUID) error
 	DeleteCreditCardPeriod(ctx context.Context, arg DeleteCreditCardPeriodParams) error
 	DeleteDailyInsight(ctx context.Context, id uuid.UUID) error
@@ -153,6 +155,7 @@ type Querier interface {
 	DeleteUserPushSubscriptions(ctx context.Context, userID uuid.UUID) error
 	DeleteWaitlistEntry(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteWaitlistEntryByEmail(ctx context.Context, email string) (int64, error)
+	EnsureCardStatement(ctx context.Context, arg EnsureCardStatementParams) error
 	// The shared space ("Hogar") the user belongs to, if any (plan 1.2: at most
 	// one active). Oldest first so accounts from before the rule pick the same.
 	GetActiveSharedHouseholdForUser(ctx context.Context, userID uuid.UUID) (Household, error)
@@ -252,9 +255,13 @@ type Querier interface {
 	ListBanksByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]Bank, error)
 	// Filtros opcionales: scope, user_id (cuando scope='user'), is_active.
 	ListBudgetGoalsByHousehold(ctx context.Context, arg ListBudgetGoalsByHouseholdParams) ([]BudgetGoal, error)
+	ListCardStatementAdjustments(ctx context.Context, arg ListCardStatementAdjustmentsParams) ([]CreditCardStatementAdjustment, error)
+	ListCardStatementInstallments(ctx context.Context, arg ListCardStatementInstallmentsParams) ([]ListCardStatementInstallmentsRow, error)
+	ListCardStatementRecords(ctx context.Context, arg ListCardStatementRecordsParams) ([]CreditCardStatement, error)
 	ListCategoriesByHousehold(ctx context.Context, householdID uuid.UUID) ([]Category, error)
 	ListConfirmedWaitlistEntries(ctx context.Context) ([]WaitlistEntry, error)
 	ListCreditCardPeriods(ctx context.Context, creditCardID uuid.UUID) ([]CreditCardPeriod, error)
+	ListCreditCardPeriodsInRange(ctx context.Context, arg ListCreditCardPeriodsInRangeParams) ([]CreditCardPeriod, error)
 	// Lista las tarjetas activas del user con el payment_method embebido,
 	// para evitar N+1 en el frontend (una sola llamada devuelve todo).
 	// Filtra por payment_method.is_active = true: una tarjeta sin método
@@ -365,6 +372,10 @@ type Querier interface {
 	// asociados al banco aunque el banco esté inactivo.
 	SetBankActive(ctx context.Context, arg SetBankActiveParams) (Bank, error)
 	SetBudgetGoalActive(ctx context.Context, arg SetBudgetGoalActiveParams) error
+	// Marks every installment of a statement paid or unpaid at once.
+	SetCardStatementInstallmentsPaid(ctx context.Context, arg SetCardStatementInstallmentsPaidParams) (int64, error)
+	SetCardStatementMinimum(ctx context.Context, arg SetCardStatementMinimumParams) error
+	SetCardStatementPayment(ctx context.Context, arg SetCardStatementPaymentParams) error
 	SetInstallmentPaid(ctx context.Context, arg SetInstallmentPaidParams) (ExpenseInstallment, error)
 	SetPaymentMethodActive(ctx context.Context, arg SetPaymentMethodActiveParams) (PaymentMethod, error)
 	SetRecurringExpenseActive(ctx context.Context, arg SetRecurringExpenseActiveParams) error
@@ -384,6 +395,11 @@ type Querier interface {
 	// y permitir re-registro con el mismo email. El sufijo incluye el id
 	// (único garantizado) + un dominio que no es deliverable.
 	SoftDeleteUser(ctx context.Context, id uuid.UUID) error
+	SumCardAdjustmentsByPeriod(ctx context.Context, arg SumCardAdjustmentsByPeriodParams) ([]SumCardAdjustmentsByPeriodRow, error)
+	// Installments of a card per closing month and currency, between two
+	// billing dates (inclusive). The card's expenses can live in several
+	// households (Mi plata and Hogar): a card has one owner and one bill.
+	SumCardInstallmentsByPeriod(ctx context.Context, arg SumCardInstallmentsByPeriodParams) ([]SumCardInstallmentsByPeriodRow, error)
 	// ===================== breakdown por categoría =====================
 	// Para el resumen mensual: total por categoría usando spent_at.
 	// Incluye categoría NULL (gastos sin categorizar). El JOIN es LEFT.
@@ -442,6 +458,7 @@ type Querier interface {
 	UpdateBankName(ctx context.Context, arg UpdateBankNameParams) (Bank, error)
 	// No dejamos cambiar scope/user_id/goal_type — si hay que migrar, borrar y crear.
 	UpdateBudgetGoal(ctx context.Context, arg UpdateBudgetGoalParams) (BudgetGoal, error)
+	UpdateCardStatementAdjustment(ctx context.Context, arg UpdateCardStatementAdjustmentParams) (CreditCardStatementAdjustment, error)
 	UpdateCategory(ctx context.Context, arg UpdateCategoryParams) (Category, error)
 	// Alias, last_four y ciclo son editables. payment_method_id es inmutable.
 	// debit_payment_method_id cambiable (ej: cambiás la cuenta de débito automático).

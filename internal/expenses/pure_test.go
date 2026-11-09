@@ -57,24 +57,6 @@ func card(closing, due int) domain.CreditCard {
 	return domain.CreditCard{ID: cardID, PaymentMethodID: pmID, DefaultClosingDay: closing, DefaultDueDay: due}
 }
 
-func TestClampDay(t *testing.T) {
-	tests := []struct {
-		y, m, d int
-		want    time.Time
-	}{
-		{2026, 3, 15, date(2026, 3, 15)},
-		{2026, 2, 31, date(2026, 2, 28)},
-		{2028, 2, 31, date(2028, 2, 29)}, // leap year
-		{2026, 4, 31, date(2026, 4, 30)},
-		{2026, 12, 31, date(2026, 12, 31)},
-	}
-	for _, tt := range tests {
-		if got := clampDay(tt.y, tt.m, tt.d); !got.Equal(tt.want) {
-			t.Errorf("clampDay(%d,%d,%d) = %s, want %s", tt.y, tt.m, tt.d, got, tt.want)
-		}
-	}
-}
-
 func TestResolveForClosingMonth(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {

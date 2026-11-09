@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 4.1 (API part): credit card statements
+- Migration 000035: `credit_card_statements` (minimum payment in pesos, payment: date, amount and currency, all or none) and `credit_card_statement_adjustments` (interest, tax, fee, credit, other). Both cascade with the card.
+- A statement is the card's installments billed in its closing month, from every space (Mi plata and Hogar: a card has one owner and one bill), plus adjustments; a credit subtracts. Totals are computed on every read, one per currency, so editing an expense never leaves a stale total. Status comes from the dates: open until the closing day, closed, overdue after the due date, paid.
+- Endpoints under `/payment-methods/{id}/credit-card/statements`, owner only: list (`?from=&to=` up to 36 months; by default 6 back and 11 ahead of the open period, always including the open period and the one to pay, plus `openPeriodYm`), detail with installments and adjustments, `PATCH` minimum payment, `POST pay` (total by default, or a partial amount; marks every installment of the statement paid; an open statement can't be paid), `POST unpay`, adjustments create, update and delete.
+- The period date rule (loaded period or the card's default days, with the month-end clamp) now lives in `domain.CardPeriodDates`, shared by expenses and statements.
+
 ### 1.9 (API part): push without amounts
 - A push can show on a locked screen, so its `body` no longer carries an amount. The three pushes that did (shared expense, installment due in 3 days, payment registered) now say "Ana cargó "Súper". Tocá para ver tu parte.", "En 3 días vence la cuota 2/6 de "Heladera".", "Ana registró un pago.".
 - The payload gains `bodyWithAmounts` with the full text; the app's service worker shows it only on devices where the user opted in (app part). In-app notifications keep the amount.
