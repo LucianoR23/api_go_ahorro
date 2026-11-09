@@ -19,6 +19,7 @@ import (
 type cards interface {
 	RequireCreditCardOwner(ctx context.Context, ownerID, pmID uuid.UUID) (uuid.UUID, error)
 	CreditCardByPaymentMethod(ctx context.Context, pmID uuid.UUID) (domain.CreditCard, error)
+	ListCreditCards(ctx context.Context, ownerID uuid.UUID) ([]domain.PaymentMethodWithCard, error)
 }
 
 type Service struct {
@@ -201,6 +202,89 @@ func sortedTotals(m map[string]decimal.Decimal) []domain.CurrencyAmount {
 	}
 	sort.Slice(out, func(i, j int) bool { return currencyOrder[out[i].Currency] < currencyOrder[out[j].Currency] })
 	return out
+}
+
+// MaxCommittedMonths bounds "Comprometido" (plan 4.2: 1 to 12 months).
+const MaxCommittedMonths = 12
+
+// Committed sums, for every active card of the user, the statements from the
+// card's open period on, over months months starting at the earliest open
+// period. Each card also carries its closed statement still to pay.
+func (s *Service) Committed(ctx context.Context, ownerID uuid.UUID, months int) (domain.Committed, error) {
+	if months < 1 || months > MaxCommittedMonths {
+		return domain.Committed{}, domain.NewValidationError("months", "debe estar entre 1 y 12")
+	}
+	cards, err := s.cards.ListCreditCards(ctx, ownerID)
+	if err != nil {
+		return domain.Committed{}, err
+	}
+	today := dates.DateOf(s.now())
+	opens := make([]time.Time, len(cards))
+	var start time.Time
+	for i, c := range cards {
+		if opens[i], err = s.openMonth(ctx, *c.CreditCard, today); err != nil {
+			return domain.Committed{}, err
+		}
+		if i == 0 || opens[i].Before(start) {
+			start = opens[i]
+		}
+	}
+	if len(cards) == 0 {
+		start = time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC)
+	}
+	end := start.AddDate(0, months-1, 0)
+
+	all := map[string]map[string]decimal.Decimal{}
+	out := domain.Committed{Cards: make([]domain.CardCommitted, len(cards))}
+	for i, c := range cards {
+		open, prev := opens[i], opens[i].AddDate(0, -1, 0)
+		list, err := s.build(ctx, *c.CreditCard, prev, end, today, map[string]bool{ym(prev): true})
+		if err != nil {
+			return domain.Committed{}, err
+		}
+		byYM := make(map[string]domain.CardStatement, len(list))
+		for _, st := range list {
+			byYM[st.PeriodYM] = st
+		}
+		card := domain.CardCommitted{Card: c, OpenPeriodYM: ym(open)}
+		if st, ok := byYM[ym(prev)]; ok && st.Status != domain.StatementPaid && len(st.Totals) > 0 {
+			card.ToPay = &st
+		}
+		for m := start; !m.After(end); m = m.AddDate(0, 1, 0) {
+			pt := domain.PeriodTotals{PeriodYM: ym(m), Totals: []domain.CurrencyAmount{}}
+			if !m.Before(open) {
+				if st, ok := byYM[ym(m)]; ok {
+					pt.Totals = st.Totals
+				}
+			}
+			for _, t := range pt.Totals {
+				if all[pt.PeriodYM] == nil {
+					all[pt.PeriodYM] = map[string]decimal.Decimal{}
+				}
+				all[pt.PeriodYM][t.Currency] = all[pt.PeriodYM][t.Currency].Add(t.Amount)
+			}
+			card.Months = append(card.Months, pt)
+		}
+		out.Cards[i] = card
+	}
+	for m := start; !m.After(end); m = m.AddDate(0, 1, 0) {
+		out.Months = append(out.Months, domain.PeriodTotals{PeriodYM: ym(m), Totals: sortedTotals(all[ym(m)])})
+	}
+	return out, nil
+}
+
+// InstallmentPlans: the card's expenses in installments still being billed,
+// from its open period on ("Cuotas en curso", plan 4.2).
+func (s *Service) InstallmentPlans(ctx context.Context, ownerID, pmID uuid.UUID) ([]domain.InstallmentPlan, error) {
+	cc, err := s.card(ctx, ownerID, pmID)
+	if err != nil {
+		return nil, err
+	}
+	open, err := s.openMonth(ctx, cc, dates.DateOf(s.now()))
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.InstallmentPlans(ctx, cc.PaymentMethodID, open)
 }
 
 // Detail: one statement with its installments and adjustments.

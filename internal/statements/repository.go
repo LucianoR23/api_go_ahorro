@@ -247,3 +247,20 @@ func (r *Repository) DeleteAdjustment(ctx context.Context, ccID uuid.UUID, ym st
 	}
 	return nil
 }
+
+func (r *Repository) InstallmentPlans(ctx context.Context, pmID uuid.UUID, from time.Time) ([]domain.InstallmentPlan, error) {
+	rows, err := r.q.ListCardInstallmentPlans(ctx, sqlcgen.ListCardInstallmentPlansParams{PaymentMethodID: pmID, FromDate: date(from)})
+	if err != nil {
+		return nil, fmt.Errorf("statements.InstallmentPlans: %w", err)
+	}
+	out := make([]domain.InstallmentPlan, len(rows))
+	for i, row := range rows {
+		out[i] = domain.InstallmentPlan{
+			ExpenseID: row.ExpenseID, HouseholdID: row.HouseholdID, CategoryID: row.CategoryID,
+			Description: row.Description, Currency: row.Currency, TotalInstallments: int(row.TotalInstallments),
+			NextInstallmentNumber: int(row.NextInstallmentNumber), NextInstallmentAmount: money.FromNumeric(row.NextInstallmentAmount),
+			LastPeriodYM: domain.PeriodYMFromDate(row.LastBillingDate.Time),
+		}
+	}
+	return out, nil
+}

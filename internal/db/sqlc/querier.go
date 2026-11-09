@@ -255,6 +255,10 @@ type Querier interface {
 	ListBanksByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]Bank, error)
 	// Filtros opcionales: scope, user_id (cuando scope='user'), is_active.
 	ListBudgetGoalsByHousehold(ctx context.Context, arg ListBudgetGoalsByHouseholdParams) ([]BudgetGoal, error)
+	// "Cuotas en curso" (plan 4.2): confirmed expenses of a card in two or more
+	// installments with an installment billed on or after from_date. next_* is
+	// the first of those installments; last_billing_date is when the plan ends.
+	ListCardInstallmentPlans(ctx context.Context, arg ListCardInstallmentPlansParams) ([]ListCardInstallmentPlansRow, error)
 	ListCardStatementAdjustments(ctx context.Context, arg ListCardStatementAdjustmentsParams) ([]CreditCardStatementAdjustment, error)
 	ListCardStatementInstallments(ctx context.Context, arg ListCardStatementInstallmentsParams) ([]ListCardStatementInstallmentsRow, error)
 	ListCardStatementRecords(ctx context.Context, arg ListCardStatementRecordsParams) ([]CreditCardStatement, error)
@@ -399,6 +403,8 @@ type Querier interface {
 	// Installments of a card per closing month and currency, between two
 	// billing dates (inclusive). The card's expenses can live in several
 	// households (Mi plata and Hogar): a card has one owner and one bill.
+	// Drafts (variable recurring expenses waiting for their amount) stay out
+	// until confirmed.
 	SumCardInstallmentsByPeriod(ctx context.Context, arg SumCardInstallmentsByPeriodParams) ([]SumCardInstallmentsByPeriodRow, error)
 	// ===================== breakdown por categoría =====================
 	// Para el resumen mensual: total por categoría usando spent_at.

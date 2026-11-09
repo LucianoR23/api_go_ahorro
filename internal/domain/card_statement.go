@@ -131,3 +131,41 @@ type CardStatementDetail struct {
 	Installments []StatementInstallment
 	Adjustments  []StatementAdjustment
 }
+
+// PeriodTotals: one closing month and its total per currency.
+type PeriodTotals struct {
+	PeriodYM string
+	Totals   []CurrencyAmount
+}
+
+// CardCommitted: what one card already has billed from its open period on
+// (plan 4.2), plus the closed statement still to pay, if any.
+type CardCommitted struct {
+	Card         PaymentMethodWithCard
+	OpenPeriodYM string
+	ToPay        *CardStatement
+	Months       []PeriodTotals
+}
+
+// Committed: "Comprometido" for every active card of a user. Months starts
+// at the earliest open period among the cards; each card counts from its
+// own open period (a card that already closed this month starts next month).
+type Committed struct {
+	Months []PeriodTotals
+	Cards  []CardCommitted
+}
+
+// InstallmentPlan: an expense in installments still being billed ("Cuotas
+// en curso", plan 4.2). Next* is the first installment from the open period
+// on; LastPeriodYM is the closing month of the last one.
+type InstallmentPlan struct {
+	ExpenseID             uuid.UUID
+	HouseholdID           uuid.UUID
+	CategoryID            *uuid.UUID
+	Description           string
+	Currency              string
+	TotalInstallments     int
+	NextInstallmentNumber int
+	NextInstallmentAmount decimal.Decimal
+	LastPeriodYM          string
+}

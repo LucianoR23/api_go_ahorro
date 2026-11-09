@@ -4,6 +4,11 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 4.2 (API part): Comprometido
+- `GET /credit-cards/committed?months=6` (1 to 12): for every active card of the user, the statement totals from the card's open period on, per currency, plus the closed statement still to pay (unpaid and not empty, as `toPay`). The months start at the earliest open period among the cards; a card that already closed this month counts from next month. `months` adds every card per month and currency.
+- `GET /payment-methods/{id}/credit-card/installment-plans`, owner only ("Cuotas en curso"): the card's expenses in two or more installments with an installment from the open period on, with the next installment's number and amount and the closing month of the last one.
+- Fix (4.1): drafts (variable recurring expenses waiting for their amount) no longer count in statements, and paying a statement leaves their installments unpaid. They count once confirmed.
+
 ### 4.1 (API part): credit card statements
 - Migration 000035: `credit_card_statements` (minimum payment in pesos, payment: date, amount and currency, all or none) and `credit_card_statement_adjustments` (interest, tax, fee, credit, other). Both cascade with the card.
 - A statement is the card's installments billed in its closing month, from every space (Mi plata and Hogar: a card has one owner and one bill), plus adjustments; a credit subtracts. Totals are computed on every read, one per currency, so editing an expense never leaves a stale total. Status comes from the dates: open until the closing day, closed, overdue after the due date, paid.
