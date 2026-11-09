@@ -86,6 +86,85 @@ func (q *Queries) EnsureCardStatement(ctx context.Context, arg EnsureCardStateme
 	return err
 }
 
+const listCardInstallmentPlans = `-- name: ListCardInstallmentPlans :many
+SELECT e.id AS expense_id,
+       e.household_id,
+       e.category_id,
+       e.description,
+       e.currency,
+       e.installments AS total_installments,
+       nxt.installment_number AS next_installment_number,
+       nxt.installment_amount AS next_installment_amount,
+       lst.billing_date AS last_billing_date
+FROM expenses e
+JOIN LATERAL (
+    SELECT ei.installment_number, ei.installment_amount
+    FROM expense_installments ei
+    WHERE ei.expense_id = e.id AND ei.billing_date >= $1
+    ORDER BY ei.installment_number
+    LIMIT 1
+) nxt ON true
+JOIN LATERAL (
+    SELECT MAX(ei.billing_date)::date AS billing_date
+    FROM expense_installments ei
+    WHERE ei.expense_id = e.id
+) lst ON true
+WHERE e.payment_method_id = $2
+  AND e.installments > 1
+  AND e.status = 'confirmed'
+ORDER BY lst.billing_date, e.spent_at, e.id
+`
+
+type ListCardInstallmentPlansParams struct {
+	FromDate        pgtype.Date `json:"from_date"`
+	PaymentMethodID uuid.UUID   `json:"payment_method_id"`
+}
+
+type ListCardInstallmentPlansRow struct {
+	ExpenseID             uuid.UUID      `json:"expense_id"`
+	HouseholdID           uuid.UUID      `json:"household_id"`
+	CategoryID            *uuid.UUID     `json:"category_id"`
+	Description           string         `json:"description"`
+	Currency              string         `json:"currency"`
+	TotalInstallments     int32          `json:"total_installments"`
+	NextInstallmentNumber int32          `json:"next_installment_number"`
+	NextInstallmentAmount pgtype.Numeric `json:"next_installment_amount"`
+	LastBillingDate       pgtype.Date    `json:"last_billing_date"`
+}
+
+// "Cuotas en curso" (plan 4.2): confirmed expenses of a card in two or more
+// installments with an installment billed on or after from_date. next_* is
+// the first of those installments; last_billing_date is when the plan ends.
+func (q *Queries) ListCardInstallmentPlans(ctx context.Context, arg ListCardInstallmentPlansParams) ([]ListCardInstallmentPlansRow, error) {
+	rows, err := q.db.Query(ctx, listCardInstallmentPlans, arg.FromDate, arg.PaymentMethodID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCardInstallmentPlansRow{}
+	for rows.Next() {
+		var i ListCardInstallmentPlansRow
+		if err := rows.Scan(
+			&i.ExpenseID,
+			&i.HouseholdID,
+			&i.CategoryID,
+			&i.Description,
+			&i.Currency,
+			&i.TotalInstallments,
+			&i.NextInstallmentNumber,
+			&i.NextInstallmentAmount,
+			&i.LastBillingDate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCardStatementAdjustments = `-- name: ListCardStatementAdjustments :many
 SELECT id, credit_card_id, period_ym, kind, description, amount, currency, created_at, updated_at FROM credit_card_statement_adjustments
 WHERE credit_card_id = $1 AND period_ym = $2
@@ -143,6 +222,7 @@ FROM expense_installments ei
 JOIN expenses e ON e.id = ei.expense_id
 WHERE e.payment_method_id = $1
   AND ei.billing_date BETWEEN $2 AND $3
+  AND e.status = 'confirmed'
 ORDER BY e.spent_at, e.created_at, ei.installment_number
 `
 
@@ -287,6 +367,7 @@ FROM expenses e
 WHERE e.id = ei.expense_id
   AND e.payment_method_id = $2
   AND ei.billing_date BETWEEN $3 AND $4
+  AND e.status = 'confirmed'
   AND ei.is_paid <> $1
 `
 
@@ -407,6 +488,7 @@ FROM expense_installments ei
 JOIN expenses e ON e.id = ei.expense_id
 WHERE e.payment_method_id = $1
   AND ei.billing_date BETWEEN $2 AND $3
+  AND e.status = 'confirmed'
 GROUP BY 1, 2
 ORDER BY 1, 2
 `
@@ -427,6 +509,8 @@ type SumCardInstallmentsByPeriodRow struct {
 // Installments of a card per closing month and currency, between two
 // billing dates (inclusive). The card's expenses can live in several
 // households (Mi plata and Hogar): a card has one owner and one bill.
+// Drafts (variable recurring expenses waiting for their amount) stay out
+// until confirmed.
 func (q *Queries) SumCardInstallmentsByPeriod(ctx context.Context, arg SumCardInstallmentsByPeriodParams) ([]SumCardInstallmentsByPeriodRow, error) {
 	rows, err := q.db.Query(ctx, sumCardInstallmentsByPeriod, arg.PaymentMethodID, arg.FromDate, arg.ToDate)
 	if err != nil {
