@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 4.3 (API part): card reminders and the open period
+- Two fixed reminders per card, as a notification and a push, to the card owner in Mi plata only (before, a card owner with a hogar got the old reminder once per space): "Mañana cierra tu Visa" the day before the closing, and "En 3 días vence tu Visa" three days before the due date when the statement has something to pay and is not paid. The push never carries the amount (plan 1.9); the in-app text and the opt-in push body do ("El resumen de tu Visa vence el sábado 7/3: 300.00 ARS."). Dates follow the loaded period or the card's default days.
+- They replace the old "Cargá el próximo período" reminder on the closing day (no longer generated) and the per-installment "Cuota próxima a vencer" alert for credit cards (the statement reminder covers them).
+- Migration 000036: `card_closing_soon` and `card_due_soon` join the once-per-day unique index of insights. No table changes.
+- `GET /payment-methods/{id}/credit-card/periods/status` gains `openPeriod`: the period open today with its closing and due dates and `loaded` (false when the dates come from the card's default days), for the app's "Cargá el cierre de este mes" nudge.
+
 ### 4.2 (API part): Comprometido
 - `GET /credit-cards/committed?months=6` (1 to 12): for every active card of the user, the statement totals from the card's open period on, per currency, plus the closed statement still to pay (unpaid and not empty, as `toPay`). The months start at the earliest open period among the cards; a card that already closed this month counts from next month. `months` adds every card per month and currency.
 - `GET /payment-methods/{id}/credit-card/installment-plans`, owner only ("Cuotas en curso"): the card's expenses in two or more installments with an installment from the open period on, with the next installment's number and amount and the closing month of the last one.

@@ -231,10 +231,6 @@ type Querier interface {
 	// Flag global para gatear endpoints /admin/*. Independiente del rol por-hogar.
 	// Se setea manualmente por DB; no hay endpoint para modificarlo.
 	IsUserSuperadmin(ctx context.Context, id uuid.UUID) (bool, error)
-	// Active credit cards of every member of the household, each with its most
-	// recent period, in one query (plan 0.14: this was one query per member plus
-	// one per card). Cards with no period are left out.
-	ListActiveCardsWithLatestPeriodByHousehold(ctx context.Context, householdID uuid.UUID) ([]ListActiveCardsWithLatestPeriodByHouseholdRow, error)
 	// Lo usa el worker: plantillas activas cuyo rango cubre `date`. Filtro fino
 	// por frequency/day_of_* se resuelve en Go (mismo patrón que recurring_incomes).
 	ListActiveRecurringExpenses(ctx context.Context, dollar_1 pgtype.Date) ([]RecurringExpense, error)

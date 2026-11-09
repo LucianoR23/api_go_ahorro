@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/shopspring/decimal"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,32 +44,17 @@ func (g GoalsAdapter) ProgressList(ctx context.Context, householdID uuid.UUID, f
 // que el service no dependa del pool directamente (testeable + opcional).
 type notifier func(ctx context.Context, ev Event) error
 
-// CreditCardForReminder: vista mínima que necesita el generador de
-// recordatorios: una tarjeta activa de un miembro del hogar con su último
-// período cargado. La provee app.go con una sola query (plan 0.14).
-type CreditCardForReminder struct {
-	PaymentMethodID   uuid.UUID
-	OwnerUserID       uuid.UUID
-	CreditCardID      uuid.UUID
-	Alias             string
-	LatestPeriodYM    string
-	LatestClosingDate time.Time
+// CardReminder: a fixed card reminder of the day for the owner of a
+// personal space (plan 4.3). app.go builds them from statements, only for
+// personal spaces, so each one reaches its owner once even with a hogar.
+type CardReminder struct {
+	OwnerUserID uuid.UUID
+	domain.CardReminder
 }
 
-// creditCardsByHouseholdLister: lista las tarjetas de crédito activas de
-// todos los miembros del hogar que tienen algún período cargado. Optional (puede ser nil si no se cablea,
-// en cuyo caso el generador de recordatorios es no-op).
-type creditCardsByHouseholdLister interface {
-	ListActiveCreditCardsByHousehold(ctx context.Context, householdID uuid.UUID) ([]CreditCardForReminder, error)
-}
-
-// CreditCardsAdapter: adapter funcional para no acoplar insights →
-// creditperiods en el import graph.
-type CreditCardsAdapter func(ctx context.Context, householdID uuid.UUID) ([]CreditCardForReminder, error)
-
-func (a CreditCardsAdapter) ListActiveCreditCardsByHousehold(ctx context.Context, householdID uuid.UUID) ([]CreditCardForReminder, error) {
-	return a(ctx, householdID)
-}
+// CardRemindersAdapter: the reminders of a household on a day (empty for a
+// hogar). A function so insights does not import statements.
+type CardRemindersAdapter func(ctx context.Context, householdID uuid.UUID, today time.Time) ([]CardReminder, error)
 
 // InstallmentDueForReminder: shape mínimo que precisa el generador de
 // avisos de cuota próxima a vencer.
@@ -110,9 +96,9 @@ type Service struct {
 	goals           goalsProgress
 	logger          *slog.Logger
 	notify          notifier
-	creditCards     creditCardsByHouseholdLister // opcional; cableado via SetCreditPeriodDeps
-	push            pushNotifier                 // opcional; cableado via SetPushNotifier
-	installmentsDue installmentsDueLister        // opcional; cableado via SetInstallmentsDueDep
+	cardReminders   CardRemindersAdapter  // opcional; cableado via SetCardRemindersDep
+	push            pushNotifier          // opcional; cableado via SetPushNotifier
+	installmentsDue installmentsDueLister // opcional; cableado via SetInstallmentsDueDep
 }
 
 func NewService(repo *Repository, households householdsLister, goals goalsProgress, logger *slog.Logger) *Service {
@@ -124,12 +110,9 @@ func NewService(repo *Repository, households householdsLister, goals goalsProgre
 // crean igual pero no se propagan en tiempo real (cae al polling).
 func (s *Service) SetNotifier(n notifier) { s.notify = n }
 
-// SetCreditPeriodDeps cablea las dependencias necesarias para el generador
-// de recordatorios de período de tarjeta. Si no se llama, el generador es
-// no-op (los demás insights se generan igual).
-func (s *Service) SetCreditPeriodDeps(cc creditCardsByHouseholdLister) {
-	s.creditCards = cc
-}
+// SetCardRemindersDep wires the card closing and due reminders (plan 4.3).
+// Without it the generator is a no-op.
+func (s *Service) SetCardRemindersDep(d CardRemindersAdapter) { s.cardReminders = d }
 
 // SetPushNotifier cablea web push para insights generados por el worker.
 // Opcional: si no se cablea, los insights se crean igual (SSE + /notifs).
@@ -282,13 +265,14 @@ func (s *Service) generateForHousehold(ctx context.Context, householdID uuid.UUI
 		}
 	}
 
-	// 3. credit_period_reminder — un insight por tarjeta cuando hoy es el día
-	// de cierre del último período cargado (señal: hay que cargar el siguiente).
-	cn, cf := s.genCreditPeriodReminders(ctx, householdID, at)
+	// 3. card_closing_soon / card_due_soon — a card closes tomorrow or its
+	// statement is due in 3 days (plan 4.3). Personal spaces only.
+	cn, cf := s.genCardReminders(ctx, householdID, at)
 	created += cn
 	failed += cf
 
-	// 4. installment_due_soon — cuotas que vencen en 3 días.
+	// 4. installment_due_soon — cuotas que vencen en 3 días (not credit
+	// cards: their statement reminder covers them).
 	in, ifail := s.genInstallmentsDueSoon(ctx, householdID, at)
 	created += in
 	failed += ifail
@@ -405,83 +389,83 @@ func (s *Service) genWeeklyReview(ctx context.Context, householdID uuid.UUID, at
 	return created, err
 }
 
-// genCreditPeriodReminders: para cada tarjeta de crédito activa de algún
-// miembro del hogar, dispara un insight el día que cierra el último período
-// cargado. Señal explícita al user: "ya cerró este ciclo, cargá el próximo
-// para que los gastos siguientes se asignen al período correcto".
-//
-// Reglas:
-//   - Si la tarjeta no tiene ningún período cargado → skip (lo cubre el
-//     onboarding del frontend al crear la tarjeta — current_period es
-//     obligatorio en la API).
-//   - Si today != latest.ClosingDate (truncado a día UTC) → skip.
-//   - El insight queda linkeado al user dueño de la tarjeta vía UserID,
-//     porque las tarjetas son personales (no del hogar). RefID =
-//     paymentMethodID, plus the date in the unique index: once per closing
-//     day, every month (before 000023 it could only happen once per card).
-//
-// No-op si las deps no están cableadas (SetCreditPeriodDeps no llamado).
-func (s *Service) genCreditPeriodReminders(ctx context.Context, householdID uuid.UUID, at time.Time) (int, int) {
-	if s.creditCards == nil {
+// genCardReminders: the card reminders of the day (plan 4.3), one insight
+// and one push each, personal to the card owner. RefID = payment method,
+// plus the date in the unique index (000036): once per card and day.
+func (s *Service) genCardReminders(ctx context.Context, householdID uuid.UUID, at time.Time) (int, int) {
+	if s.cardReminders == nil {
 		return 0, 0
 	}
-	cards, err := s.creditCards.ListActiveCreditCardsByHousehold(ctx, householdID)
+	today := dayStart(at.UTC())
+	reminders, err := s.cardReminders(ctx, householdID, today)
 	if err != nil {
-		s.logWarn(ctx, "credit cards lookup falló", "householdId", householdID.String(), "error", err)
+		s.logWarn(ctx, "card reminders lookup falló", "householdId", householdID.String(), "error", err)
 		return 0, 1
 	}
-	today := dayStart(at.UTC())
 	created, failed := 0, 0
-	for _, card := range cards {
-		closing := dayStart(card.LatestClosingDate.UTC())
-		if !closing.Equal(today) {
-			continue
-		}
-		ownerID := card.OwnerUserID
-		refID := card.PaymentMethodID
-		title := fmt.Sprintf("Cargá el próximo período de %s", card.Alias)
-		body := fmt.Sprintf(
-			"Hoy cerró el período %s. Cargá el siguiente para que los gastos se asignen al ciclo correcto.",
-			card.LatestPeriodYM,
-		)
+	for _, r := range reminders {
+		msg := cardReminderMessage(r.CardReminder)
+		ownerID, refID := r.OwnerUserID, r.PaymentMethodID
 		ins, c, err := s.repo.Create(ctx, CreateParams{
 			HouseholdID: householdID,
 			UserID:      &ownerID,
 			InsightDate: today,
-			InsightType: domain.InsightTypeCreditPeriodReminder,
-			Title:       title,
-			Body:        body,
-			Severity:    domain.InsightSeverityWarning,
+			InsightType: msg.insightType,
+			Title:       msg.title,
+			Body:        msg.full,
+			Severity:    msg.severity,
 			Metadata: map[string]any{
-				"payment_method_id": card.PaymentMethodID.String(),
-				"credit_card_id":    card.CreditCardID.String(),
-				"latest_period_ym":  card.LatestPeriodYM,
-				"alias":             card.Alias,
+				"payment_method_id": r.PaymentMethodID.String(),
+				"period_ym":         r.PeriodYM,
+				"date":              r.Date.Format(time.DateOnly),
 			},
 			RefID: &refID,
 		})
 		if err != nil {
 			failed++
-			s.logWarn(ctx, "credit_period_reminder create falló",
-				"paymentMethodId", card.PaymentMethodID.String(), "error", err)
+			s.logWarn(ctx, "card reminder create falló", "paymentMethodId", r.PaymentMethodID.String(), "error", err)
 			continue
 		}
 		if c {
 			created++
 			s.publish(ctx, ins)
 			if s.push != nil {
-				s.push.NotifyUsers(
-					ctx,
-					[]uuid.UUID{ownerID},
-					title,
-					body,
-					"/ajustes",
-					"credit-period-reminder:"+card.PaymentMethodID.String(),
-				)
+				s.push.NotifyUsersWithAmounts(ctx, []uuid.UUID{ownerID}, msg.title, msg.lockScreen, msg.full, msg.url,
+					msg.insightType+":"+r.PaymentMethodID.String())
 			}
 		}
 	}
 	return created, failed
+}
+
+type cardMessage struct {
+	insightType, title, lockScreen, full, url string
+	severity                                  string
+}
+
+var weekdays = [...]string{"domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"}
+
+// cardReminderMessage: the texts of a card reminder. The push body
+// (lockScreen) never has an amount (plan 1.9); full is the in-app text.
+func cardReminderMessage(r domain.CardReminder) cardMessage {
+	day := fmt.Sprintf("%s %d/%d", weekdays[r.Date.Weekday()], r.Date.Day(), int(r.Date.Month()))
+	if r.Kind == domain.CardReminderClosing {
+		body := fmt.Sprintf("Lo que compres con tu %s desde pasado mañana entra en el resumen siguiente. Si este mes cierra otro día, cargalo en Tarjetas.", r.CardName)
+		return cardMessage{
+			insightType: domain.InsightTypeCardClosingSoon, title: "Mañana cierra tu " + r.CardName,
+			lockScreen: body, full: body, url: "/tarjetas", severity: domain.InsightSeverityInfo,
+		}
+	}
+	head := fmt.Sprintf("El resumen de tu %s vence el %s", r.CardName, day)
+	amounts := make([]string, len(r.Totals))
+	for i, t := range r.Totals {
+		amounts[i] = fmt.Sprintf("%s %s", t.Amount.StringFixed(2), t.Currency)
+	}
+	return cardMessage{
+		insightType: domain.InsightTypeCardDueSoon, title: fmt.Sprintf("En %d días vence tu %s", domain.CardReminderDueDays, r.CardName),
+		lockScreen: head + ".", full: head + ": " + strings.Join(amounts, " + ") + ".",
+		url: "/tarjetas/" + r.PaymentMethodID.String() + "/resumen/" + r.PeriodYM, severity: domain.InsightSeverityWarning,
+	}
 }
 
 // genInstallmentsDueSoon: avisa al creador del gasto cuando una cuota

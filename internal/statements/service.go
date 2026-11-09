@@ -287,6 +287,45 @@ func (s *Service) InstallmentPlans(ctx context.Context, ownerID, pmID uuid.UUID)
 	return s.repo.InstallmentPlans(ctx, cc.PaymentMethodID, open)
 }
 
+// Reminders: the fixed card reminders of today for every active card of the
+// user (plan 4.3): the open period closes tomorrow, or a statement with
+// something to pay is due in CardReminderDueDays days and is not paid.
+// today is a calendar day (midnight UTC).
+func (s *Service) Reminders(ctx context.Context, ownerID uuid.UUID, today time.Time) ([]domain.CardReminder, error) {
+	cards, err := s.cards.ListCreditCards(ctx, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	tomorrow, dueDay := today.AddDate(0, 0, 1), today.AddDate(0, 0, domain.CardReminderDueDays)
+	var out []domain.CardReminder
+	for _, c := range cards {
+		cc := *c.CreditCard
+		open, err := s.openMonth(ctx, cc, today)
+		if err != nil {
+			return nil, err
+		}
+		prev := open.AddDate(0, -1, 0)
+		list, err := s.build(ctx, cc, prev, open, today, map[string]bool{ym(prev): true, ym(open): true})
+		if err != nil {
+			return nil, err
+		}
+		for _, st := range list {
+			base := domain.CardReminder{PaymentMethodID: c.ID, CardName: c.Name, PeriodYM: st.PeriodYM}
+			if st.PeriodYM == ym(open) && st.ClosingDate.Equal(tomorrow) {
+				r := base
+				r.Kind, r.Date = domain.CardReminderClosing, st.ClosingDate
+				out = append(out, r)
+			}
+			if st.DueDate.Equal(dueDay) && st.Status != domain.StatementPaid && len(st.Totals) > 0 {
+				r := base
+				r.Kind, r.Date, r.Totals = domain.CardReminderDue, st.DueDate, st.Totals
+				out = append(out, r)
+			}
+		}
+	}
+	return out, nil
+}
+
 // Detail: one statement with its installments and adjustments.
 func (s *Service) Detail(ctx context.Context, ownerID, pmID uuid.UUID, periodYM string) (domain.CardStatementDetail, error) {
 	cc, err := s.card(ctx, ownerID, pmID)

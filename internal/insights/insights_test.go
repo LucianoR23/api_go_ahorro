@@ -188,65 +188,85 @@ func TestInsightGenerators(t *testing.T) {
 		}
 	})
 
-	t.Run("credit period reminder on the closing day, to the card owner", func(t *testing.T) {
+	t.Run("card closing reminder the day before, once, in the owner's Mi plata", func(t *testing.T) {
 		h := newHouse(t, s)
-		card := s.CreateCreditCard(t, h.member, "Visa Galicia", 25, 5, "2026-03-25", "2026-04-06")
+		s.CreateCreditCard(t, h.member, "Visa Galicia", 25, 5, "2026-03-25", "2026-04-06")
+		mine := personalSpaceOf(t, s, h.member)
+		h.generate(t, "2026-03-23")
+		if n := len(ofType(listIn(t, s, h.member, mine), "card_closing_soon")); n != 0 {
+			t.Errorf("reminder two days before closing: %d", n)
+		}
 		h.generate(t, "2026-03-24")
-		if n := len(ofType(h.list(t, h.member, ""), "credit_period_reminder")); n != 0 {
-			t.Errorf("reminder before closing: %d", n)
+		h.generate(t, "2026-03-24") // same day again: still one
+		got := ofType(listIn(t, s, h.member, mine), "card_closing_soon")
+		if len(got) != 1 || got[0].Title != "Mañana cierra tu Visa Galicia" || got[0].UserID == nil || *got[0].UserID != h.member.ID {
+			t.Errorf("closing reminders = %+v", got)
 		}
-		h.generate(t, "2026-03-25")
-		// Personal to the card owner: the household owner does not see it (0.6).
-		if n := len(ofType(h.list(t, h.owner, ""), "credit_period_reminder")); n != 0 {
-			t.Errorf("another member sees the card owner's reminder: %d", n)
+		// Only in Mi plata: the hogar gets nothing, for the owner or anyone.
+		if n := len(ofType(h.list(t, h.member, ""), "card_closing_soon")) + len(ofType(h.list(t, h.owner, ""), "card_closing_soon")); n != 0 {
+			t.Errorf("card reminder in the hogar: %d", n)
 		}
-		got := ofType(h.list(t, h.member, ""), "credit_period_reminder")
-		if len(got) != 1 || got[0].UserID == nil || *got[0].UserID != h.member.ID || got[0].Title != "Cargá el próximo período de Visa Galicia" {
-			t.Errorf("reminders = %+v", got)
-		}
-		h.generate(t, "2026-03-25") // same day again: still one
-
-		// Next month: the member loads April's period and gets April's reminder
-		// too (before 000023 a card could only ever get one).
-		s.Do(t, apitest.Req{Method: http.MethodPut, Path: "/payment-methods/" + card.ID + "/credit-card/periods/2026-04", Token: h.member.Token,
-			Body: map[string]string{"closingDate": "2026-04-24", "dueDate": "2026-05-06"}}).Status(t, http.StatusOK)
+		// Next month, with the card's default day: another one.
 		h.generate(t, "2026-04-24")
-		if n := len(ofType(h.list(t, h.member, ""), "credit_period_reminder")); n != 2 {
-			t.Errorf("reminders after two closings = %d, want 2", n)
+		if n := len(ofType(listIn(t, s, h.member, mine), "card_closing_soon")); n != 2 {
+			t.Errorf("closing reminders after two months = %d, want 2", n)
 		}
 	})
 
-	t.Run("installment due in 3 days, then the next one", func(t *testing.T) {
-		h := newHouse(t, s)
-		card := s.CreateCreditCard(t, h.owner, "Master", 25, 5, "2026-02-26", "2026-03-07")
-		s.CreateExpense(t, h.owner, h.id, map[string]any{"paymentMethodId": card.ID, "amount": 600, "spentAt": "2026-02-10",
+	t.Run("card due reminder 3 days before, unless paid; no per-installment alert", func(t *testing.T) {
+		u := s.Register(t)
+		card := s.CreateCreditCard(t, u, "Master", 25, 5, "2026-02-26", "2026-03-07")
+		mine := personalSpaceOf(t, s, u)
+		s.CreateExpense(t, u, mine, map[string]any{"paymentMethodId": card.ID, "amount": 600, "spentAt": "2026-02-10",
 			"installments": 2, "description": "Heladera"})
-		h.generate(t, "2026-03-04") // installment 1 due 2026-03-07
-		due := ofType(h.list(t, h.owner, ""), "alert")
-		if len(due) != 1 || due[0].Title != "Cuota próxima a vencer" || !strings.Contains(due[0].Body, "1/2") {
-			t.Fatalf("first due-soon = %+v", due)
+		h := house{s: s}
+		h.generate(t, "2026-03-04") // February's statement is due 2026-03-07
+		list := listIn(t, s, u, mine)
+		due := ofType(list, "card_due_soon")
+		if len(due) != 1 || due[0].Title != "En 3 días vence tu Master" ||
+			due[0].Body != "El resumen de tu Master vence el sábado 7/3: 300.00 ARS." {
+			t.Fatalf("due reminders = %+v", due)
 		}
-		h.generate(t, "2026-04-02") // installment 2 due 2026-04-05
-		due = ofType(h.list(t, h.owner, ""), "alert")
-		if len(due) != 2 {
-			t.Errorf("due-soon alerts after two installments = %d, want 2", len(due))
+		if n := len(ofType(list, "alert")); n != 0 {
+			t.Errorf("credit card installments still get their own alert: %d", n)
 		}
-	})
 
-	t.Run("installment due-soon only reaches its own household", func(t *testing.T) {
-		a, b := newHouse(t, s), newHouse(t, s)
-		card := s.CreateCreditCard(t, b.owner, "Amex", 25, 5, "2026-02-26", "2026-03-07")
-		s.CreateExpense(t, b.owner, b.id, map[string]any{"paymentMethodId": card.ID, "amount": 300, "spentAt": "2026-02-10",
-			"installments": 1, "description": "Bici"})
-		a.generate(t, "2026-03-04")
-		if n := len(ofType(a.list(t, a.owner, ""), "alert")); n != 0 {
-			t.Errorf("another household's installment alerted here: %d", n)
-		}
-		b.generate(t, "2026-03-04")
-		if n := len(ofType(b.list(t, b.owner, ""), "alert")); n != 1 {
-			t.Errorf("due-soon alerts in the expense's household = %d, want 1", n)
+		// March's statement is paid before its reminder day: no reminder.
+		s.Do(t, apitest.Req{Method: http.MethodPost, Path: "/payment-methods/" + card.ID + "/credit-card/statements/2026-03/pay",
+			Token: u.Token, Body: map[string]any{}}).Status(t, http.StatusOK)
+		h.generate(t, "2026-04-02")
+		if n := len(ofType(listIn(t, s, u, mine), "card_due_soon")); n != 1 {
+			t.Errorf("due reminders after paying March = %d, want 1", n)
 		}
 	})
+}
+
+// personalSpaceOf: u's Mi plata.
+func personalSpaceOf(t testing.TB, s *apitest.Server, u apitest.User) string {
+	t.Helper()
+	var spaces []struct {
+		ID   string `json:"id"`
+		Kind string `json:"kind"`
+	}
+	s.Do(t, apitest.Req{Method: http.MethodGet, Path: "/households", Token: u.Token}).Status(t, http.StatusOK).JSON(t, &spaces)
+	for _, sp := range spaces {
+		if sp.Kind == "personal" {
+			return sp.ID
+		}
+	}
+	t.Fatal("no personal space")
+	return ""
+}
+
+// listIn: u's insights in a household.
+func listIn(t testing.TB, s *apitest.Server, u apitest.User, household string) []insightJSON {
+	t.Helper()
+	var page struct {
+		Items []insightJSON `json:"items"`
+	}
+	s.Do(t, apitest.Req{Method: http.MethodGet, Path: "/insights", Token: u.Token, Household: household}).
+		Status(t, http.StatusOK).JSON(t, &page)
+	return page.Items
 }
 
 func TestInsightEndpoints(t *testing.T) {
