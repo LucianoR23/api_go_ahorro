@@ -1,0 +1,2 @@
+DROP TABLE credit_card_statement_adjustments;
+DROP TABLE credit_card_statements;

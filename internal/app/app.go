@@ -46,6 +46,7 @@ import (
 	"github.com/LucianoR23/valuo_api/internal/reports"
 	"github.com/LucianoR23/valuo_api/internal/settlements"
 	"github.com/LucianoR23/valuo_api/internal/splitrules"
+	"github.com/LucianoR23/valuo_api/internal/statements"
 	"github.com/LucianoR23/valuo_api/internal/support"
 	"github.com/LucianoR23/valuo_api/internal/users"
 	"github.com/LucianoR23/valuo_api/internal/waitlist"
@@ -267,6 +268,11 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	creditPeriodsRepo := creditperiods.NewRepository(pool)
 	creditPeriodsSvc := creditperiods.NewService(creditPeriodsRepo, paymethodsSvc)
 	creditPeriodsHandler := creditperiods.NewHandler(creditPeriodsSvc, authMW, logger)
+
+	// statements (plan 4.1): card statements under
+	// /payment-methods/{id}/credit-card/statements/*, owner only.
+	statementsSvc := statements.NewService(statements.NewRepository(pool), paymethodsSvc)
+	statementsHandler := statements.NewHandler(statementsSvc, authMW, logger)
 
 	// fxrates: tasas ARS/USD/EUR. Hidratamos caché desde DB al arrancar; el
 	// job fx_refresh refresca cada 15min (bluelytics).
@@ -527,6 +533,9 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 
 		// Credit card periods (auth requerido, ownership validado en service).
 		creditPeriodsHandler.Mount(r)
+
+		// Credit card statements (plan 4.1).
+		statementsHandler.Mount(r)
 
 		// Expenses (auth + household member requerido).
 		expensesHandler.Mount(r)

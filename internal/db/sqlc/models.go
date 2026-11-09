@@ -127,6 +127,29 @@ type CreditCardPeriod struct {
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
+type CreditCardStatement struct {
+	CreditCardID   uuid.UUID          `json:"credit_card_id"`
+	PeriodYm       string             `json:"period_ym"`
+	MinimumPayment pgtype.Numeric     `json:"minimum_payment"`
+	PaidAt         pgtype.Timestamptz `json:"paid_at"`
+	PaidAmount     pgtype.Numeric     `json:"paid_amount"`
+	PaidCurrency   pgtype.Text        `json:"paid_currency"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type CreditCardStatementAdjustment struct {
+	ID           uuid.UUID          `json:"id"`
+	CreditCardID uuid.UUID          `json:"credit_card_id"`
+	PeriodYm     string             `json:"period_ym"`
+	Kind         string             `json:"kind"`
+	Description  string             `json:"description"`
+	Amount       pgtype.Numeric     `json:"amount"`
+	Currency     string             `json:"currency"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
 type DailyInsight struct {
 	ID          uuid.UUID          `json:"id"`
 	HouseholdID uuid.UUID          `json:"household_id"`

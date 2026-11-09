@@ -33,26 +33,16 @@ func resolveForClosingMonth(
 ) (resolvedPeriod, error) {
 	ym := domain.PeriodYMFromDate(closingMonth)
 
-	// 1) Override explícito para ese mes.
+	// Override for that month if loaded, the card's defaults otherwise.
+	var override *domain.CreditCardPeriod
 	p, err := reader.Get(ctx, cc.ID, ym)
-	if err == nil {
-		return resolvedPeriod{BillingDate: p.ClosingDate, DueDate: p.DueDate}, nil
-	}
-	if !errors.Is(err, domain.ErrNotFound) {
+	switch {
+	case err == nil:
+		override = &p
+	case !errors.Is(err, domain.ErrNotFound):
 		return resolvedPeriod{}, err
 	}
-
-	// 2) Fallback a defaults.
-	closing := clampDay(closingMonth.Year(), int(closingMonth.Month()), cc.DefaultClosingDay)
-
-	dueYear, dueMonth := closingMonth.Year(), int(closingMonth.Month())
-	if cc.DefaultDueDay <= cc.DefaultClosingDay {
-		// Due es en el mes siguiente al de cierre.
-		nextDueMonth := closingMonth.AddDate(0, 1, 0)
-		dueYear, dueMonth = nextDueMonth.Year(), int(nextDueMonth.Month())
-	}
-	due := clampDay(dueYear, dueMonth, cc.DefaultDueDay)
-
+	closing, due := domain.CardPeriodDates(cc, closingMonth, override)
 	return resolvedPeriod{BillingDate: closing, DueDate: due}, nil
 }
 
@@ -60,21 +50,4 @@ func resolveForClosingMonth(
 // n=0 es el mes base; n=1 un mes después; etc.
 func addMonths(base time.Time, n int) time.Time {
 	return base.AddDate(0, n, 0)
-}
-
-// clampDay construye una fecha (year, month, day) pero si `day` excede los
-// días del mes (ej: day=31 en febrero) lo colapsa al último día válido.
-// time.Date con day=31 en feb normaliza a "3 de marzo", lo cual no queremos.
-func clampDay(year, month, day int) time.Time {
-	last := lastDayOfMonth(year, month)
-	if day > last {
-		day = last
-	}
-	return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
-}
-
-func lastDayOfMonth(year, month int) int {
-	// Día 0 del mes siguiente == último día del mes actual.
-	t := time.Date(year, time.Month(month+1), 0, 0, 0, 0, 0, time.UTC)
-	return t.Day()
 }
