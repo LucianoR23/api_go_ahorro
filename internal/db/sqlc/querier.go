@@ -407,6 +407,9 @@ type Querier interface {
 	// Incluye categoría NULL (gastos sin categorizar). El JOIN es LEFT.
 	// A subcategory adds up in its parent (plan 1.4): Luz counts as Servicios.
 	SumExpensesByCategoryInRange(ctx context.Context, arg SumExpensesByCategoryInRangeParams) ([]SumExpensesByCategoryInRangeRow, error)
+	// Inicio · Hogar (plan 1.10b): what each member paid in the range, by
+	// spent_at. Whoever loads an expense is the one who paid it.
+	SumExpensesByPayerInRange(ctx context.Context, arg SumExpensesByPayerInRangeParams) ([]SumExpensesByPayerInRangeRow, error)
 	// ===================== fijos vs variables =====================
 	// Split por origen: gastos con recurring_expense_id NOT NULL son "fijos"
 	// (los generó el worker de CP9); el resto son "variables" (entrada manual).

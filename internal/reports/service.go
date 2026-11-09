@@ -47,6 +47,12 @@ type FixedVariableItem struct {
 	VariableCount int64           `json:"variableCount"`
 }
 
+// PayerItem: what one member paid in the month (Inicio · Hogar, plan 1.10b).
+type PayerItem struct {
+	UserID uuid.UUID       `json:"userId"`
+	Total  decimal.Decimal `json:"total"`
+}
+
 type MonthlyReport struct {
 	HouseholdID   uuid.UUID               `json:"householdId"`
 	BaseCurrency  string                  `json:"baseCurrency"`
@@ -58,6 +64,7 @@ type MonthlyReport struct {
 	Due           decimal.Decimal         `json:"dueThisMonth"`
 	ByCategory    []CategoryBreakdownItem `json:"byCategory"`
 	FixedVariable FixedVariableItem       `json:"fixedVariable"`
+	ByPayer       []PayerItem             `json:"byPayer"`
 }
 
 // Monthly calcula el reporte mensual completo para un household.
@@ -88,6 +95,14 @@ func (s *Service) Monthly(ctx context.Context, householdID uuid.UUID, month time
 	fv, err := s.repo.FixedVariable(ctx, householdID, from, to)
 	if err != nil {
 		return MonthlyReport{}, err
+	}
+	payers, err := s.repo.ByPayer(ctx, householdID, from, to)
+	if err != nil {
+		return MonthlyReport{}, err
+	}
+	byPayer := make([]PayerItem, len(payers))
+	for i, p := range payers {
+		byPayer[i] = PayerItem{UserID: p.UserID, Total: p.Total.Round(money.AmountScale)}
 	}
 
 	byCat := make([]CategoryBreakdownItem, len(cats))
@@ -127,6 +142,7 @@ func (s *Service) Monthly(ctx context.Context, householdID uuid.UUID, month time
 		Due:           due.Round(money.AmountScale),
 		ByCategory:    byCat,
 		FixedVariable: fvItem,
+		ByPayer:       byPayer,
 	}, nil
 }
 
