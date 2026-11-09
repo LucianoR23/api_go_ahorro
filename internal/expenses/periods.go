@@ -46,8 +46,10 @@ func resolveForClosingMonth(
 	return resolvedPeriod{BillingDate: closing, DueDate: due}, nil
 }
 
-// addMonths devuelve el "closing month" del installment n (0-indexed).
-// n=0 es el mes base; n=1 un mes después; etc.
+// addMonths returns the closing month of installment n (0-indexed) as the
+// first day of that month: n=0 is the base month, n=1 the one after, etc.
+// It moves from day 1 because AddDate normalizes overflow (Oct 31 + 1 month
+// is Dec 1), which skipped a statement for month-end purchases (plan 1.10d).
 func addMonths(base time.Time, n int) time.Time {
-	return base.AddDate(0, n, 0)
+	return time.Date(base.Year(), base.Month()+time.Month(n), 1, 0, 0, 0, 0, base.Location())
 }

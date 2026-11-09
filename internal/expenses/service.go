@@ -423,9 +423,9 @@ func (s *Service) firstClosingMonth(ctx context.Context, cc domain.CreditCard, s
 		return time.Time{}, err
 	}
 	if spentAt.After(candidate.BillingDate) {
-		return spentAt.AddDate(0, 1, 0), nil
+		return addMonths(spentAt, 1), nil
 	}
-	return spentAt, nil
+	return addMonths(spentAt, 0), nil
 }
 
 // autoBillingDate: the billing date installment n gets when the expense is
