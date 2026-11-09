@@ -131,8 +131,10 @@ type expenseDetailDTO struct {
 type listResponseDTO struct {
 	Items      []expenseDTO `json:"items"`
 	TotalCount int64        `json:"totalCount"`
-	Limit      int32        `json:"limit"`
-	Offset     int32        `json:"offset"`
+	// TotalAmountBase: the whole filtered list in the base currency.
+	TotalAmountBase decimal.Decimal `json:"totalAmountBase"`
+	Limit           int32           `json:"limit"`
+	Offset          int32           `json:"offset"`
 }
 
 // ===================== handlers =====================
@@ -218,10 +220,11 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := listResponseDTO{
-		Items:      make([]expenseDTO, len(items)),
-		TotalCount: total,
-		Limit:      f.Limit,
-		Offset:     f.Offset,
+		Items:           make([]expenseDTO, len(items)),
+		TotalCount:      total.Count,
+		TotalAmountBase: total.AmountBase.Round(money.AmountScale),
+		Limit:           f.Limit,
+		Offset:          f.Offset,
 	}
 	for i, e := range items {
 		out.Items[i] = toExpenseDTO(e)
