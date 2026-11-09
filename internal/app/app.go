@@ -350,27 +350,23 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	insightsSvc.SetNotifier(func(ctx context.Context, ev insights.Event) error {
 		return insights.Notify(ctx, pool, ev)
 	})
-	// Deps para genCreditPeriodReminders: one query for the household's
-	// active cards with their latest period (plan 0.14).
-	creditCardsAdapter := insights.CreditCardsAdapter(func(ctx context.Context, hhID uuid.UUID) ([]insights.CreditCardForReminder, error) {
-		cards, err := creditPeriodsRepo.ListActiveCardsWithLatestPeriodByHousehold(ctx, hhID)
+	// Card reminders (plan 4.3): only in personal spaces, for their owner,
+	// so a card owner with a hogar gets each reminder once.
+	insightsSvc.SetCardRemindersDep(func(ctx context.Context, hhID uuid.UUID, today time.Time) ([]insights.CardReminder, error) {
+		hh, err := householdsRepo.GetByID(ctx, hhID)
+		if err != nil || hh.Kind != domain.HouseholdPersonal {
+			return nil, err
+		}
+		list, err := statementsSvc.Reminders(ctx, hh.CreatedBy, today)
 		if err != nil {
 			return nil, err
 		}
-		out := make([]insights.CreditCardForReminder, len(cards))
-		for i, c := range cards {
-			out[i] = insights.CreditCardForReminder{
-				PaymentMethodID:   c.PaymentMethodID,
-				OwnerUserID:       c.OwnerUserID,
-				CreditCardID:      c.CreditCardID,
-				Alias:             c.Alias,
-				LatestPeriodYM:    c.Latest.PeriodYM,
-				LatestClosingDate: c.Latest.ClosingDate,
-			}
+		out := make([]insights.CardReminder, len(list))
+		for i, r := range list {
+			out[i] = insights.CardReminder{OwnerUserID: hh.CreatedBy, CardReminder: r}
 		}
 		return out, nil
 	})
-	insightsSvc.SetCreditPeriodDeps(creditCardsAdapter)
 	insightsSvc.SetPushNotifier(pushAdapter)
 	insightsSvc.SetInstallmentsDueDep(insights.InstallmentsDueAdapter(listInstallmentsDueOn(pool)))
 	insightsHub := insights.NewHub(logger)
@@ -718,7 +714,8 @@ func (a pushNotifierAdapter) NotifyUsersWithAmounts(ctx context.Context, userIDs
 }
 
 // listInstallmentsDueOn returns the unpaid installments of a household due
-// on a date, for the due-soon reminder. Direct query on the pool; it uses
+// on a date, for the due-soon reminder. Credit cards are left out: their
+// statement reminder covers them (plan 4.3). Direct query on the pool; it uses
 // idx_installments_household_due_unpaid (migration 000030).
 func listInstallmentsDueOn(pool *pgxpool.Pool) func(ctx context.Context, householdID uuid.UUID, due time.Time) ([]insights.InstallmentDueForReminder, error) {
 	return func(ctx context.Context, householdID uuid.UUID, due time.Time) ([]insights.InstallmentDueForReminder, error) {
@@ -734,6 +731,7 @@ func listInstallmentsDueOn(pool *pgxpool.Pool) func(ctx context.Context, househo
 				ei.due_date
 			FROM expense_installments ei
 			JOIN expenses e ON e.id = ei.expense_id
+			JOIN payment_methods pm ON pm.id = e.payment_method_id AND pm.kind <> 'credit'
 			WHERE ei.household_id = $1
 			  AND ei.is_paid = false
 			  AND ei.due_date = $2

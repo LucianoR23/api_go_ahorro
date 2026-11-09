@@ -94,10 +94,22 @@ func (s *Service) Delete(ctx context.Context, ownerID, paymentMethodID uuid.UUID
 //   - dueDatePassed: el último período ya venció (today > due_date).
 //     El frontend debería pedir closing/due del próximo mes.
 //   - latestPeriod: el período más reciente (o null si noPeriodsLoaded).
+//   - openPeriod: the period open today (plan 4.3), with its dates and
+//     whether they were loaded or come from the card's default days. The
+//     app asks to load "el cierre de este mes" when they were not.
 type Status struct {
 	NoPeriodsLoaded bool
 	DueDatePassed   bool
 	LatestPeriod    *domain.CreditCardPeriod
+	OpenPeriod      OpenPeriod
+}
+
+// OpenPeriod: the period open today and where its dates come from.
+type OpenPeriod struct {
+	PeriodYM    string
+	ClosingDate time.Time
+	DueDate     time.Time
+	Loaded      bool
 }
 
 func (s *Service) Status(ctx context.Context, ownerID, paymentMethodID uuid.UUID, now time.Time) (Status, error) {
@@ -105,16 +117,50 @@ func (s *Service) Status(ctx context.Context, ownerID, paymentMethodID uuid.UUID
 	if err != nil {
 		return Status{}, err
 	}
+	today := dates.DateOf(now)
+	open, err := s.openPeriod(ctx, paymentMethodID, ccID, today)
+	if err != nil {
+		return Status{}, err
+	}
 	latest, err := s.repo.GetLatest(ctx, ccID)
 	if err != nil {
 		if err == domain.ErrNotFound {
-			return Status{NoPeriodsLoaded: true}, nil
+			return Status{NoPeriodsLoaded: true, OpenPeriod: open}, nil
 		}
 		return Status{}, err
 	}
-	today := dates.DateOf(now)
 	return Status{
 		DueDatePassed: today.After(latest.DueDate),
 		LatestPeriod:  &latest,
+		OpenPeriod:    open,
 	}, nil
+}
+
+// openPeriod resolves the period open today with the shared period rule.
+func (s *Service) openPeriod(ctx context.Context, pmID, ccID uuid.UUID, today time.Time) (OpenPeriod, error) {
+	cc, err := s.paymSvc.CreditCardByPaymentMethod(ctx, pmID)
+	if err != nil {
+		return OpenPeriod{}, err
+	}
+	var lookupErr error
+	override := func(month time.Time) *domain.CreditCardPeriod {
+		p, err := s.repo.Get(ctx, ccID, domain.PeriodYMFromDate(month))
+		if err != nil {
+			if err != domain.ErrNotFound {
+				lookupErr = err
+			}
+			return nil
+		}
+		return &p
+	}
+	month := domain.OpenPeriodMonth(today, func(m time.Time) time.Time {
+		closing, _ := domain.CardPeriodDates(cc, m, override(m))
+		return closing
+	})
+	o := override(month)
+	if lookupErr != nil {
+		return OpenPeriod{}, lookupErr
+	}
+	closing, due := domain.CardPeriodDates(cc, month, o)
+	return OpenPeriod{PeriodYM: domain.PeriodYMFromDate(month), ClosingDate: closing, DueDate: due, Loaded: o != nil}, nil
 }

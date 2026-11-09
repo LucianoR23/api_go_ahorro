@@ -59,6 +59,16 @@ type statusDTO struct {
 	NoPeriodsLoaded bool       `json:"noPeriodsLoaded"`
 	DueDatePassed   bool       `json:"dueDatePassed"`
 	LatestPeriod    *periodDTO `json:"latestPeriod,omitempty"`
+	OpenPeriod      openDTO    `json:"openPeriod"`
+}
+
+// openDTO: the period open today; loaded is false when its dates come from
+// the card's default days (plan 4.3).
+type openDTO struct {
+	PeriodYM    string `json:"periodYm"`
+	ClosingDate string `json:"closingDate"`
+	DueDate     string `json:"dueDate"`
+	Loaded      bool   `json:"loaded"`
 }
 
 // ===================== handlers =====================
@@ -143,6 +153,10 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	out := statusDTO{
 		NoPeriodsLoaded: st.NoPeriodsLoaded,
 		DueDatePassed:   st.DueDatePassed,
+		OpenPeriod: openDTO{
+			PeriodYM: st.OpenPeriod.PeriodYM, ClosingDate: st.OpenPeriod.ClosingDate.Format(time.DateOnly),
+			DueDate: st.OpenPeriod.DueDate.Format(time.DateOnly), Loaded: st.OpenPeriod.Loaded,
+		},
 	}
 	if st.LatestPeriod != nil {
 		d := toDTO(*st.LatestPeriod)

@@ -169,3 +169,28 @@ type InstallmentPlan struct {
 	NextInstallmentAmount decimal.Decimal
 	LastPeriodYM          string
 }
+
+// CardReminderKind: what a card reminder is about (plan 4.3).
+type CardReminderKind string
+
+const (
+	// CardReminderClosing: the open period closes tomorrow.
+	CardReminderClosing CardReminderKind = "closing"
+	// CardReminderDue: an unpaid statement is due in three days.
+	CardReminderDue CardReminderKind = "due"
+)
+
+// CardReminderDueDays: how many days before the due date the due reminder
+// goes out.
+const CardReminderDueDays = 3
+
+// CardReminder: a fixed reminder for one card on one day. Date is the
+// closing or due date; Totals is the statement's total (due reminders).
+type CardReminder struct {
+	Kind            CardReminderKind
+	PaymentMethodID uuid.UUID
+	CardName        string
+	PeriodYM        string
+	Date            time.Time
+	Totals          []CurrencyAmount
+}

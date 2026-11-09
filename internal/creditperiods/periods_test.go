@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LucianoR23/valuo_api/internal/dates"
 	"github.com/LucianoR23/valuo_api/internal/testutil/apitest"
 	"github.com/LucianoR23/valuo_api/internal/testutil/testdb"
 )
@@ -25,6 +26,12 @@ type statusJSON struct {
 	NoPeriodsLoaded bool        `json:"noPeriodsLoaded"`
 	DueDatePassed   bool        `json:"dueDatePassed"`
 	LatestPeriod    *periodJSON `json:"latestPeriod"`
+	OpenPeriod      struct {
+		PeriodYM    string `json:"periodYm"`
+		ClosingDate string `json:"closingDate"`
+		DueDate     string `json:"dueDate"`
+		Loaded      bool   `json:"loaded"`
+	} `json:"openPeriod"`
 }
 
 func put(t testing.TB, s *apitest.Server, u apitest.User, pmID, ym, closing, due string) *apitest.Res {
@@ -104,6 +111,31 @@ func TestCreditCardPeriods(t *testing.T) {
 			Status(t, http.StatusNoContent)
 		if st := status(t, s, u, future.ID); !st.NoPeriodsLoaded || st.LatestPeriod != nil {
 			t.Errorf("empty status = %+v", st)
+		}
+	})
+
+	t.Run("status has the open period, loaded or from the default days", func(t *testing.T) {
+		u := s.Register(t)
+		card := s.CreateCreditCard(t, u, "Visa", 24, 3, "2020-01-24", "2020-02-03")
+		today := dates.Today()
+		open := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC)
+		if today.Day() > 24 {
+			open = open.AddDate(0, 1, 0)
+		}
+		day := func(m time.Time, d int) string {
+			return time.Date(m.Year(), m.Month(), d, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
+		}
+
+		st := status(t, s, u, card.ID)
+		if st.OpenPeriod.PeriodYM != open.Format("2006-01") || st.OpenPeriod.Loaded ||
+			st.OpenPeriod.ClosingDate != day(open, 24) || st.OpenPeriod.DueDate != day(open.AddDate(0, 1, 0), 3) {
+			t.Errorf("open period from the defaults = %+v", st.OpenPeriod)
+		}
+
+		put(t, s, u, card.ID, open.Format("2006-01"), day(open, 28), day(open.AddDate(0, 1, 0), 6)).Status(t, http.StatusOK)
+		st = status(t, s, u, card.ID)
+		if !st.OpenPeriod.Loaded || st.OpenPeriod.ClosingDate != day(open, 28) || st.OpenPeriod.DueDate != day(open.AddDate(0, 1, 0), 6) {
+			t.Errorf("loaded open period = %+v", st.OpenPeriod)
 		}
 	})
 
