@@ -4,6 +4,9 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 1.10b (API part): the month's total in Movimientos
+- `GET /expenses` gains `totalAmountBase`: what the whole filtered list adds up to in the base currency (not just the page), next to `totalCount`, for "Gastaste $ 486.320 · 38 gastos".
+
 ### 1.10b (API part): what each member paid
 - `GET /reports/monthly` gains `byPayer`: what each member paid in the month (`userId`, `total` in the base currency), largest first, for "Pusiste vos / Puso Ana" in Inicio · Hogar. Whoever loads an expense is the one who paid it. Same rules as `spentThisMonth`: confirmed expenses by purchase date.
 

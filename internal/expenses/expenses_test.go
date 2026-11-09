@@ -277,9 +277,10 @@ func TestReadAndFilterExpenses(t *testing.T) {
 		Items []struct {
 			ID string `json:"id"`
 		} `json:"items"`
-		TotalCount int64 `json:"totalCount"`
-		Limit      int   `json:"limit"`
-		Offset     int   `json:"offset"`
+		TotalCount      int64   `json:"totalCount"`
+		TotalAmountBase float64 `json:"totalAmountBase"`
+		Limit           int     `json:"limit"`
+		Offset          int     `json:"offset"`
 	}
 	ids := func(t *testing.T, query string) (string, listJSON) {
 		t.Helper()
@@ -318,8 +319,12 @@ func TestReadAndFilterExpenses(t *testing.T) {
 			if got != tc.want {
 				t.Errorf("got %s, want %s", got, tc.want)
 			}
-			if tc.query == "?limit=1&offset=1" && (l.TotalCount != 3 || l.Limit != 1 || l.Offset != 1) {
-				t.Errorf("paging = %+v, want totalCount 3", l)
+			// Totals cover the whole filtered list, not the page (plan 1.10b).
+			if tc.query == "?limit=1&offset=1" && (l.TotalCount != 3 || l.TotalAmountBase != 600 || l.Limit != 1 || l.Offset != 1) {
+				t.Errorf("paging = %+v, want totalCount 3 and totalAmountBase 600", l)
+			}
+			if tc.query == "?from=2026-02-01" && (l.TotalCount != 2 || l.TotalAmountBase != 500) {
+				t.Errorf("filtered totals = %+v, want 2 and 500", l)
 			}
 		})
 	}

@@ -594,7 +594,7 @@ func (s *Service) Get(ctx context.Context, householdID, id uuid.UUID) (domain.Ex
 }
 
 // List: paginado con filtros.
-func (s *Service) List(ctx context.Context, householdID uuid.UUID, f ListFilter) ([]domain.Expense, int64, error) {
+func (s *Service) List(ctx context.Context, householdID uuid.UUID, f ListFilter) ([]domain.Expense, ListTotals, error) {
 	if f.Limit <= 0 || f.Limit > 200 {
 		f.Limit = 50
 	}

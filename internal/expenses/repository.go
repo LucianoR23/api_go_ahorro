@@ -227,9 +227,16 @@ type ListFilter struct {
 	Offset int32
 }
 
+// ListTotals: what the whole filtered list adds up to, beyond the page.
+type ListTotals struct {
+	Count int64
+	// AmountBase: sum of amount_base (Movimientos "Gastaste", plan 1.10b).
+	AmountBase decimal.Decimal
+}
+
 // List: query directa via pgx para soportar filtros extra (Q) sin
-// regenerar sqlc. Devuelve total para paginar.
-func (r *Repository) List(ctx context.Context, householdID uuid.UUID, f ListFilter) ([]domain.Expense, int64, error) {
+// regenerar sqlc. Devuelve totales para paginar y para el encabezado.
+func (r *Repository) List(ctx context.Context, householdID uuid.UUID, f ListFilter) ([]domain.Expense, ListTotals, error) {
 	args := []any{householdID}
 	where := []string{"household_id = $1"}
 	add := func(clause string, val any) {
@@ -269,14 +276,18 @@ func (r *Repository) List(ctx context.Context, householdID uuid.UUID, f ListFilt
 
 	whereSQL := strings.Join(where, " AND ")
 
-	// Count primero (mismo where, sin limit/offset).
-	var total int64
+	// Totals first (same where, no limit/offset).
+	var (
+		total ListTotals
+		sum   pgtype.Numeric
+	)
 	if err := r.pool.QueryRow(ctx,
-		"SELECT COUNT(*)::bigint FROM expenses WHERE "+whereSQL,
+		"SELECT COUNT(*)::bigint, COALESCE(SUM(amount_base), 0)::numeric FROM expenses WHERE "+whereSQL,
 		args...,
-	).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("expenses.Count: %w", err)
+	).Scan(&total.Count, &sum); err != nil {
+		return nil, ListTotals{}, fmt.Errorf("expenses.Count: %w", err)
 	}
+	total.AmountBase = money.FromNumeric(sum)
 
 	args = append(args, f.Limit, f.Offset)
 	sql := fmt.Sprintf(
@@ -285,7 +296,7 @@ func (r *Repository) List(ctx context.Context, householdID uuid.UUID, f ListFilt
 	)
 	rows, err := r.pool.Query(ctx, sql, args...)
 	if err != nil {
-		return nil, 0, fmt.Errorf("expenses.List: %w", err)
+		return nil, ListTotals{}, fmt.Errorf("expenses.List: %w", err)
 	}
 	defer rows.Close()
 
@@ -298,7 +309,7 @@ func (r *Repository) List(ctx context.Context, householdID uuid.UUID, f ListFilt
 			&e.Description, &e.SpentAt, &e.Installments, &e.IsShared,
 			&e.CreatedAt, &e.UpdatedAt, &e.RecurringExpenseID, &e.Status,
 		); err != nil {
-			return nil, 0, fmt.Errorf("expenses.List scan: %w", err)
+			return nil, ListTotals{}, fmt.Errorf("expenses.List scan: %w", err)
 		}
 		out = append(out, expenseToDomain(e))
 	}
