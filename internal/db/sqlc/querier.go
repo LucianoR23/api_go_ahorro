@@ -361,6 +361,8 @@ type Querier interface {
 	// ya validó que no es owner de ninguno (sino rechazamos la baja).
 	RemoveAllMembershipsForUser(ctx context.Context, userID uuid.UUID) error
 	RemoveHouseholdMember(ctx context.Context, arg RemoveHouseholdMemberParams) error
+	// The dollar a report in dollars uses on a day; NULL without quotes.
+	ReportUSDRate(ctx context.Context, arg ReportUSDRateParams) (pgtype.Numeric, error)
 	// Admin-only: limpia deleted_at y deja el hogar accesible de nuevo.
 	RestoreHousehold(ctx context.Context, id uuid.UUID) error
 	RevokeAllUserSessions(ctx context.Context, userID uuid.UUID) error
@@ -422,6 +424,9 @@ type Querier interface {
 	// El caller pasa from/to calculados (start del mes más viejo ~ end del actual).
 	// date_trunc normaliza al primer día del mes.
 	SumExpensesSpentAtByMonth(ctx context.Context, arg SumExpensesSpentAtByMonthParams) ([]SumExpensesSpentAtByMonthRow, error)
+	// Every amount goes through report_amount (plan 5.3): pesos when usd_source
+	// is NULL, dollars otherwise. Dollars use the dollar of each movement's day
+	// (an installment, its purchase day) unless rate_day fixes one day (today).
 	// ===================== reports: triada spent/billed/due =====================
 	// "spent_this_month": lo que se compró/decidió gastar en el rango.
 	SumExpensesSpentAtForReport(ctx context.Context, arg SumExpensesSpentAtForReportParams) (pgtype.Numeric, error)
@@ -434,6 +439,8 @@ type Querier interface {
 	SumIncomesByHouseholdInRange(ctx context.Context, arg SumIncomesByHouseholdInRangeParams) (pgtype.Numeric, error)
 	// Para savings scope=user: total de ingresos de un usuario en el período.
 	SumIncomesByUserInRange(ctx context.Context, arg SumIncomesByUserInRangeParams) (pgtype.Numeric, error)
+	// Incomes received in a range (Inicio, plan 5.3), like /totals/income.
+	SumIncomesForReport(ctx context.Context, arg SumIncomesForReportParams) (pgtype.Numeric, error)
 	// Ingresos por mes para comparar contra gastos en trends.
 	SumIncomesReceivedByMonth(ctx context.Context, arg SumIncomesReceivedByMonthParams) ([]SumIncomesReceivedByMonthRow, error)
 	// "billed_this_month": lo que apareció en resúmenes de tarjeta en el rango

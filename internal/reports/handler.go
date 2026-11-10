@@ -52,7 +52,12 @@ func (h *Handler) Monthly(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	rep, err := h.svc.Monthly(r.Context(), householdID, month)
+	view, err := parseView(r)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	rep, err := h.svc.Monthly(r.Context(), householdID, month, view)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -78,7 +83,12 @@ func (h *Handler) Trends(w http.ResponseWriter, r *http.Request) {
 			at = t
 		}
 	}
-	trends, err := h.svc.TrendsByMonth(r.Context(), householdID, months, at)
+	view, err := parseView(r)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	trends, err := h.svc.TrendsByMonth(r.Context(), householdID, months, at, view)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -125,6 +135,28 @@ func parseMonth(s string) (time.Time, error) {
 		return time.Time{}, domain.NewValidationError("month", "formato esperado YYYY-MM")
 	}
 	return t, nil
+}
+
+// parseView: ?currency=USD shows dollars (plan 5.3), at each movement's
+// day's dollar, or at today's with &rate=today.
+func parseView(r *http.Request) (ViewRequest, error) {
+	q := r.URL.Query()
+	var v ViewRequest
+	switch q.Get("currency") {
+	case "", "ARS":
+	case "USD":
+		v.USD = true
+	default:
+		return v, domain.NewValidationError("currency", "debe ser ARS o USD")
+	}
+	switch q.Get("rate") {
+	case "", "day":
+	case "today":
+		v.Today = true
+	default:
+		return v, domain.NewValidationError("rate", "debe ser day o today")
+	}
+	return v, nil
 }
 
 var _ = chi.URLParam // evitar warning si no se usa

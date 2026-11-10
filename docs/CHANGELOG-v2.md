@@ -4,6 +4,13 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 5.3 (API part): reports in dollars
+- `GET /reports/monthly` and `GET /reports/trends` take `currency=USD` (default pesos) and `rate=today` (default `day`). In dollars, a movement loaded in dollars keeps its amount; any other is its pesos at the household's dollar (`fx_source`) of the movement's day (an installment, its purchase day), or of today with `rate=today`. A day before the first stored quote uses the oldest one.
+- Responses add `currency`, and in dollars `rateSource`, `rateMode` and `usdRate` (today's price of that dollar). A household whose dollar has no quotes at all gets 409.
+- The monthly report adds `incomeThisMonth`, so Inicio needs one request less.
+- Migration 000038 adds two SQL functions and touches no table: `fx_usd_rate(source, day, tz)` and `report_amount(...)`, which every report sum goes through.
+- Statements and debts between members stay in pesos.
+
 ### 5.2 (API part): rate history and stale rates
 - `GET /exchange-rates/history?currency=USD&source=bolsa&days=30` (signed in; USD and MEP by default, 1 to 365 days): one quote per day, the day's last in the app's timezone, oldest first.
 - `exchange_rates` already keeps every new quote, so it is the history table: storing unchanged fetches again would only duplicate rows. A quote returned again now updates `fetched_at`, which means "last confirmed by an upstream".

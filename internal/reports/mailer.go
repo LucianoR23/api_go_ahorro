@@ -71,7 +71,7 @@ func (w *Mailer) SendMonthly(ctx context.Context, at time.Time) error {
 }
 
 func (w *Mailer) sendForHousehold(ctx context.Context, householdID uuid.UUID, month time.Time) error {
-	rep, err := w.svc.Monthly(ctx, householdID, month)
+	rep, err := w.svc.Monthly(ctx, householdID, month, ViewRequest{})
 	if err != nil {
 		return err
 	}
