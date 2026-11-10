@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 5.4 (API part): spending in today's pesos
+- New table `cpi_index` (migration 000039): INDEC's national CPI, nivel general, base December 2016, one row per month. Global, not per household.
+- Daily job `cpi_refresh` (05:00 and on start) reads INDEC's own CSV (`serie_ipc_divisiones.csv`, Codigo 0, Region Nacional), which has a month the day INDEC publishes it. The datos.gob.ar Series API (`148.3_INIVELNAL_DICI_M_26`) is the fallback: same series, republished weeks later. A file with fewer than 12 months or a changed layout is rejected and the fallback is used; when both fail, what is stored stays. Revised months are updated.
+- `GET /reports/trends?adjust=cpi`: every point (spent, due, income, net) times the last published index over the month's. Months after the last published one count as that one (no inflation is assumed). The response adds `adjust: "cpi"` and `cpiThrough` (YYYY-MM). Only in pesos: with `currency=USD` or in a space kept in another currency it is a 422; without any index stored, a 409.
+- `GET /reports/monthly` adds `spentRealThisMonth` and `cpiThrough` for a month older than the last published index (in pesos only).
+
 ### 5.3 (API part): reports in dollars
 - `GET /reports/monthly` and `GET /reports/trends` take `currency=USD` (default pesos) and `rate=today` (default `day`). In dollars, a movement loaded in dollars keeps its amount; any other is its pesos at the household's dollar (`fx_source`) of the movement's day (an installment, its purchase day), or of today with `rate=today`. A day before the first stored quote uses the oldest one.
 - Responses add `currency`, and in dollars `rateSource`, `rateMode` and `usdRate` (today's price of that dollar). A household whose dollar has no quotes at all gets 409.

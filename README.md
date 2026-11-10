@@ -127,6 +127,7 @@ Ver [`.env.example`](./.env.example). Resumen:
 | `monthly_report` | día 1 08:00 | envía el resumen del mes anterior por Resend |
 | `audit_retention` | diario 03:30 y al arrancar | borra IPs de más de 7 días y eventos de más de 12 meses |
 | `waitlist_cleanup` | diario 04:00 y al arrancar | borra altas sin confirmar de más de 30 días |
+| `cpi_refresh` | diario 05:00 y al arrancar | IPC del INDEC (CSV oficial; la API de Series de datos.gob.ar como respaldo) para los reportes en pesos de hoy |
 
 Los jobs diarios y el mensual son únicos por día (o mes). Al arrancar, la API encola los días que se perdieron mientras estuvo caída, desde el último job completado: hasta 31 días para los recurrentes, 7 para insights y solo el último mes para el email. Los jobs completados se guardan 62 días; sin historial no se recupera nada. Los errores de un hogar se loguean y no frenan al siguiente.
 

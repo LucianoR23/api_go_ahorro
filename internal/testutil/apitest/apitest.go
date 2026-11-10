@@ -120,6 +120,7 @@ func New(t testing.TB, opts ...Option) *Server {
 		AuthRateLimiter:   noLimits{},
 		WaitlistLimiter:   func(next http.Handler) http.Handler { return next },
 		FXHTTPClient:      &http.Client{Transport: blockedTransport{}},
+		CPIHTTPClient:     &http.Client{Transport: blockedTransport{}},
 	}
 	st := settings{cfg: cfg, opts: &appOpts}
 	for _, o := range opts {

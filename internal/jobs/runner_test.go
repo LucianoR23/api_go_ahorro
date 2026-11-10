@@ -33,7 +33,8 @@ func (f *fakeUnits) record(kind string, t time.Time, layout string) {
 func (f *fakeUnits) units() Units {
 	f.runs = map[string][]string{}
 	return Units{
-		FXRefresh: func(context.Context) error { f.record("fx", time.Time{}, ""); return nil },
+		FXRefresh:  func(context.Context) error { f.record("fx", time.Time{}, ""); return nil },
+		CPIRefresh: func(context.Context) error { f.record("cpi", time.Time{}, ""); return nil },
 		RecurringIncomes: func(_ context.Context, d time.Time) (int, error) {
 			f.record("incomes", d, time.RFC3339)
 			return 0, nil

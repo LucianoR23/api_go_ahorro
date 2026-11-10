@@ -22,6 +22,7 @@ var (
 	insightsSchedule  = daily{1, 0}
 	auditSchedule     = daily{3, 30}
 	waitlistSchedule  = daily{4, 0}
+	cpiSchedule       = daily{5, 0}
 	reportsSchedule   = monthly{8, 0}
 	fxInterval        = 15 * time.Minute
 )
@@ -66,6 +67,9 @@ func newRunner(pool *pgxpool.Pool, u Units, logger *slog.Logger, testOnly bool) 
 		}
 		logger.InfoContext(ctx, "fx refresh: ok")
 		return nil
+	})
+	addWorker(workers, 2*time.Minute, func(ctx context.Context, _ CPIRefreshArgs) error {
+		return u.CPIRefresh(ctx)
 	})
 	addWorker(workers, 2*time.Minute, func(ctx context.Context, a RecurringIncomesArgs) error {
 		date, err := time.Parse(dateLayout, a.Date)
@@ -165,6 +169,9 @@ func newRunner(pool *pgxpool.Pool, u Units, logger *slog.Logger, testOnly bool) 
 		river.NewPeriodicJob(auditSchedule,
 			func() (river.JobArgs, *river.InsertOpts) { return AuditRetentionArgs{}, nil },
 			&river.PeriodicJobOpts{ID: "audit_retention", RunOnStart: true}),
+		river.NewPeriodicJob(cpiSchedule,
+			func() (river.JobArgs, *river.InsertOpts) { return CPIRefreshArgs{}, nil },
+			&river.PeriodicJobOpts{ID: "cpi_refresh", RunOnStart: true}),
 		river.NewPeriodicJob(waitlistSchedule,
 			func() (river.JobArgs, *river.InsertOpts) { return WaitlistCleanupArgs{}, nil },
 			&river.PeriodicJobOpts{ID: "waitlist_cleanup", RunOnStart: true}),

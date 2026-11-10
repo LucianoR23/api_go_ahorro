@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/LucianoR23/valuo_api/internal/cpi"
 	"github.com/LucianoR23/valuo_api/internal/dates"
 	"github.com/LucianoR23/valuo_api/internal/domain"
 )
@@ -22,11 +23,30 @@ type householdLookup interface {
 type Service struct {
 	repo       *Repository
 	households householdLookup
+	cpi        cpiSource
 	logger     *slog.Logger
 }
 
-func NewService(repo *Repository, households householdLookup, logger *slog.Logger) *Service {
-	return &Service{repo: repo, households: households, logger: logger}
+// cpiSource serves INDEC's index (plan 5.4).
+type cpiSource interface {
+	Series(ctx context.Context) (cpi.Series, error)
+}
+
+func NewService(repo *Repository, households householdLookup, cpiSrc cpiSource, logger *slog.Logger) *Service {
+	return &Service{repo: repo, households: households, cpi: cpiSrc, logger: logger}
+}
+
+// realSeries is the index for a report in pesos: a space in another base
+// currency, or a report in dollars, gets none (ok false).
+func (s *Service) realSeries(ctx context.Context, hh domain.Household, cur Currency) (cpi.Series, bool, error) {
+	if hh.BaseCurrency != "ARS" || cur.Currency != "ARS" {
+		return cpi.Series{}, false, nil
+	}
+	series, err := s.cpi.Series(ctx)
+	if err != nil {
+		return cpi.Series{}, false, err
+	}
+	return series, !series.Empty(), nil
 }
 
 // ===================== monthly =====================
@@ -70,6 +90,8 @@ type Currency struct {
 type ViewRequest struct {
 	USD   bool
 	Today bool // convert at today's dollar instead of each movement's day
+	// Real: trends in today's pesos, adjusted by INDEC's index (plan 5.4).
+	Real bool
 }
 
 // view resolves a request into the query view and what the response says.
@@ -118,6 +140,13 @@ type MonthlyReport struct {
 	ByPayer       []PayerItem             `json:"byPayer"`
 	// Income received in the month (plan 5.3).
 	Income decimal.Decimal `json:"incomeThisMonth"`
+	// SpentReal: what was spent, in today's pesos (plan 5.4). Only in pesos,
+	// for a month older than the last published index, when the index
+	// changed since.
+	SpentReal *decimal.Decimal `json:"spentRealThisMonth,omitempty"`
+	// CPIThrough: the last published month of the index (YYYY-MM), with
+	// SpentReal.
+	CPIThrough string `json:"cpiThrough,omitempty"`
 }
 
 // Monthly calcula el reporte mensual completo para un household.
@@ -192,7 +221,7 @@ func (s *Service) Monthly(ctx context.Context, householdID uuid.UUID, month time
 	fvItem.FixedPct = pctOf(fv.FixedTotal, total)
 	fvItem.VariablePct = pctOf(fv.VariableTotal, total)
 
-	return MonthlyReport{
+	rep := MonthlyReport{
 		HouseholdID:   householdID,
 		BaseCurrency:  hh.BaseCurrency,
 		Currency:      cur,
@@ -206,7 +235,17 @@ func (s *Service) Monthly(ctx context.Context, householdID uuid.UUID, month time
 		FixedVariable: fvItem,
 		ByPayer:       byPayer,
 		Income:        income.Round(money.AmountScale),
-	}, nil
+	}
+	series, ok, err := s.realSeries(ctx, hh, cur)
+	if err != nil {
+		return MonthlyReport{}, err
+	}
+	if f := series.Factor(month); ok && !f.Equal(decimal.NewFromInt(1)) {
+		spentReal := spent.Mul(f).Round(money.AmountScale)
+		rep.SpentReal = &spentReal
+		rep.CPIThrough = series.Through().Format("2006-01")
+	}
+	return rep, nil
 }
 
 // ===================== trends =====================
@@ -223,8 +262,13 @@ type Trends struct {
 	HouseholdID  uuid.UUID `json:"householdId"`
 	BaseCurrency string    `json:"baseCurrency"`
 	Currency
-	Months int           `json:"months"`
-	Points []TrendsPoint `json:"points"`
+	// Adjust: "cpi" when the amounts are in today's pesos (plan 5.4).
+	Adjust string `json:"adjust,omitempty"`
+	// CPIThrough: the last published month of the index (YYYY-MM), with
+	// Adjust. Later months count as that one.
+	CPIThrough string        `json:"cpiThrough,omitempty"`
+	Months     int           `json:"months"`
+	Points     []TrendsPoint `json:"points"`
 }
 
 // TrendsByMonth: últimos N meses (incluyendo el actual) de gasto/due/income.
@@ -242,6 +286,23 @@ func (s *Service) TrendsByMonth(ctx context.Context, householdID uuid.UUID, mont
 	v, cur, err := s.view(ctx, hh, req)
 	if err != nil {
 		return Trends{}, err
+	}
+	var series cpi.Series
+	if req.Real {
+		if req.USD {
+			return Trends{}, domain.NewValidationError("adjust", "el ajuste por inflación es solo en pesos")
+		}
+		if hh.BaseCurrency != "ARS" {
+			return Trends{}, domain.NewValidationError("adjust", "el ajuste por inflación es solo para espacios en pesos")
+		}
+		var ok bool
+		series, ok, err = s.realSeries(ctx, hh, cur)
+		if err != nil {
+			return Trends{}, err
+		}
+		if !ok {
+			return Trends{}, domain.NewConflictError("Todavía no tenemos el índice de inflación. Probá en un rato.")
+		}
 	}
 
 	// Rango: primer día del mes (at - months + 1) hasta último día del mes de at.
@@ -272,6 +333,10 @@ func (s *Service) TrendsByMonth(ctx context.Context, householdID uuid.UUID, mont
 		spent := spentMap[key]
 		due := dueMap[key]
 		income := incomeMap[key]
+		if req.Real {
+			f := series.Factor(cursor)
+			spent, due, income = spent.Mul(f), due.Mul(f), income.Mul(f)
+		}
 		points = append(points, TrendsPoint{
 			Month:      key,
 			SpentTotal: spent.Round(money.AmountScale),
@@ -282,13 +347,18 @@ func (s *Service) TrendsByMonth(ctx context.Context, householdID uuid.UUID, mont
 		cursor = cursor.AddDate(0, 1, 0)
 	}
 
-	return Trends{
+	tr := Trends{
 		HouseholdID:  householdID,
 		BaseCurrency: hh.BaseCurrency,
 		Currency:     cur,
 		Months:       months,
 		Points:       points,
-	}, nil
+	}
+	if req.Real {
+		tr.Adjust = "cpi"
+		tr.CPIThrough = series.Through().Format("2006-01")
+	}
+	return tr, nil
 }
 
 // ===================== AI export =====================
