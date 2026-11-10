@@ -251,6 +251,7 @@ type Querier interface {
 	ListBanksByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]Bank, error)
 	// Filtros opcionales: scope, user_id (cuando scope='user'), is_active.
 	ListBudgetGoalsByHousehold(ctx context.Context, arg ListBudgetGoalsByHouseholdParams) ([]BudgetGoal, error)
+	ListCPI(ctx context.Context) ([]ListCPIRow, error)
 	// "Cuotas en curso" (plan 4.2): confirmed expenses of a card in two or more
 	// installments with an installment billed on or after from_date. next_* is
 	// the first of those installments; last_billing_date is when the plan ends.
@@ -505,6 +506,9 @@ type Querier interface {
 	// responsable de validar cada uno antes. La colisión de email la captura
 	// el UNIQUE constraint y se mapea a ErrConflict en el repo.
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error)
+	// Stores a whole series at once. A month already stored is only touched
+	// when INDEC revised its value; returns how many rows were new or changed.
+	UpsertCPI(ctx context.Context, arg UpsertCPIParams) (int64, error)
 	UpsertCreditCardPeriod(ctx context.Context, arg UpsertCreditCardPeriodParams) (CreditCardPeriod, error)
 	// The worker runs every 15 min even when the upstream has nothing new
 	// (weekends, holidays): a quote already stored is not duplicated, only

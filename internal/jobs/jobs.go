@@ -18,6 +18,7 @@ import (
 // Units are the units of work behind the jobs. All are required.
 type Units struct {
 	FXRefresh         func(ctx context.Context) error
+	CPIRefresh        func(ctx context.Context) error
 	RecurringIncomes  func(ctx context.Context, date time.Time) (created int, err error)
 	RecurringExpenses func(ctx context.Context, date time.Time) (created, failed int, err error)
 	Insights          func(ctx context.Context, at time.Time) (generated, failed int, err error)
@@ -56,6 +57,15 @@ func (FXRefreshArgs) Kind() string { return "fx_refresh" }
 func (FXRefreshArgs) InsertOpts() river.InsertOpts {
 	// The next run is 15 minutes away; a long retry chain only piles up.
 	return river.InsertOpts{Queue: queueMaintenance, MaxAttempts: 3}
+}
+
+// CPIRefreshArgs downloads INDEC's price index (daily, plan 5.4). Most
+// days nothing is new; INDEC publishes a month around the 12th of the next.
+type CPIRefreshArgs struct{}
+
+func (CPIRefreshArgs) Kind() string { return "cpi_refresh" }
+func (CPIRefreshArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueMaintenance, MaxAttempts: 5}
 }
 
 // RecurringIncomesArgs generates the recurring incomes due on Date.

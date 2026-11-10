@@ -106,6 +106,12 @@ type Category struct {
 	ParentID    *uuid.UUID         `json:"parent_id"`
 }
 
+type CpiIndex struct {
+	Month     pgtype.Date        `json:"month"`
+	Value     pgtype.Numeric     `json:"value"`
+	FetchedAt pgtype.Timestamptz `json:"fetched_at"`
+}
+
 type CreditCard struct {
 	ID                   uuid.UUID          `json:"id"`
 	PaymentMethodID      uuid.UUID          `json:"payment_method_id"`

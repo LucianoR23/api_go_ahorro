@@ -27,6 +27,7 @@ import (
 	"github.com/LucianoR23/valuo_api/internal/balances"
 	"github.com/LucianoR23/valuo_api/internal/categories"
 	"github.com/LucianoR23/valuo_api/internal/config"
+	"github.com/LucianoR23/valuo_api/internal/cpi"
 	"github.com/LucianoR23/valuo_api/internal/creditperiods"
 	"github.com/LucianoR23/valuo_api/internal/dates"
 	"github.com/LucianoR23/valuo_api/internal/domain"
@@ -74,6 +75,8 @@ type Options struct {
 	GoogleVerifier GoogleVerifier
 	// FXHTTPClient is used to fetch exchange rates. Default: 10s timeout.
 	FXHTTPClient *http.Client
+	// CPIHTTPClient downloads INDEC's price index. Default: 30s timeout.
+	CPIHTTPClient *http.Client
 	// AuthRateLimiter limits the auth endpoints. Default: in-memory per IP.
 	AuthRateLimiter auth.RateLimiter
 	// TurnstileVerifier checks waitlist captcha tokens. Default: Cloudflare
@@ -286,6 +289,10 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	}
 	fxHandler := fxrates.NewHandler(fxSvc, authMW, logger)
 
+	// cpi (plan 5.4): INDEC's price index for reports in today's pesos,
+	// downloaded daily by the cpi_refresh job.
+	cpiSvc := cpi.NewService(pool, cpi.NewFetcher(opts.CPIHTTPClient), logger)
+
 	// expenses: núcleo del producto. Depende de casi todo lo anterior:
 	// households (base_currency + miembros para shares), paymethods (ownership
 	// + credit_card defaults), creditperiods (overrides mensuales), fxrates
@@ -408,7 +415,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	}
 
 	reportsRepo := reports.NewRepository(pool)
-	reportsSvc := reports.NewService(reportsRepo, householdsRepo, logger)
+	reportsSvc := reports.NewService(reportsRepo, householdsRepo, cpiSvc, logger)
 	reportsHandler := reports.NewHandler(reportsSvc, authMW, householdsMW, logger)
 
 	// Resend sender for the monthly email. Without RESEND_API_KEY the job
@@ -468,6 +475,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// Background jobs on River (plan 0.8). Last starter, so it stops first.
 	runner, err := jobs.New(pool, jobs.Units{
 		FXRefresh:         fxSvc.Refresh,
+		CPIRefresh:        cpiSvc.Refresh,
 		RecurringIncomes:  a.jobs.RecurringIncomes,
 		RecurringExpenses: a.jobs.RecurringExpenses,
 		Insights:          a.jobs.Insights,

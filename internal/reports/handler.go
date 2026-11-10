@@ -88,6 +88,14 @@ func (h *Handler) Trends(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
+	switch r.URL.Query().Get("adjust") {
+	case "":
+	case "cpi":
+		view.Real = true
+	default:
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("adjust", "debe ser cpi"))
+		return
+	}
 	trends, err := h.svc.TrendsByMonth(r.Context(), householdID, months, at, view)
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
