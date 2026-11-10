@@ -8,6 +8,7 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 - New `money.Format`: `$ 19.450`, `US$ 500,50`, `€ 1.200`, `-$ 20`. Thousands with ".", cents with ",", and ",00" dropped when the amount is whole. Same output as the app's `formatAmount`.
 - Used by every text the API writes for people: the shared expense and settlement notifications, the recurring spike alert, the weekly summary, goal alerts, card and installment reminders, the monthly summary email and the "excede la deuda actual" validation error. Before they read `19450.00 ARS` or `$19450.00`.
 - The weekly summary and goal alerts use the household's base currency instead of always writing "$".
+- A limit alert names its category and period instead of the raw goal type: "Llevás $ 950 gastados de $ 500 en Súper este mes." (before "... (category_limit)."). A total limit leaves the category out; a weekly goal says "esta semana".
 - The AI export prompt keeps plain numbers (`19450.00 ARS`): a model reads `1.234` as one point two, and the prompt is not shown as a notification.
 - Notifications already stored keep their old text. The app's discreet mode masks both formats.
 

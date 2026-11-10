@@ -295,7 +295,7 @@ func (s *Service) genGoalAlerts(ctx context.Context, householdID uuid.UUID, at t
 	}
 	created, failed := 0, 0
 	for _, p := range progs {
-		title, body, severity, ok := alertText(p, at)
+		title, body, severity, ok := alertText(p, s.goalCategoryName(ctx, p.Goal), at)
 		if !ok {
 			continue
 		}
@@ -548,7 +548,24 @@ func (s *Service) genInstallmentsDueSoon(ctx context.Context, householdID uuid.U
 
 // ===================== helpers =====================
 
-func alertText(p domain.BudgetGoalProgress, at time.Time) (string, string, string, bool) {
+// goalCategoryName: the name of a category limit's category, for its alert.
+// Empty for other goals, or when the lookup fails (the alert then leaves the
+// category out instead of not being sent).
+func (s *Service) goalCategoryName(ctx context.Context, g domain.BudgetGoal) string {
+	if g.GoalType != domain.GoalTypeCategoryLimit || g.CategoryID == nil {
+		return ""
+	}
+	name, err := s.repo.CategoryName(ctx, *g.CategoryID)
+	if err != nil {
+		s.logWarn(ctx, "goal category lookup falló", "goalId", g.ID.String(), "error", err)
+		return ""
+	}
+	return name
+}
+
+// alertText: the alert of a goal, if it needs one. categoryName names a
+// category limit's category ("en Súper"); empty leaves it out.
+func alertText(p domain.BudgetGoalProgress, categoryName string, at time.Time) (string, string, string, bool) {
 	switch p.Goal.GoalType {
 	case domain.GoalTypeCategoryLimit, domain.GoalTypeTotalLimit:
 		if p.TargetAmountBase.Sign() <= 0 {
@@ -563,8 +580,16 @@ func alertText(p domain.BudgetGoalProgress, at time.Time) (string, string, strin
 			sev = domain.InsightSeverityCritical
 		}
 		title := fmt.Sprintf("Objetivo al %.0f%%", ratio*100)
-		body := fmt.Sprintf("Llevás %s gastados de %s (%s).",
-			money.Format(p.CurrentAmount, p.BaseCurrency), money.Format(p.TargetAmountBase, p.BaseCurrency), p.Goal.GoalType)
+		where := ""
+		if categoryName != "" {
+			where = " en " + categoryName
+		}
+		when := "este mes"
+		if p.Goal.Period == domain.GoalPeriodWeekly {
+			when = "esta semana"
+		}
+		body := fmt.Sprintf("Llevás %s gastados de %s%s %s.",
+			money.Format(p.CurrentAmount, p.BaseCurrency), money.Format(p.TargetAmountBase, p.BaseCurrency), where, when)
 		return title, body, sev, true
 
 	case domain.GoalTypeSavings:

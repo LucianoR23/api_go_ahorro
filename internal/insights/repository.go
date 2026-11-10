@@ -245,6 +245,15 @@ func (r *Repository) SumSpentAt(ctx context.Context, householdID uuid.UUID, from
 	return money.FromNumeric(n), nil
 }
 
+// CategoryName returns a category's name, for goal alerts.
+func (r *Repository) CategoryName(ctx context.Context, id uuid.UUID) (string, error) {
+	c, err := r.q.GetCategoryByID(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("insights.CategoryName: %w", err)
+	}
+	return c.Name, nil
+}
+
 // BaseCurrency returns the household's base currency, the one its summed
 // amounts are in.
 func (r *Repository) BaseCurrency(ctx context.Context, householdID uuid.UUID) (string, error) {

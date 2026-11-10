@@ -145,7 +145,8 @@ func TestInsightGenerators(t *testing.T) {
 	t.Run("two personal goals over their limits get one alert each the same day", func(t *testing.T) {
 		h := newHouse(t, s)
 		var cats []struct {
-			ID string `json:"id"`
+			ID   string `json:"id"`
+			Name string `json:"name"`
 		}
 		h.do(t, h.owner, http.MethodGet, "/categories", nil).Status(t, http.StatusOK).JSON(t, &cats)
 		h.goal(t, map[string]any{"scope": "user", "userId": h.member.ID, "goalType": "total_limit", "targetAmount": 1000})
@@ -155,6 +156,17 @@ func TestInsightGenerators(t *testing.T) {
 		alerts := ofType(h.list(t, h.member, "?userId="+h.member.ID), "alert")
 		if len(alerts) != 2 {
 			t.Errorf("alerts for two goals over their limits = %d, want 2", len(alerts))
+		}
+		// The category limit names its category (plan 1.10c), never the raw type.
+		named := false
+		for _, a := range alerts {
+			if strings.Contains(a.Body, "_limit") {
+				t.Errorf("alert shows the raw goal type: %q", a.Body)
+			}
+			named = named || a.Body == "Llevás $ 950 gastados de $ 500 en "+cats[0].Name+" este mes."
+		}
+		if !named {
+			t.Errorf("no alert names the category %q: %+v", cats[0].Name, alerts)
 		}
 	})
 
