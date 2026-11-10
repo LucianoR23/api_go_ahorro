@@ -348,8 +348,8 @@ func TestMonthlyEmail(t *testing.T) {
 		if !strings.Contains(mail.HTML, "TestBrand — Resumen mensual") || !strings.Contains(mail.HTML, "Generado automáticamente por TestBrand") {
 			t.Errorf("summary mail does not use the configured brand")
 		}
-		if mail.From != s.Config.ReportFromEmail || !strings.Contains(mail.HTML, "1234") {
-			t.Errorf("summary mail from %q, html contains the total: %v", mail.From, strings.Contains(mail.HTML, "1234"))
+		if mail.From != s.Config.ReportFromEmail || !strings.Contains(mail.HTML, "$ 1.234") {
+			t.Errorf("summary mail from %q, html contains the total: %v", mail.From, strings.Contains(mail.HTML, "$ 1.234"))
 		}
 	}
 }

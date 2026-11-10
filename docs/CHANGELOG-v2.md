@@ -4,6 +4,13 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 1.10c: amounts in API texts read es-AR
+- New `money.Format`: `$ 19.450`, `US$ 500,50`, `€ 1.200`, `-$ 20`. Thousands with ".", cents with ",", and ",00" dropped when the amount is whole. Same output as the app's `formatAmount`.
+- Used by every text the API writes for people: the shared expense and settlement notifications, the recurring spike alert, the weekly summary, goal alerts, card and installment reminders, the monthly summary email and the "excede la deuda actual" validation error. Before they read `19450.00 ARS` or `$19450.00`.
+- The weekly summary and goal alerts use the household's base currency instead of always writing "$".
+- The AI export prompt keeps plain numbers (`19450.00 ARS`): a model reads `1.234` as one point two, and the prompt is not shown as a notification.
+- Notifications already stored keep their old text. The app's discreet mode masks both formats.
+
 ### 1.10d: month-end card purchases no longer skip a statement
 - A credit card purchase on the 29th to 31st went to the wrong statement: moving its date by whole months overflowed (Oct 31 + 1 month = Dec 1), so a purchase after the closing landed two statements later, and installments could skip a month (Jan 30 with a closing on the 31st gave January, March and March). Installment months are now counted from the first day of the month.
 - Existing installments keep their dates (no recompute): production starts empty in v2 and staging holds test data. Clearing an installment's manual billing date already uses the fixed calculation.

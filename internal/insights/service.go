@@ -12,6 +12,7 @@ import (
 
 	"github.com/LucianoR23/valuo_api/internal/dates"
 	"github.com/LucianoR23/valuo_api/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/money"
 )
 
 // householdsLister: el worker necesita iterar todos los hogares.
@@ -361,8 +362,13 @@ func (s *Service) genWeeklyReview(ctx context.Context, householdID uuid.UUID, at
 		return false, err
 	}
 
-	title := fmt.Sprintf("Semana cerrada: %s", formatMoney(thisTotal))
-	body := weeklyBody(thisTotal, prevTotal, counts, monthDue)
+	cur, err := s.repo.BaseCurrency(ctx, householdID)
+	if err != nil {
+		return false, err
+	}
+
+	title := fmt.Sprintf("Semana cerrada: %s", money.Format(thisTotal, cur))
+	body := weeklyBody(thisTotal, prevTotal, counts, monthDue, cur)
 	severity := domain.InsightSeverityInfo
 	if prevTotal.Sign() > 0 && thisTotal.GreaterThan(prevTotal.Mul(decimal.New(12, -1))) {
 		severity = domain.InsightSeverityWarning
@@ -459,7 +465,7 @@ func cardReminderMessage(r domain.CardReminder) cardMessage {
 	head := fmt.Sprintf("El resumen de tu %s vence el %s", r.CardName, day)
 	amounts := make([]string, len(r.Totals))
 	for i, t := range r.Totals {
-		amounts[i] = fmt.Sprintf("%s %s", t.Amount.StringFixed(2), t.Currency)
+		amounts[i] = money.Format(t.Amount, t.Currency)
 	}
 	return cardMessage{
 		insightType: domain.InsightTypeCardDueSoon, title: fmt.Sprintf("En %d días vence tu %s", domain.CardReminderDueDays, r.CardName),
@@ -558,7 +564,7 @@ func alertText(p domain.BudgetGoalProgress, at time.Time) (string, string, strin
 		}
 		title := fmt.Sprintf("Objetivo al %.0f%%", ratio*100)
 		body := fmt.Sprintf("Llevás %s gastados de %s (%s).",
-			formatMoney(p.CurrentAmount), formatMoney(p.TargetAmountBase), p.Goal.GoalType)
+			money.Format(p.CurrentAmount, p.BaseCurrency), money.Format(p.TargetAmountBase, p.BaseCurrency), p.Goal.GoalType)
 		return title, body, sev, true
 
 	case domain.GoalTypeSavings:
@@ -572,19 +578,20 @@ func alertText(p domain.BudgetGoalProgress, at time.Time) (string, string, strin
 		}
 		title := "Vas atrasado con tu ahorro"
 		body := fmt.Sprintf("Llevás %s ahorrados de %s objetivo este mes.",
-			formatMoney(p.CurrentAmount), formatMoney(p.TargetAmountBase))
+			money.Format(p.CurrentAmount, p.BaseCurrency), money.Format(p.TargetAmountBase, p.BaseCurrency))
 		return title, body, domain.InsightSeverityWarning, true
 	}
 	return "", "", "", false
 }
 
-func weeklyBody(thisWeek, prev decimal.Decimal, counts SpentCounts, monthDue decimal.Decimal) string {
+// weeklyBody: amounts are in the household's base currency (cur).
+func weeklyBody(thisWeek, prev decimal.Decimal, counts SpentCounts, monthDue decimal.Decimal, cur string) string {
 	var summary string
 	if counts.Total == 0 {
 		summary = "Esta semana no registraste gastos."
 	} else {
 		summary = fmt.Sprintf("Gastaste %s en %d transaccion(es) de %d categoría(s).",
-			formatMoney(thisWeek), counts.Total, counts.DistinctCategories)
+			money.Format(thisWeek, cur), counts.Total, counts.DistinctCategories)
 	}
 
 	var compare string
@@ -599,20 +606,16 @@ func weeklyBody(thisWeek, prev decimal.Decimal, counts SpentCounts, monthDue dec
 			dir = "menos"
 			pct = -pct
 		}
-		compare = fmt.Sprintf("%.0f%% %s que la anterior (%s).", pct, dir, formatMoney(prev))
+		compare = fmt.Sprintf("%.0f%% %s que la anterior (%s).", pct, dir, money.Format(prev, cur))
 	}
 
-	tail := fmt.Sprintf("Este mes te vienen a cobrar %s.", formatMoney(monthDue))
+	tail := fmt.Sprintf("Este mes te vienen a cobrar %s.", money.Format(monthDue, cur))
 
 	parts := summary
 	if compare != "" {
 		parts += " " + compare
 	}
 	return parts + " " + tail
-}
-
-func formatMoney(v decimal.Decimal) string {
-	return "$" + v.StringFixed(2)
 }
 
 func dayStart(t time.Time) time.Time {
@@ -649,5 +652,5 @@ func (s *Service) logWarn(ctx context.Context, msg string, kv ...any) {
 // screen, plan 1.9) and the full text the in-app notification keeps.
 func installmentDueMessage(row InstallmentDueForReminder) (lockScreen, full string) {
 	head := fmt.Sprintf("En 3 días vence la cuota %d/%d de \"%s\"", row.InstallmentNumber, row.TotalInstallments, row.Description)
-	return head + ".", fmt.Sprintf("%s (%.2f %s).", head, row.AmountBase, row.BaseCurrency)
+	return head + ".", fmt.Sprintf("%s (%s).", head, money.Format(decimal.NewFromFloat(row.AmountBase), row.BaseCurrency))
 }

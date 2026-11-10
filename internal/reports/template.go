@@ -3,8 +3,11 @@ package reports
 import (
 	"bytes"
 	"fmt"
-	"github.com/shopspring/decimal"
 	"html/template"
+
+	"github.com/shopspring/decimal"
+
+	"github.com/LucianoR23/valuo_api/internal/money"
 )
 
 // monthlyEmailTpl: template HTML embebido. Usa inline CSS porque la mayoría
@@ -87,7 +90,7 @@ type emailData struct {
 // que el template sea agnóstico.
 func RenderMonthlyHTML(brand, hhName string, rep MonthlyReport) (string, error) {
 	cur := rep.BaseCurrency
-	fmtMoney := func(v decimal.Decimal) string { return v.StringFixed(2) + " " + cur }
+	fmtMoney := func(v decimal.Decimal) string { return money.Format(v, cur) }
 	fmtPct := func(v float64) string { return fmt.Sprintf("%.1f", v) }
 
 	cats := make([]emailCategory, 0, len(rep.ByCategory))

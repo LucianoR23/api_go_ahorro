@@ -13,7 +13,7 @@ func TestSharedExpenseMessage(t *testing.T) {
 	if want := `Ana cargó "Súper". Tocá para ver tu parte.`; lock != want {
 		t.Errorf("lock screen = %q, want %q", lock, want)
 	}
-	if want := `Ana cargó "Súper". Te toca 1234.50 ARS.`; full != want {
+	if want := `Ana cargó "Súper". Te toca $ 1.234,50.`; full != want {
 		t.Errorf("full = %q, want %q", full, want)
 	}
 }

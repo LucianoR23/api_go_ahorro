@@ -1,9 +1,9 @@
 package insights
 
 // Characterization tests (plan 0.11) for goal alert copy. They pin today's
-// strings, including two things worth changing later (noted, not fixed here):
-// money is "$1234.50" instead of es-AR "$ 1.234,50", and the limit body shows
-// the raw goal type ("category_limit") to the user.
+// strings, including one thing worth changing later (noted, not fixed here):
+// the limit body shows the raw goal type ("category_limit") to the user.
+// Money is es-AR since plan 1.10c.
 
 import (
 	"testing"
@@ -20,6 +20,7 @@ func progress(goalType string, current, target float64) domain.BudgetGoalProgres
 		CurrentAmount:    decimal.NewFromFloat(current),
 		TargetAmount:     decimal.NewFromFloat(target),
 		TargetAmountBase: decimal.NewFromFloat(target),
+		BaseCurrency:     "ARS",
 	}
 }
 
@@ -39,29 +40,29 @@ func TestAlertText(t *testing.T) {
 		{name: "limit under 80% is silent", p: progress(domain.GoalTypeCategoryLimit, 79.99, 100), at: day10},
 		{
 			name: "limit at 80% warns", p: progress(domain.GoalTypeCategoryLimit, 80, 100), at: day10, wantOK: true,
-			wantTitle: "Objetivo al 80%", wantBody: "Llevás $80.00 gastados de $100.00 (category_limit).",
+			wantTitle: "Objetivo al 80%", wantBody: "Llevás $ 80 gastados de $ 100 (category_limit).",
 			wantSev: domain.InsightSeverityWarning,
 		},
 		{
 			name: "limit at 100% is critical", p: progress(domain.GoalTypeTotalLimit, 1234.5, 1234.5), at: day10, wantOK: true,
-			wantTitle: "Objetivo al 100%", wantBody: "Llevás $1234.50 gastados de $1234.50 (total_limit).",
+			wantTitle: "Objetivo al 100%", wantBody: "Llevás $ 1.234,50 gastados de $ 1.234,50 (total_limit).",
 			wantSev: domain.InsightSeverityCritical,
 		},
 		{
 			name: "limit over 100% stays critical", p: progress(domain.GoalTypeTotalLimit, 150, 100), at: day10, wantOK: true,
-			wantTitle: "Objetivo al 150%", wantBody: "Llevás $150.00 gastados de $100.00 (total_limit).",
+			wantTitle: "Objetivo al 150%", wantBody: "Llevás $ 150 gastados de $ 100 (total_limit).",
 			wantSev: domain.InsightSeverityCritical,
 		},
 		{name: "limit with zero target is silent", p: progress(domain.GoalTypeTotalLimit, 50, 0), at: day10},
 		{name: "savings before the 20th is silent", p: progress(domain.GoalTypeSavings, 0, 100), at: day10},
 		{
 			name: "savings from the 20th under 50% warns", p: progress(domain.GoalTypeSavings, 49, 100), at: day20, wantOK: true,
-			wantTitle: "Vas atrasado con tu ahorro", wantBody: "Llevás $49.00 ahorrados de $100.00 objetivo este mes.",
+			wantTitle: "Vas atrasado con tu ahorro", wantBody: "Llevás $ 49 ahorrados de $ 100 objetivo este mes.",
 			wantSev: domain.InsightSeverityWarning,
 		},
 		{
 			name: "savings can be negative (spent more than earned)", p: progress(domain.GoalTypeSavings, -20, 100), at: day20, wantOK: true,
-			wantTitle: "Vas atrasado con tu ahorro", wantBody: "Llevás $-20.00 ahorrados de $100.00 objetivo este mes.",
+			wantTitle: "Vas atrasado con tu ahorro", wantBody: "Llevás -$ 20 ahorrados de $ 100 objetivo este mes.",
 			wantSev: domain.InsightSeverityWarning,
 		},
 		{name: "savings at 50% is silent", p: progress(domain.GoalTypeSavings, 50, 100), at: day20},

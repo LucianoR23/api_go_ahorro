@@ -779,8 +779,8 @@ func (s *Service) maybeEmitRecurringSpike(ctx context.Context, series domain.Rec
 		return
 	}
 	title := fmt.Sprintf("%s subió %.0f%%", series.Description, deltaPct)
-	body := fmt.Sprintf("Pasó de %s %s a %s %s (umbral %.0f%%).",
-		prev.StringFixed(2), confirmed.Currency, confirmed.Amount.StringFixed(2), confirmed.Currency, *series.AlertThresholdPct)
+	body := fmt.Sprintf("Pasó de %s a %s (umbral %.0f%%).",
+		money.Format(prev, confirmed.Currency), money.Format(confirmed.Amount, confirmed.Currency), *series.AlertThresholdPct)
 	s.insights.CreateRecurringSpikeInsight(ctx, confirmed.HouseholdID, confirmed.ID, series.CreatedBy, title, body)
 }
 
@@ -1006,5 +1006,5 @@ func normalizeStatus(s string) string {
 // screen, plan 1.9) and the full text the in-app notification keeps.
 func sharedExpenseMessage(creator, description string, owed decimal.Decimal, currency string) (lockScreen, full string) {
 	return fmt.Sprintf("%s cargó \"%s\". Tocá para ver tu parte.", creator, description),
-		fmt.Sprintf("%s cargó \"%s\". Te toca %s %s.", creator, description, owed.StringFixed(2), currency)
+		fmt.Sprintf("%s cargó \"%s\". Te toca %s.", creator, description, money.Format(owed, currency))
 }

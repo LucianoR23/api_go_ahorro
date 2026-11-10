@@ -11,7 +11,7 @@ func TestInstallmentDueMessage(t *testing.T) {
 	if want := `En 3 días vence la cuota 2/6 de "Heladera".`; lock != want {
 		t.Errorf("lock screen = %q, want %q", lock, want)
 	}
-	if want := `En 3 días vence la cuota 2/6 de "Heladera" (15000.00 ARS).`; full != want {
+	if want := `En 3 días vence la cuota 2/6 de "Heladera" ($ 15.000).`; full != want {
 		t.Errorf("full = %q, want %q", full, want)
 	}
 }

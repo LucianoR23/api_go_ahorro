@@ -11,6 +11,7 @@ func TestScrub(t *testing.T) {
 		{"uuid", "household 3f2b8c1e-9a4d-4c7e-8f00-1b2c3d4e5f60 not found", "household [id] not found"},
 		{"amount", "excede la deuda actual (1234.56 ARS)", "excede la deuda actual ([n] ARS)"},
 		{"amount with comma", "monto 1.234,56", "monto [n]"},
+		{"es-AR amount", "excede la deuda actual (US$ 19.450,50)", "excede la deuda actual (US$ [n])"},
 		{"integer", "paid 300", "paid [n]"},
 		{"jwt", "bad token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig-nature_x", "bad token [token]"},
 		{"opaque token", "session 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 gone", "session [token] gone"},

@@ -16,7 +16,7 @@ func TestSettlementMessage(t *testing.T) {
 	if want := "Ana registró un pago."; lock != want {
 		t.Errorf("lock screen = %q, want %q", lock, want)
 	}
-	if want := "Ana registró un pago de 2500.00 ARS"; full != want {
+	if want := "Ana registró un pago de $ 2.500"; full != want {
 		t.Errorf("full = %q, want %q", full, want)
 	}
 }
