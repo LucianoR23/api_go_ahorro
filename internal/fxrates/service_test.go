@@ -287,3 +287,56 @@ func TestRefreshDiscardsZeroRates(t *testing.T) {
 		t.Errorf("USD blue = %v, want the new 1250", r.RateAvg)
 	}
 }
+
+// Plan 5.2: a rate is stale when no upstream confirmed it for a day, not
+// when its quote is old (the official dollar does not move on weekends).
+func TestStaleRates(t *testing.T) {
+	t.Parallel()
+	pool := testdb.New(t)
+	ctx := context.Background()
+	repo := NewRepository(pool)
+	now := time.Now()
+
+	if (domain.ExchangeRate{FetchedAt: now.Add(-23 * time.Hour)}).Stale(now) {
+		t.Error("confirmed 23 h ago is stale")
+	}
+	if !(domain.ExchangeRate{FetchedAt: now.Add(-25 * time.Hour)}).Stale(now) || !(domain.ExchangeRate{}).Stale(now) {
+		t.Error("confirmed 25 h ago, or never, is not stale")
+	}
+
+	svc := NewService(repo, fakeUpstreams(t, allGood), quietLogger())
+	if err := svc.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range svc.Current() {
+		if r.Stale(time.Now()) {
+			t.Errorf("fresh rate is stale: %+v", r)
+		}
+	}
+
+	// The same quote returned again a day later is confirmed again, so a
+	// fresh service reading the database does not see it as stale.
+	if _, err := pool.Exec(ctx, `UPDATE exchange_rates SET fetched_at = now() - interval '2 days'`); err != nil {
+		t.Fatal(err)
+	}
+	cold := NewService(repo, nil, quietLogger())
+	if err := cold.Hydrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := find(cold.Current(), "USD", domain.RateSourceOficial); !r.Stale(time.Now()) {
+		t.Errorf("rate not confirmed for 2 days is not stale: %+v", r)
+	}
+	if err := svc.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := cold.Hydrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := find(cold.Current(), "USD", domain.RateSourceOficial); r.Stale(time.Now()) {
+		t.Errorf("rate confirmed again is still stale: %+v", r)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM exchange_rates`).Scan(&n); err != nil || n != 9 {
+		t.Errorf("rows = %d, %v; confirming must not duplicate quotes", n, err)
+	}
+}

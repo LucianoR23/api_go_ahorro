@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/LucianoR23/valuo_api/internal/dates"
 	"github.com/LucianoR23/valuo_api/internal/db/sqlc"
 	"github.com/LucianoR23/valuo_api/internal/domain"
 )
@@ -90,3 +91,29 @@ func (r *Repository) ListLatest(ctx context.Context) ([]domain.ExchangeRate, err
 
 // compile-time guard para que no se rompa el paquete si se mueve time sin uso.
 var _ = time.Time{}
+
+// History: one quote per day since `since`, oldest first (plan 5.2). Days
+// follow the app's timezone.
+func (r *Repository) History(ctx context.Context, currency string, source domain.RateSource, since time.Time) ([]HistoryPoint, error) {
+	rows, err := r.q.ListExchangeRateHistory(ctx, sqlcgen.ListExchangeRateHistoryParams{
+		Tz:       dates.Location().String(),
+		Currency: currency,
+		Source:   string(source),
+		Since:    pgtype.Timestamptz{Time: since, Valid: true},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("fxrates.History: %w", err)
+	}
+	out := make([]HistoryPoint, len(rows))
+	for i, row := range rows {
+		out[i] = HistoryPoint{
+			Day: row.Day.Time,
+			Rate: domain.ExchangeRate{
+				Currency: row.Currency, Source: domain.RateSource(row.Source), LastUpdate: row.LastUpdate.Time,
+				RateAvg: floatFromNumeric(row.RateAvg), RateBuy: floatFromNumeric(row.RateBuy), RateSell: floatFromNumeric(row.RateSell),
+				FetchedAt: row.FetchedAt.Time,
+			},
+		}
+	}
+	return out, nil
+}

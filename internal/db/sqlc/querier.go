@@ -279,6 +279,9 @@ type Querier interface {
 	// La UI los muestra en un bloque "Pendientes" hasta que el usuario confirme
 	// el monto real de la factura.
 	ListDraftExpensesByHousehold(ctx context.Context, householdID uuid.UUID) ([]Expense, error)
+	// One quote per day (the day's last, in the app's timezone) since a date,
+	// oldest first (plan 5.2).
+	ListExchangeRateHistory(ctx context.Context, arg ListExchangeRateHistoryParams) ([]ListExchangeRateHistoryRow, error)
 	// Histórico confirmado de una serie (recurring_expense). Lo usa el endpoint
 	// de stats para calcular variación %, promedio, tendencia.
 	ListExpensesBySeries(ctx context.Context, arg ListExpensesBySeriesParams) ([]Expense, error)
@@ -496,8 +499,10 @@ type Querier interface {
 	// el UNIQUE constraint y se mapea a ErrConflict en el repo.
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error)
 	UpsertCreditCardPeriod(ctx context.Context, arg UpsertCreditCardPeriodParams) (CreditCardPeriod, error)
-	// El worker corre cada 15min aunque bluelytics no tenga dato nuevo
-	// (fines de semana, feriados). ON CONFLICT DO NOTHING evita duplicar.
+	// The worker runs every 15 min even when the upstream has nothing new
+	// (weekends, holidays): a quote already stored is not duplicated, only
+	// marked as confirmed again. fetched_at is "last confirmed by an upstream"
+	// (plan 5.2): a rate nobody confirmed for a day is stale.
 	UpsertExchangeRate(ctx context.Context, arg UpsertExchangeRateParams) error
 	// Usado al bootstrappear un hogar (owner) y al sumar miembros (weight=1.0).
 	// También desde PATCH /households/{id}/split cuando el owner edita pesos.

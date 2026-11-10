@@ -4,6 +4,11 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 5.2 (API part): rate history and stale rates
+- `GET /exchange-rates/history?currency=USD&source=bolsa&days=30` (signed in; USD and MEP by default, 1 to 365 days): one quote per day, the day's last in the app's timezone, oldest first.
+- `exchange_rates` already keeps every new quote, so it is the history table: storing unchanged fetches again would only duplicate rows. A quote returned again now updates `fetched_at`, which means "last confirmed by an upstream".
+- `GET /exchange-rates/current` adds `stale`: no upstream confirmed the rate in 24 hours (fetcher down, or DolarAPI down for a source only it has). Based on the confirmation, not on the quote's date, so the official dollar is not stale on weekends.
+
 ### 5.1 (API part): rates from DolarAPI, a source per household and per movement
 - Rates come from DolarAPI (`/v1/dolares`: oficial, blue, bolsa = MEP, contadoconliqui, tarjeta, cripto, mayorista; `/v1/cotizaciones`: the official euro). Bluelytics stays as the fallback and is the only source of the blue euro. A refresh fails only when both upstreams fail; when one does, it is logged and the other's rates are kept.
 - Migration 000037: every DolarAPI source in `exchange_rates.source`; `households.fx_source` (default `bolsa`, the MEP dollar, decided with the user); `expenses.rate_source` and `incomes.rate_source` (the source of `rate_used`, null without conversion and for older rows, which used blue).

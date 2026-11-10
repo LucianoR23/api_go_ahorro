@@ -6,6 +6,7 @@ import (
 	"github.com/LucianoR23/valuo_api/internal/money"
 	"github.com/shopspring/decimal"
 	"log/slog"
+	"time"
 
 	"github.com/LucianoR23/valuo_api/internal/domain"
 )
@@ -65,6 +66,7 @@ func (s *Service) Refresh(ctx context.Context) error {
 			s.logger.WarnContext(ctx, "fxrates: rate inválido descartado", "currency", r.Currency, "source", r.Source)
 			continue
 		}
+		r.FetchedAt = time.Now().UTC()
 		valid = append(valid, r)
 		if err := s.repo.Upsert(ctx, r); err != nil {
 			s.logger.ErrorContext(ctx, "fxrates: upsert", "error", err, "currency", r.Currency)
@@ -175,4 +177,34 @@ func (s *Service) rate(ctx context.Context, currency string, source domain.RateS
 		return decimal.Zero, fmt.Errorf("sin cotización %s %s: %w", currency, source, domain.ErrNotFound)
 	}
 	return money.FromFloat(v), nil
+}
+
+// Days of history: 30 by default, a year at most (plan 5.2).
+const (
+	DefaultHistoryDays = 30
+	MaxHistoryDays     = 365
+)
+
+// HistoryPoint: a day's last quote.
+type HistoryPoint struct {
+	Day  time.Time // calendar day in the app's timezone
+	Rate domain.ExchangeRate
+}
+
+// History returns one quote per day for currency at source over the last
+// days days, oldest first.
+func (s *Service) History(ctx context.Context, currency string, source domain.RateSource, days int, now time.Time) ([]HistoryPoint, error) {
+	if currency != "USD" && currency != "EUR" {
+		return nil, domain.NewValidationError("currency", "debe ser USD o EUR")
+	}
+	if !source.Valid() {
+		return nil, domain.NewValidationError("source", "cotización desconocida")
+	}
+	if days == 0 {
+		days = DefaultHistoryDays
+	}
+	if days < 1 || days > MaxHistoryDays {
+		return nil, domain.NewValidationError("days", "debe estar entre 1 y 365")
+	}
+	return s.repo.History(ctx, currency, source, now.AddDate(0, 0, -days))
 }
