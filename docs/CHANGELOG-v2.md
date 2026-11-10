@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 4.8 (API part): "¿Me lo puedo comprar?"
+- `POST /simulations/purchase` (household member) simulates a purchase without saving it: `paymentMethodId`, `amount`, `currency`, `installments`, optional `categoryId`, `spentAt` (default today) and `months` (1 to 12, default 6). The installments come from the same checks and card-period math as creating an expense (`expenses.Service.Plan`).
+- Per month, keyed like "Comprometido" by statement period: what the user's cards already have (`cardsBefore`), the purchase's installment, `cardsAfter`, recurring expenses (`fixed`; one on a credit card counts only after today, since the past ones are already in a statement), recurring incomes (`income`), `left` and `pctOfIncome` (cards as a share of income, null without income). Plus the chosen card's statements before and after, and the monthly limits the purchase counts against (total, or its category or the category's parent): this period's spending with and without it, and how much of the limit each installment takes.
+- Everything in the household's base currency; other currencies use today's rate (`todayRate`). Cards are the user's own; recurring items and goals are the current space's. Open to every plan for now: the Plus/Pro Hogar gate arrives with pricing.
+- The recurrence rule shared by recurring expenses and incomes moved to `domain.RecurrenceMatches` (it was copied in both packages).
+
 ### 1.10c: amounts in API texts read es-AR
 - New `money.Format`: `$ 19.450`, `US$ 500,50`, `€ 1.200`, `-$ 20`. Thousands with ".", cents with ",", and ",00" dropped when the amount is whole. Same output as the app's `formatAmount`.
 - Used by every text the API writes for people: the shared expense and settlement notifications, the recurring spike alert, the weekly summary, goal alerts, card and installment reminders, the monthly summary email and the "excede la deuda actual" validation error. Before they read `19450.00 ARS` or `$19450.00`.

@@ -561,36 +561,10 @@ func firstDueOccurrence(t domain.RecurringIncome, today time.Time) (time.Time, b
 // Para monthly con dayOfMonth > días del mes (ej: 31 en febrero), caemos
 // al último día del mes — evita que "el 31" nunca se genere en meses cortos.
 func recurrenceMatches(t domain.RecurringIncome, date time.Time) bool {
-	year, month, day := date.Date()
-	switch t.Frequency {
-	case "monthly":
-		if t.DayOfMonth == nil {
-			return false
-		}
-		return day == clampDay(*t.DayOfMonth, year, int(month))
-	case "weekly":
-		if t.DayOfWeek == nil {
-			return false
-		}
-		return int(date.Weekday()) == *t.DayOfWeek
-	case "yearly":
-		if t.DayOfMonth == nil || t.MonthOfYear == nil {
-			return false
-		}
-		return int(month) == *t.MonthOfYear && day == clampDay(*t.DayOfMonth, year, *t.MonthOfYear)
-	}
-	return false
+	return domain.RecurrenceMatches(t.Frequency, t.DayOfMonth, t.DayOfWeek, t.MonthOfYear, date)
 }
 
-// clampDay reduce el día al último del mes si se pasa. Ej: dayOfMonth=31
-// en febrero no-bisiesto → 28.
-func clampDay(d, year, month int) int {
-	last := time.Date(year, time.Month(month)+1, 0, 0, 0, 0, 0, time.UTC).Day()
-	if d > last {
-		return last
-	}
-	return d
-}
+func clampDay(d, year, month int) int { return domain.ClampDay(d, year, month) }
 
 func sameDay(a, b time.Time) bool {
 	ay, am, ad := a.Date()

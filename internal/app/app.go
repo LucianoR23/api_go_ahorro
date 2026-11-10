@@ -45,6 +45,7 @@ import (
 	"github.com/LucianoR23/valuo_api/internal/recurringexpenses"
 	"github.com/LucianoR23/valuo_api/internal/reports"
 	"github.com/LucianoR23/valuo_api/internal/settlements"
+	"github.com/LucianoR23/valuo_api/internal/simulations"
 	"github.com/LucianoR23/valuo_api/internal/splitrules"
 	"github.com/LucianoR23/valuo_api/internal/statements"
 	"github.com/LucianoR23/valuo_api/internal/support"
@@ -338,6 +339,18 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	goalsSvc.SetOwnership(ownChecker)
 	goalsHandler := goals.NewHandler(goalsSvc, authMW, householdsMW, logger)
 
+	// "¿Me lo puedo comprar?" (plan 4.8): reads only.
+	simulationsHandler := simulations.NewHandler(simulations.NewService(simulations.Deps{
+		Planner:           expensesSvc,
+		Committed:         statementsSvc,
+		RecurringExpenses: recurringExpensesSvc,
+		RecurringIncomes:  incomesSvc,
+		Goals:             goalsSvc,
+		PaymentMethods:    paymethodsSvc,
+		FX:                fxSvc,
+		Categories:        simulations.NewRepository(pool),
+	}), authMW, householdsMW, logger)
+
 	// insights: genera daily_summary, alerts (goals >=80%) y weekly_review
 	// (domingos). Job diario 01:00 local. Idempotente via UNIQUE parciales.
 	// El adapter traduce goalsSvc.ProgressList a la interface que insights usa.
@@ -559,6 +572,9 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 
 		// Goals (auth + household member).
 		goalsHandler.Mount(r)
+
+		// Purchase simulator (auth + household member).
+		simulationsHandler.Mount(r)
 
 		// Insights (auth + household member).
 		insightsHandler.Mount(r)

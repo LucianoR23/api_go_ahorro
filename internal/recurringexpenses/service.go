@@ -487,35 +487,10 @@ func firstDueOccurrence(t domain.RecurringExpense, today time.Time) (time.Time, 
 }
 
 func recurrenceMatches(t domain.RecurringExpense, date time.Time) bool {
-	year, month, day := date.Date()
-	switch t.Frequency {
-	case "monthly":
-		if t.DayOfMonth == nil {
-			return false
-		}
-		return day == clampDay(*t.DayOfMonth, year, int(month))
-	case "weekly":
-		if t.DayOfWeek == nil {
-			return false
-		}
-		return int(date.Weekday()) == *t.DayOfWeek
-	case "yearly":
-		if t.DayOfMonth == nil || t.MonthOfYear == nil {
-			return false
-		}
-		return int(month) == *t.MonthOfYear && day == clampDay(*t.DayOfMonth, year, *t.MonthOfYear)
-	}
-	return false
+	return domain.RecurrenceMatches(t.Frequency, t.DayOfMonth, t.DayOfWeek, t.MonthOfYear, date)
 }
 
-// clampDay: si el user configuró day_of_month=31, en febrero cae al 28/29.
-func clampDay(d, year, month int) int {
-	last := time.Date(year, time.Month(month)+1, 0, 0, 0, 0, 0, time.UTC).Day()
-	if d > last {
-		return last
-	}
-	return d
-}
+func clampDay(d, year, month int) int { return domain.ClampDay(d, year, month) }
 
 func sameDay(a, b time.Time) bool {
 	ay, am, ad := a.Date()
