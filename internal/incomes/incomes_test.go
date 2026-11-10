@@ -27,6 +27,7 @@ type incomeJSON struct {
 	AmountBase        float64  `json:"amountBase"`
 	BaseCurrency      string   `json:"baseCurrency"`
 	RateUsed          *float64 `json:"rateUsed"`
+	RateSource        *string  `json:"rateSource"`
 	Source            string   `json:"source"`
 	Description       string   `json:"description"`
 	ReceivedAt        string   `json:"receivedAt"`
@@ -122,15 +123,21 @@ func TestIncomes(t *testing.T) {
 			WantError(t, http.StatusNotFound, "not_found", "")
 	})
 
-	t.Run("foreign currency uses the stored blue rate", func(t *testing.T) {
+	t.Run("foreign currency uses the household's rate, or the one picked (plan 5.1)", func(t *testing.T) {
 		h := newHouse(t, s)
 		if _, err := s.Pool.Exec(t.Context(), `INSERT INTO exchange_rates (currency, source, last_update, rate_avg, rate_buy, rate_sell)
-			VALUES ('USD', 'blue', now(), 1200, 1190, 1210) ON CONFLICT DO NOTHING`); err != nil {
+			VALUES ('USD', 'bolsa', now(), 1200, 1190, 1210), ('USD', 'contadoconliqui', now(), 1660, 1658, 1665)
+			ON CONFLICT DO NOTHING`); err != nil {
 			t.Fatal(err)
 		}
 		i := h.create(t, h.owner, map[string]any{"amount": 100, "currency": "USD"})
-		if i.AmountBase != 120000 || i.RateUsed == nil || *i.RateUsed != 1200 {
+		if i.AmountBase != 121000 || i.RateUsed == nil || *i.RateUsed != 1210 || i.RateSource == nil || *i.RateSource != "bolsa" {
 			t.Errorf("USD income = %+v", i)
+		}
+		// A freelancer who sold the dollars through CCL.
+		i = h.create(t, h.owner, map[string]any{"amount": 1000, "currency": "USD", "rateSource": "contadoconliqui"})
+		if i.AmountBase != 1665000 || *i.RateUsed != 1665 || *i.RateSource != "contadoconliqui" {
+			t.Errorf("USD income at CCL = %+v", i)
 		}
 	})
 

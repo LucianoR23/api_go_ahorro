@@ -61,7 +61,7 @@ const createHousehold = `-- name: CreateHousehold :one
 
 INSERT INTO households (name, base_currency, created_by, kind)
 VALUES ($1, $2, $3, $4)
-RETURNING id, name, base_currency, created_by, created_at, updated_at, deleted_at, kind
+RETURNING id, name, base_currency, created_by, created_at, updated_at, deleted_at, kind, fx_source
 `
 
 type CreateHouseholdParams struct {
@@ -89,12 +89,13 @@ func (q *Queries) CreateHousehold(ctx context.Context, arg CreateHouseholdParams
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Kind,
+		&i.FxSource,
 	)
 	return i, err
 }
 
 const getActiveSharedHouseholdForUser = `-- name: GetActiveSharedHouseholdForUser :one
-SELECT h.id, h.name, h.base_currency, h.created_by, h.created_at, h.updated_at, h.deleted_at, h.kind
+SELECT h.id, h.name, h.base_currency, h.created_by, h.created_at, h.updated_at, h.deleted_at, h.kind, h.fx_source
 FROM households h
 INNER JOIN household_members hm ON hm.household_id = h.id
 WHERE hm.user_id = $1 AND h.kind = 'shared' AND h.deleted_at IS NULL
@@ -116,12 +117,13 @@ func (q *Queries) GetActiveSharedHouseholdForUser(ctx context.Context, userID uu
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Kind,
+		&i.FxSource,
 	)
 	return i, err
 }
 
 const getHouseholdByID = `-- name: GetHouseholdByID :one
-SELECT id, name, base_currency, created_by, created_at, updated_at, deleted_at, kind FROM households WHERE id = $1 AND deleted_at IS NULL
+SELECT id, name, base_currency, created_by, created_at, updated_at, deleted_at, kind, fx_source FROM households WHERE id = $1 AND deleted_at IS NULL
 `
 
 // Filtra soft-deleted: un hogar borrado por su owner es invisible para
@@ -138,12 +140,13 @@ func (q *Queries) GetHouseholdByID(ctx context.Context, id uuid.UUID) (Household
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Kind,
+		&i.FxSource,
 	)
 	return i, err
 }
 
 const getHouseholdByIDIncludingDeleted = `-- name: GetHouseholdByIDIncludingDeleted :one
-SELECT id, name, base_currency, created_by, created_at, updated_at, deleted_at, kind FROM households WHERE id = $1
+SELECT id, name, base_currency, created_by, created_at, updated_at, deleted_at, kind, fx_source FROM households WHERE id = $1
 `
 
 // Versión "admin": devuelve la fila incluso si está soft-deleted. Usada
@@ -160,6 +163,7 @@ func (q *Queries) GetHouseholdByIDIncludingDeleted(ctx context.Context, id uuid.
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Kind,
+		&i.FxSource,
 	)
 	return i, err
 }
@@ -186,7 +190,7 @@ func (q *Queries) GetHouseholdMemberRole(ctx context.Context, arg GetHouseholdMe
 }
 
 const getPersonalHouseholdForUser = `-- name: GetPersonalHouseholdForUser :one
-SELECT id, name, base_currency, created_by, created_at, updated_at, deleted_at, kind FROM households
+SELECT id, name, base_currency, created_by, created_at, updated_at, deleted_at, kind, fx_source FROM households
 WHERE created_by = $1 AND kind = 'personal' AND deleted_at IS NULL
 `
 
@@ -203,6 +207,7 @@ func (q *Queries) GetPersonalHouseholdForUser(ctx context.Context, createdBy uui
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Kind,
+		&i.FxSource,
 	)
 	return i, err
 }
@@ -387,7 +392,7 @@ func (q *Queries) ListHouseholdMembers(ctx context.Context, householdID uuid.UUI
 }
 
 const listHouseholdsForUser = `-- name: ListHouseholdsForUser :many
-SELECT h.id, h.name, h.base_currency, h.created_by, h.created_at, h.updated_at, h.deleted_at, h.kind
+SELECT h.id, h.name, h.base_currency, h.created_by, h.created_at, h.updated_at, h.deleted_at, h.kind, h.fx_source
 FROM households h
 INNER JOIN household_members hm ON hm.household_id = h.id
 WHERE hm.user_id = $1 AND h.deleted_at IS NULL
@@ -415,6 +420,7 @@ func (q *Queries) ListHouseholdsForUser(ctx context.Context, userID uuid.UUID) (
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.Kind,
+			&i.FxSource,
 		); err != nil {
 			return nil, err
 		}
@@ -495,19 +501,26 @@ const updateHousehold = `-- name: UpdateHousehold :one
 UPDATE households
 SET name = $2,
     base_currency = $3,
+    fx_source = $4,
     updated_at = now()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, name, base_currency, created_by, created_at, updated_at, deleted_at, kind
+RETURNING id, name, base_currency, created_by, created_at, updated_at, deleted_at, kind, fx_source
 `
 
 type UpdateHouseholdParams struct {
 	ID           uuid.UUID `json:"id"`
 	Name         string    `json:"name"`
 	BaseCurrency string    `json:"base_currency"`
+	FxSource     string    `json:"fx_source"`
 }
 
 func (q *Queries) UpdateHousehold(ctx context.Context, arg UpdateHouseholdParams) (Household, error) {
-	row := q.db.QueryRow(ctx, updateHousehold, arg.ID, arg.Name, arg.BaseCurrency)
+	row := q.db.QueryRow(ctx, updateHousehold,
+		arg.ID,
+		arg.Name,
+		arg.BaseCurrency,
+		arg.FxSource,
+	)
 	var i Household
 	err := row.Scan(
 		&i.ID,
@@ -518,6 +531,7 @@ func (q *Queries) UpdateHousehold(ctx context.Context, arg UpdateHouseholdParams
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Kind,
+		&i.FxSource,
 	)
 	return i, err
 }

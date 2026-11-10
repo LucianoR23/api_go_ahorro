@@ -28,7 +28,7 @@ type householdLookup interface {
 // fxConverter: convierte amount de una currency a otra. Lo implementa
 // fxrates.Service. Definido acá para no acoplar.
 type fxConverter interface {
-	Convert(ctx context.Context, amount decimal.Decimal, from, to string) (converted, rate decimal.Decimal, err error)
+	Convert(ctx context.Context, amount decimal.Decimal, from, to string, source domain.RateSource) (converted, rate decimal.Decimal, err error)
 }
 
 type Service struct {
@@ -57,6 +57,9 @@ type CreateInput struct {
 	Source          string
 	Description     string
 	ReceivedAt      time.Time
+	// RateSource: the rate for this income when it is in another currency;
+	// empty uses the household's (plan 5.1).
+	RateSource domain.RateSource
 }
 
 // Create valida input, convierte a base_currency, y persiste.
@@ -106,18 +109,24 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Income, er
 	// Conversión FX. Mismo patrón que expenses: si la moneda del input
 	// coincide con la base, no guardamos rate (convert devuelve 1).
 	in.Amount = in.Amount.Round(money.AmountScale)
-	amountBase, rate, err := s.fx.Convert(ctx, in.Amount, in.Currency, hh.BaseCurrency)
+	source, err := domain.PickRateSource(in.RateSource, hh.FxSource)
+	if err != nil {
+		return domain.Income{}, err
+	}
+	amountBase, rate, err := s.fx.Convert(ctx, in.Amount, in.Currency, hh.BaseCurrency, source)
 	if err != nil {
 		return domain.Income{}, err
 	}
 	amountBase = amountBase.Round(money.AmountScale)
 	var rateUsed *decimal.Decimal
 	var rateAt *time.Time
+	var rateSource *domain.RateSource
 	if in.Currency != hh.BaseCurrency {
 		r := rate
 		now := time.Now().UTC()
 		rateUsed = &r
 		rateAt = &now
+		rateSource = &source
 	}
 
 	return s.repo.Create(ctx, CreateParams{
@@ -130,6 +139,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Income, er
 		BaseCurrency:    hh.BaseCurrency,
 		RateUsed:        rateUsed,
 		RateAt:          rateAt,
+		RateSource:      rateSource,
 		Source:          in.Source,
 		Description:     in.Description,
 		ReceivedAt:      in.ReceivedAt,
@@ -470,18 +480,24 @@ func (s *Service) generateOneRecurring(ctx context.Context, t domain.RecurringIn
 	if err != nil {
 		return err
 	}
-	amountBase, rate, err := s.fx.Convert(ctx, t.Amount, t.Currency, hh.BaseCurrency)
+	source, err := domain.PickRateSource("", hh.FxSource)
+	if err != nil {
+		return err
+	}
+	amountBase, rate, err := s.fx.Convert(ctx, t.Amount, t.Currency, hh.BaseCurrency, source)
 	if err != nil {
 		return err
 	}
 	amountBase = amountBase.Round(money.AmountScale)
 	var rateUsed *decimal.Decimal
 	var rateAt *time.Time
+	var rateSource *domain.RateSource
 	if t.Currency != hh.BaseCurrency {
 		r := rate
 		now := time.Now().UTC()
 		rateUsed = &r
 		rateAt = &now
+		rateSource = &source
 	}
 	if _, err := s.repo.Create(ctx, CreateParams{
 		HouseholdID:       t.HouseholdID,
@@ -493,6 +509,7 @@ func (s *Service) generateOneRecurring(ctx context.Context, t domain.RecurringIn
 		BaseCurrency:      hh.BaseCurrency,
 		RateUsed:          rateUsed,
 		RateAt:            rateAt,
+		RateSource:        rateSource,
 		Source:            t.Source,
 		Description:       t.Description,
 		ReceivedAt:        date,

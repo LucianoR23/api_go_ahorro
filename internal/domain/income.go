@@ -27,6 +27,7 @@ type Income struct {
 	BaseCurrency string
 	RateUsed     *decimal.Decimal
 	RateAt       *time.Time
+	RateSource   *RateSource // where RateUsed came from; nil without conversion
 
 	Source      string
 	Description string

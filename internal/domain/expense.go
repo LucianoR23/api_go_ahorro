@@ -23,6 +23,7 @@ type Expense struct {
 	BaseCurrency string
 	RateUsed     *decimal.Decimal
 	RateAt       *time.Time
+	RateSource   *RateSource // where RateUsed came from; nil without conversion
 
 	Description  string
 	SpentAt      time.Time

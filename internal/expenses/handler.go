@@ -64,6 +64,7 @@ type createReq struct {
 	Installments    int                `json:"installments"`
 	IsShared        bool               `json:"isShared"`
 	SharesOverride  []shareOverrideReq `json:"sharesOverride,omitempty"`
+	RateSource      string             `json:"rateSource,omitempty"` // plan 5.1; empty: the household's
 }
 
 type shareOverrideReq struct {
@@ -93,6 +94,7 @@ type expenseDTO struct {
 	BaseCurrency    string           `json:"baseCurrency"`
 	RateUsed        *decimal.Decimal `json:"rateUsed,omitempty"`
 	RateAt          *time.Time       `json:"rateAt,omitempty"`
+	RateSource      *string          `json:"rateSource,omitempty"`
 	Description     string           `json:"description"`
 	SpentAt         string           `json:"spentAt"`
 	Installments    int              `json:"installments"`
@@ -176,6 +178,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		Installments:    req.Installments,
 		IsShared:        req.IsShared,
 		SharesOverride:  overrides,
+		RateSource:      domain.RateSource(req.RateSource),
 	})
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
@@ -536,6 +539,7 @@ func toExpenseDTO(e domain.Expense) expenseDTO {
 		BaseCurrency:       e.BaseCurrency,
 		RateUsed:           e.RateUsed,
 		RateAt:             e.RateAt,
+		RateSource:         (*string)(e.RateSource),
 		Description:        e.Description,
 		SpentAt:            e.SpentAt.Format("2006-01-02"),
 		Installments:       e.Installments,

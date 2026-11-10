@@ -152,12 +152,13 @@ func (r *Repository) ListAllIDs(ctx context.Context) ([]uuid.UUID, error) {
 	return ids, nil
 }
 
-// Update cambia nombre y moneda. created_by y timestamps no se tocan.
-func (r *Repository) Update(ctx context.Context, id uuid.UUID, name, baseCurrency string) (domain.Household, error) {
+// Update cambia nombre, moneda y cotización. created_by y timestamps no se tocan.
+func (r *Repository) Update(ctx context.Context, id uuid.UUID, name, baseCurrency string, fxSource domain.RateSource) (domain.Household, error) {
 	h, err := r.q.UpdateHousehold(ctx, sqlcgen.UpdateHouseholdParams{
 		ID:           id,
 		Name:         name,
 		BaseCurrency: baseCurrency,
+		FxSource:     string(fxSource),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Household{}, domain.ErrNotFound

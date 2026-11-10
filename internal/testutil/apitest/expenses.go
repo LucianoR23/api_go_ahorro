@@ -17,6 +17,7 @@ type Expense struct {
 	AmountBase      float64  `json:"amountBase"`
 	BaseCurrency    string   `json:"baseCurrency"`
 	RateUsed        *float64 `json:"rateUsed"`
+	RateSource      *string  `json:"rateSource"`
 	Description     string   `json:"description"`
 	SpentAt         string   `json:"spentAt"`
 	Installments    int      `json:"installments"`

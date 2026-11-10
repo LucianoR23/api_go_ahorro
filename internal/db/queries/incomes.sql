@@ -4,9 +4,9 @@
 INSERT INTO incomes (
     household_id, received_by, payment_method_id,
     amount, currency, amount_base, base_currency, rate_used, rate_at,
-    source, description, received_at, recurring_income_id
+    source, description, received_at, recurring_income_id, rate_source
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 RETURNING *;
 
 -- name: RecurringIncomeHasOccurrence :one

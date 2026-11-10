@@ -43,13 +43,19 @@ func (s *Service) Hydrate(ctx context.Context) error {
 	return nil
 }
 
-// Refresh pega a bluelytics, persiste y actualiza el caché.
-// Si bluelytics falla, devolvemos error pero el caché no se modifica
-// (mantenemos la última cotización conocida).
+// Refresh fetches DolarAPI and Bluelytics, stores and caches the rates.
+// When neither answers it returns the error and the cache keeps the last
+// known rates; when only one fails, it logs it and keeps the other's.
 func (s *Service) Refresh(ctx context.Context) error {
 	rates, err := s.fetcher.Fetch(ctx)
-	if err != nil {
+	if len(rates) == 0 {
+		if err == nil {
+			err = fmt.Errorf("fxrates.Refresh: no rates")
+		}
 		return err
+	}
+	if err != nil {
+		s.logger.WarnContext(ctx, "fxrates: one upstream failed", "error", err)
 	}
 	valid := make([]domain.ExchangeRate, 0, len(rates))
 	for _, r := range rates {
@@ -76,19 +82,27 @@ func (s *Service) Current() []domain.ExchangeRate {
 	return s.cache.snapshot()
 }
 
-// Convert convierte un monto entre monedas soportadas. Usa "blue" por default.
+// Convert converts amount between supported currencies with the rates of
+// source (the household's, or the one picked for a movement; plan 5.1).
 //
-// Modelo mental: todas las rates son "1 unidad de `currency` = rateAvg ARS".
+// Every rate is "1 unit of currency = rate ARS", the source's selling price
+// (venta: what the dollar costs, as DolarAPI publishes it), or the average
+// when an upstream gave no selling price.
 //   - ARS → X: amount / rate(X)
 //   - X → ARS: amount * rate(X)
 //   - X → Y:   amount * rate(X) / rate(Y)
 //
-// Si `from == to` devuelve el mismo monto + rate=1. The converted amount
-// is not rounded (plan 0.7): callers round it to cents when they store it.
-// El rate retornado es el que se usó para convertir (para guardar en expense).
-func (s *Service) Convert(ctx context.Context, amount decimal.Decimal, from, to string) (converted, rate decimal.Decimal, err error) {
+// A currency without that source (only the official and blue euro exist)
+// goes through the dollar: rate(EUR, s) = rate(EUR, oficial) × rate(USD, s)
+// / rate(USD, oficial). Same currencies return amount and rate 1. The
+// converted amount is not rounded (plan 0.7): callers round it to cents when
+// they store it. The returned rate is the one used, to store with the row.
+func (s *Service) Convert(ctx context.Context, amount decimal.Decimal, from, to string, source domain.RateSource) (converted, rate decimal.Decimal, err error) {
 	if from == "" || to == "" {
 		return decimal.Zero, decimal.Zero, domain.NewValidationError("currency", "from/to requeridos")
+	}
+	if !source.Valid() {
+		return decimal.Zero, decimal.Zero, domain.NewValidationError("rateSource", "cotización desconocida")
 	}
 	one := decimal.NewFromInt(1)
 	if from == to {
@@ -96,21 +110,18 @@ func (s *Service) Convert(ctx context.Context, amount decimal.Decimal, from, to 
 	}
 
 	const ars = "ARS"
-	source := domain.RateSourceBlue
-
-	// get: the rate of a foreign currency against ARS. Rates are NUMERIC(12,4)
-	// in the database; FromFloat restores those 4 decimals exactly.
 	get := func(currency string) (decimal.Decimal, error) {
-		if r, ok := s.cache.get(currency, source); ok && r.RateAvg > 0 {
-			return money.FromFloat(r.RateAvg), nil
+		r, err := s.rate(ctx, currency, source)
+		if err == nil || currency == "USD" || source == domain.RateSourceOficial {
+			return r, err
 		}
-		// Fallback a DB: caché puede estar frío justo después de reiniciar.
-		r, err := s.repo.GetLatest(ctx, currency, source)
-		if err != nil {
-			return decimal.Zero, fmt.Errorf("sin cotización para %s: %w", currency, err)
+		cur, errC := s.rate(ctx, currency, domain.RateSourceOficial)
+		usd, errU := s.rate(ctx, "USD", source)
+		usdOf, errO := s.rate(ctx, "USD", domain.RateSourceOficial)
+		if errC != nil || errU != nil || errO != nil {
+			return decimal.Zero, err
 		}
-		s.cache.set(r)
-		return money.FromFloat(r.RateAvg), nil
+		return cur.Mul(usd).Div(usdOf).Round(4), nil
 	}
 
 	switch {
@@ -138,4 +149,30 @@ func (s *Service) Convert(ctx context.Context, amount decimal.Decimal, from, to 
 		cross := rFrom.Div(rTo)
 		return amount.Mul(rFrom).Div(rTo), cross, nil
 	}
+}
+
+// rate: the rate of a foreign currency against ARS for source, from the
+// cache or, cold, from the database. Rates are NUMERIC(12,4); FromFloat
+// restores those 4 decimals exactly.
+func (s *Service) rate(ctx context.Context, currency string, source domain.RateSource) (decimal.Decimal, error) {
+	r, ok := s.cache.get(currency, source)
+	if !ok && s.repo != nil {
+		got, err := s.repo.GetLatest(ctx, currency, source)
+		if err != nil {
+			return decimal.Zero, fmt.Errorf("sin cotización %s %s: %w", currency, source, err)
+		}
+		s.cache.set(got)
+		r, ok = got, true
+	}
+	if !ok {
+		return decimal.Zero, fmt.Errorf("sin cotización %s %s: %w", currency, source, domain.ErrNotFound)
+	}
+	v := r.RateSell
+	if v <= 0 {
+		v = r.RateAvg
+	}
+	if v <= 0 {
+		return decimal.Zero, fmt.Errorf("sin cotización %s %s: %w", currency, source, domain.ErrNotFound)
+	}
+	return money.FromFloat(v), nil
 }

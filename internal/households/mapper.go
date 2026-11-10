@@ -14,6 +14,7 @@ func toDomain(h sqlcgen.Household) domain.Household {
 		ID:           h.ID,
 		Name:         h.Name,
 		BaseCurrency: h.BaseCurrency,
+		FxSource:     domain.RateSource(h.FxSource),
 		Kind:         domain.HouseholdKind(h.Kind),
 		CreatedBy:    h.CreatedBy,
 		CreatedAt:    h.CreatedAt.Time,

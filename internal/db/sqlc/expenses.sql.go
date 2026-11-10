@@ -21,7 +21,7 @@ SET amount = $2,
     status = 'confirmed',
     updated_at = NOW()
 WHERE id = $1 AND status = 'draft'
-RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status
+RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status, rate_source
 `
 
 type ConfirmExpenseDraftParams struct {
@@ -65,6 +65,7 @@ func (q *Queries) ConfirmExpenseDraft(ctx context.Context, arg ConfirmExpenseDra
 		&i.UpdatedAt,
 		&i.RecurringExpenseID,
 		&i.Status,
+		&i.RateSource,
 	)
 	return i, err
 }
@@ -74,10 +75,10 @@ INSERT INTO expenses (
     household_id, created_by, category_id, payment_method_id,
     amount, currency, amount_base, base_currency, rate_used, rate_at,
     description, spent_at, installments, is_shared, recurring_expense_id,
-    status
+    status, rate_source
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status, rate_source
 `
 
 type CreateExpenseParams struct {
@@ -97,6 +98,7 @@ type CreateExpenseParams struct {
 	IsShared           bool               `json:"is_shared"`
 	RecurringExpenseID *uuid.UUID         `json:"recurring_expense_id"`
 	Status             string             `json:"status"`
+	RateSource         pgtype.Text        `json:"rate_source"`
 }
 
 func (q *Queries) CreateExpense(ctx context.Context, arg CreateExpenseParams) (Expense, error) {
@@ -117,6 +119,7 @@ func (q *Queries) CreateExpense(ctx context.Context, arg CreateExpenseParams) (E
 		arg.IsShared,
 		arg.RecurringExpenseID,
 		arg.Status,
+		arg.RateSource,
 	)
 	var i Expense
 	err := row.Scan(
@@ -139,6 +142,7 @@ func (q *Queries) CreateExpense(ctx context.Context, arg CreateExpenseParams) (E
 		&i.UpdatedAt,
 		&i.RecurringExpenseID,
 		&i.Status,
+		&i.RateSource,
 	)
 	return i, err
 }
@@ -226,7 +230,7 @@ func (q *Queries) DeleteExpense(ctx context.Context, id uuid.UUID) error {
 }
 
 const getExpenseByID = `-- name: GetExpenseByID :one
-SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status FROM expenses WHERE id = $1
+SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status, rate_source FROM expenses WHERE id = $1
 `
 
 func (q *Queries) GetExpenseByID(ctx context.Context, id uuid.UUID) (Expense, error) {
@@ -252,6 +256,7 @@ func (q *Queries) GetExpenseByID(ctx context.Context, id uuid.UUID) (Expense, er
 		&i.UpdatedAt,
 		&i.RecurringExpenseID,
 		&i.Status,
+		&i.RateSource,
 	)
 	return i, err
 }
@@ -287,7 +292,7 @@ func (q *Queries) GetInstallmentByExpenseAndNumber(ctx context.Context, arg GetI
 }
 
 const listDraftExpensesByHousehold = `-- name: ListDraftExpensesByHousehold :many
-SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status FROM expenses
+SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status, rate_source FROM expenses
 WHERE household_id = $1 AND status = 'draft'
 ORDER BY spent_at DESC
 `
@@ -324,6 +329,7 @@ func (q *Queries) ListDraftExpensesByHousehold(ctx context.Context, householdID 
 			&i.UpdatedAt,
 			&i.RecurringExpenseID,
 			&i.Status,
+			&i.RateSource,
 		); err != nil {
 			return nil, err
 		}
@@ -336,7 +342,7 @@ func (q *Queries) ListDraftExpensesByHousehold(ctx context.Context, householdID 
 }
 
 const listExpensesBySeries = `-- name: ListExpensesBySeries :many
-SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status FROM expenses
+SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status, rate_source FROM expenses
 WHERE recurring_expense_id = $1 AND status = 'confirmed'
 ORDER BY spent_at DESC
 LIMIT $2
@@ -378,6 +384,7 @@ func (q *Queries) ListExpensesBySeries(ctx context.Context, arg ListExpensesBySe
 			&i.UpdatedAt,
 			&i.RecurringExpenseID,
 			&i.Status,
+			&i.RateSource,
 		); err != nil {
 			return nil, err
 		}
@@ -497,7 +504,7 @@ SET description = $2,
     category_id = $4,
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status
+RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status, rate_source
 `
 
 type UpdateExpenseParams struct {
@@ -537,6 +544,7 @@ func (q *Queries) UpdateExpense(ctx context.Context, arg UpdateExpenseParams) (E
 		&i.UpdatedAt,
 		&i.RecurringExpenseID,
 		&i.Status,
+		&i.RateSource,
 	)
 	return i, err
 }
