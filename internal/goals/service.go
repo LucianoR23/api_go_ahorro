@@ -23,7 +23,7 @@ type householdLookup interface {
 // fxConverter: converts a goal's target into the household's base currency,
 // with the same rates expenses use.
 type fxConverter interface {
-	Convert(ctx context.Context, amount decimal.Decimal, from, to string) (converted, rate decimal.Decimal, err error)
+	Convert(ctx context.Context, amount decimal.Decimal, from, to string, source domain.RateSource) (converted, rate decimal.Decimal, err error)
 }
 
 type Service struct {
@@ -243,7 +243,11 @@ func (s *Service) targetInBase(ctx context.Context, g domain.BudgetGoal) (baseTa
 	if g.Currency == hh.BaseCurrency {
 		return baseTarget{Amount: g.TargetAmount, Currency: hh.BaseCurrency}, nil
 	}
-	amount, rate, err := s.fx.Convert(ctx, g.TargetAmount, g.Currency, hh.BaseCurrency)
+	source, err := domain.PickRateSource("", hh.FxSource)
+	if err != nil {
+		return baseTarget{}, err
+	}
+	amount, rate, err := s.fx.Convert(ctx, g.TargetAmount, g.Currency, hh.BaseCurrency, source)
 	if err != nil {
 		return baseTarget{}, err
 	}

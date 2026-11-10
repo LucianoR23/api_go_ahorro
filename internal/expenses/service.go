@@ -37,7 +37,7 @@ type householdLookup interface {
 
 // fxConverter: lo mínimo que precisamos de fxrates.Service.
 type fxConverter interface {
-	Convert(ctx context.Context, amount decimal.Decimal, from, to string) (converted, rate decimal.Decimal, err error)
+	Convert(ctx context.Context, amount decimal.Decimal, from, to string, source domain.RateSource) (converted, rate decimal.Decimal, err error)
 }
 
 // splitRulesReader: dependencia mínima para leer pesos del hogar.
@@ -166,6 +166,9 @@ type CreateInput struct {
 	// reemplaza al split ponderado del hogar para este gasto puntual.
 	// Debe cubrir a todos los miembros con monto > 0 y sumar in.Amount.
 	SharesOverride []ShareOverride
+	// RateSource: the rate for this expense when it is in another currency;
+	// empty uses the household's (plan 5.1).
+	RateSource domain.RateSource
 }
 
 // Create valida, convierte a base currency, calcula cuotas y persiste todo
@@ -215,17 +218,23 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.ExpenseDet
 
 	// Conversión a base currency. Guardamos amount_base, rate_used, rate_at.
 	in.Amount = in.Amount.Round(money.AmountScale)
-	amountBase, rate, err := s.convert(ctx, in.Amount, in.Currency, hh.BaseCurrency)
+	source, err := domain.PickRateSource(in.RateSource, hh.FxSource)
+	if err != nil {
+		return domain.ExpenseDetail{}, err
+	}
+	amountBase, rate, err := s.convert(ctx, in.Amount, in.Currency, hh.BaseCurrency, source)
 	if err != nil {
 		return domain.ExpenseDetail{}, err
 	}
 	now := time.Now().UTC()
 	var rateUsed *decimal.Decimal
 	var rateAt *time.Time
+	var rateSource *domain.RateSource
 	if in.Currency != hh.BaseCurrency {
 		r := rate
 		rateUsed = &r
 		rateAt = &now
+		rateSource = &source
 	}
 
 	// Shares: resolvemos los pesos (override > split_rules > equitativo).
@@ -253,6 +262,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.ExpenseDet
 		BaseCurrency:       hh.BaseCurrency,
 		RateUsed:           rateUsed,
 		RateAt:             rateAt,
+		RateSource:         rateSource,
 		Description:        in.Description,
 		SpentAt:            in.SpentAt,
 		Installments:       in.Installments,
@@ -452,8 +462,8 @@ func (s *Service) autoBillingDate(ctx context.Context, e domain.Expense, n int) 
 }
 
 // convert converts to the household's base currency, rounded to cents.
-func (s *Service) convert(ctx context.Context, amount decimal.Decimal, from, to string) (base, rate decimal.Decimal, err error) {
-	b, r, err := s.fx.Convert(ctx, amount, from, to)
+func (s *Service) convert(ctx context.Context, amount decimal.Decimal, from, to string, source domain.RateSource) (base, rate decimal.Decimal, err error) {
+	b, r, err := s.fx.Convert(ctx, amount, from, to, source)
 	if err != nil {
 		return decimal.Zero, decimal.Zero, err
 	}
@@ -722,7 +732,15 @@ func (s *Service) ConfirmDraft(ctx context.Context, householdID, expenseID, acto
 		rateAt     *time.Time
 	)
 	if !strings.EqualFold(current.Currency, hh.BaseCurrency) {
-		converted, rate, ferr := s.convert(ctx, amount, current.Currency, hh.BaseCurrency)
+		picked := domain.RateSource("")
+		if current.RateSource != nil {
+			picked = *current.RateSource
+		}
+		source, serr := domain.PickRateSource(picked, hh.FxSource)
+		if serr != nil {
+			return domain.Expense{}, serr
+		}
+		converted, rate, ferr := s.convert(ctx, amount, current.Currency, hh.BaseCurrency, source)
 		if ferr != nil {
 			return domain.Expense{}, fmt.Errorf("fx convert: %w", ferr)
 		}

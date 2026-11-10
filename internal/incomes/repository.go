@@ -42,6 +42,7 @@ type CreateParams struct {
 	BaseCurrency    string
 	RateUsed        *decimal.Decimal
 	RateAt          *time.Time
+	RateSource      *domain.RateSource
 	Source          string
 	Description     string
 	ReceivedAt      time.Time
@@ -97,6 +98,7 @@ func (r *Repository) Create(ctx context.Context, p CreateParams) (domain.Income,
 		Description:       p.Description,
 		ReceivedAt:        pgtype.Date{Time: p.ReceivedAt, Valid: true},
 		RecurringIncomeID: p.RecurringIncomeID,
+		RateSource:        rateSourceText(p.RateSource),
 	})
 	if err != nil {
 		return domain.Income{}, fmt.Errorf("incomes.Create: %w", err)
@@ -388,6 +390,7 @@ func toIncome(row sqlcgen.Income) domain.Income {
 		BaseCurrency:      row.BaseCurrency,
 		RateUsed:          rateUsed,
 		RateAt:            rateAt,
+		RateSource:        domain.RateSourcePtr(row.RateSource.String, row.RateSource.Valid),
 		Source:            row.Source,
 		Description:       row.Description,
 		ReceivedAt:        row.ReceivedAt.Time,
@@ -453,4 +456,12 @@ func datePtr(p *time.Time) pgtype.Date {
 // keeps the call sites of the old float helper.
 func numericOf(d decimal.Decimal, scale int32) (pgtype.Numeric, error) {
 	return money.ToNumeric(d, scale), nil
+}
+
+// rateSourceText: a nullable rate_source column.
+func rateSourceText(s *domain.RateSource) pgtype.Text {
+	if s == nil {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: string(*s), Valid: true}
 }

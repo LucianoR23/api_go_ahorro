@@ -21,6 +21,7 @@ type householdJSON struct {
 	ID           string    `json:"id"`
 	Name         string    `json:"name"`
 	BaseCurrency string    `json:"baseCurrency"`
+	FxSource     string    `json:"fxSource"`
 	Kind         string    `json:"kind"`
 	CreatedBy    string    `json:"createdBy"`
 	CreatedAt    time.Time `json:"createdAt"`
@@ -168,6 +169,26 @@ func TestHouseholdAccess(t *testing.T) {
 			WantError(t, http.StatusUnprocessableEntity, "validation", "name")
 		s.Do(t, req(http.MethodPatch, path, owner.Token, map[string]string{"name": "Casa", "baseCurrency": "XXX"})).
 			WantError(t, http.StatusUnprocessableEntity, "validation", "baseCurrency")
+	})
+
+	t.Run("the rate source: MEP by default, changed by the owner, kept when not sent (plan 5.1)", func(t *testing.T) {
+		var got householdJSON
+		s.Do(t, req(http.MethodGet, path, owner.Token, nil)).Status(t, http.StatusOK).JSON(t, &got)
+		if got.FxSource != "bolsa" {
+			t.Errorf("default fxSource = %q", got.FxSource)
+		}
+		s.Do(t, req(http.MethodPatch, path, owner.Token, map[string]string{"name": "Casa", "baseCurrency": "ARS", "fxSource": "blue"})).
+			Status(t, http.StatusOK).JSON(t, &got)
+		if got.FxSource != "blue" {
+			t.Errorf("fxSource = %q, want blue", got.FxSource)
+		}
+		s.Do(t, req(http.MethodPatch, path, owner.Token, map[string]string{"name": "Casa", "baseCurrency": "ARS"})).
+			Status(t, http.StatusOK).JSON(t, &got)
+		if got.FxSource != "blue" {
+			t.Errorf("fxSource not sent = %q, want it kept", got.FxSource)
+		}
+		s.Do(t, req(http.MethodPatch, path, owner.Token, map[string]string{"name": "Casa", "baseCurrency": "ARS", "fxSource": "euro_blue"})).
+			WantError(t, http.StatusUnprocessableEntity, "validation", "fxSource")
 	})
 
 	t.Run("bad ids", func(t *testing.T) {

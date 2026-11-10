@@ -120,7 +120,7 @@ Ver [`.env.example`](./.env.example). Resumen:
 
 | Job | Cadencia | Qué hace |
 |---|---|---|
-| `fx_refresh` | 15 min y al arrancar | refresh tasas ARS/USD/EUR desde bluelytics |
+| `fx_refresh` | 15 min y al arrancar | rates from DolarAPI (every dollar and the official euro), Bluelytics as fallback and for the blue euro |
 | `recurring_incomes` | diario 00:30 | genera ingresos desde plantillas |
 | `recurring_expenses` | diario 00:30 | genera gastos desde plantillas |
 | `insights_daily` | diario 01:00 | arma daily_summary + alerts + weekly (domingos) |

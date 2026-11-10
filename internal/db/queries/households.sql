@@ -86,6 +86,7 @@ ORDER BY h.deleted_at DESC;
 UPDATE households
 SET name = $2,
     base_currency = $3,
+    fx_source = $4,
     updated_at = now()
 WHERE id = $1 AND deleted_at IS NULL
 RETURNING *;

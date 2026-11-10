@@ -58,6 +58,7 @@ type householdDTO struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
 	BaseCurrency string `json:"baseCurrency"`
+	FxSource     string `json:"fxSource"`
 	// Kind: "personal" ("Mi plata") or "shared" ("Hogar"), plan 1.2.
 	Kind      string    `json:"kind"`
 	CreatedBy string    `json:"createdBy"`
@@ -82,6 +83,8 @@ type createRequest struct {
 type updateRequest struct {
 	Name         string `json:"name"`
 	BaseCurrency string `json:"baseCurrency"`
+	// FxSource: optional; empty keeps the current one (plan 5.1).
+	FxSource string `json:"fxSource,omitempty"`
 }
 
 // ===================== handlers =====================
@@ -162,7 +165,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	hh, err := h.svc.Update(r.Context(), userID, householdID, req.Name, req.BaseCurrency)
+	hh, err := h.svc.Update(r.Context(), userID, householdID, req.Name, req.BaseCurrency, domain.RateSource(req.FxSource))
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
 		return
@@ -298,6 +301,7 @@ func toHouseholdDTO(h domain.Household) householdDTO {
 		ID:           h.ID.String(),
 		Name:         h.Name,
 		BaseCurrency: h.BaseCurrency,
+		FxSource:     string(h.FxSource),
 		Kind:         string(h.Kind),
 		CreatedBy:    h.CreatedBy.String(),
 		CreatedAt:    h.CreatedAt,

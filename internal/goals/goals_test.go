@@ -296,7 +296,7 @@ func TestGoalProgress(t *testing.T) {
 	t.Run("a target in another currency is converted with today's rate", func(t *testing.T) {
 		h := newHouse(t, s)
 		if _, err := s.Pool.Exec(t.Context(), `INSERT INTO exchange_rates (currency, source, last_update, rate_avg, rate_buy, rate_sell)
-			VALUES ('USD', 'blue', now(), 1500, 1490, 1510)`); err != nil {
+			VALUES ('USD', 'bolsa', now(), 1490, 1480, 1500)`); err != nil {
 			t.Fatal(err)
 		}
 		g := h.goal(t, map[string]any{"goalType": "total_limit", "targetAmount": 100, "currency": "USD"})

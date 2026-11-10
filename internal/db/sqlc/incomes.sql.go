@@ -51,10 +51,10 @@ const createIncome = `-- name: CreateIncome :one
 INSERT INTO incomes (
     household_id, received_by, payment_method_id,
     amount, currency, amount_base, base_currency, rate_used, rate_at,
-    source, description, received_at, recurring_income_id
+    source, description, received_at, recurring_income_id, rate_source
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-RETURNING id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at, recurring_income_id
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+RETURNING id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at, recurring_income_id, rate_source
 `
 
 type CreateIncomeParams struct {
@@ -71,6 +71,7 @@ type CreateIncomeParams struct {
 	Description       string             `json:"description"`
 	ReceivedAt        pgtype.Date        `json:"received_at"`
 	RecurringIncomeID *uuid.UUID         `json:"recurring_income_id"`
+	RateSource        pgtype.Text        `json:"rate_source"`
 }
 
 // ===================== incomes =====================
@@ -89,6 +90,7 @@ func (q *Queries) CreateIncome(ctx context.Context, arg CreateIncomeParams) (Inc
 		arg.Description,
 		arg.ReceivedAt,
 		arg.RecurringIncomeID,
+		arg.RateSource,
 	)
 	var i Income
 	err := row.Scan(
@@ -107,6 +109,7 @@ func (q *Queries) CreateIncome(ctx context.Context, arg CreateIncomeParams) (Inc
 		&i.ReceivedAt,
 		&i.CreatedAt,
 		&i.RecurringIncomeID,
+		&i.RateSource,
 	)
 	return i, err
 }
@@ -200,7 +203,7 @@ func (q *Queries) DeleteRecurringIncome(ctx context.Context, id uuid.UUID) error
 }
 
 const getIncomeByID = `-- name: GetIncomeByID :one
-SELECT id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at, recurring_income_id FROM incomes WHERE id = $1
+SELECT id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at, recurring_income_id, rate_source FROM incomes WHERE id = $1
 `
 
 func (q *Queries) GetIncomeByID(ctx context.Context, id uuid.UUID) (Income, error) {
@@ -222,6 +225,7 @@ func (q *Queries) GetIncomeByID(ctx context.Context, id uuid.UUID) (Income, erro
 		&i.ReceivedAt,
 		&i.CreatedAt,
 		&i.RecurringIncomeID,
+		&i.RateSource,
 	)
 	return i, err
 }
@@ -304,7 +308,7 @@ func (q *Queries) ListActiveRecurringIncomes(ctx context.Context, dollar_1 pgtyp
 }
 
 const listIncomesByHousehold = `-- name: ListIncomesByHousehold :many
-SELECT id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at, recurring_income_id
+SELECT id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at, recurring_income_id, rate_source
 FROM incomes
 WHERE household_id = $1
   AND ($4::uuid IS NULL OR received_by = $4::uuid)
@@ -362,6 +366,7 @@ func (q *Queries) ListIncomesByHousehold(ctx context.Context, arg ListIncomesByH
 			&i.ReceivedAt,
 			&i.CreatedAt,
 			&i.RecurringIncomeID,
+			&i.RateSource,
 		); err != nil {
 			return nil, err
 		}
@@ -494,7 +499,7 @@ SET source      = $2,
     description = $3,
     received_at = $4
 WHERE id = $1
-RETURNING id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at, recurring_income_id
+RETURNING id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at, recurring_income_id, rate_source
 `
 
 type UpdateIncomeParams struct {
@@ -530,6 +535,7 @@ func (q *Queries) UpdateIncome(ctx context.Context, arg UpdateIncomeParams) (Inc
 		&i.ReceivedAt,
 		&i.CreatedAt,
 		&i.RecurringIncomeID,
+		&i.RateSource,
 	)
 	return i, err
 }

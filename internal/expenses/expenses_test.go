@@ -182,20 +182,34 @@ func TestCreateExpense(t *testing.T) {
 		}
 	})
 
-	t.Run("foreign currency uses the stored blue rate", func(t *testing.T) {
+	t.Run("foreign currency uses the household's rate, or the one picked (plan 5.1)", func(t *testing.T) {
 		h := newHouse(t, s)
 		// No rate yet: the FX lookup fails and surfaces as not found.
 		h.do(t, h.owner, http.MethodPost, "/expenses", map[string]any{"paymentMethodId": h.ownerCash, "amount": 10, "currency": "USD",
 			"description": "x", "spentAt": "2026-01-10", "installments": 1}).WantError(t, http.StatusNotFound, "not_found", "")
 
 		if _, err := s.Pool.Exec(t.Context(), `INSERT INTO exchange_rates (currency, source, last_update, rate_avg, rate_buy, rate_sell)
-			VALUES ('USD', 'blue', now(), 1200, 1190, 1210)`); err != nil {
+			VALUES ('USD', 'bolsa', now(), 1200, 1190, 1210), ('USD', 'tarjeta', now(), 2008.5, 1976, 2041)`); err != nil {
 			t.Fatal(err)
 		}
+		// The household's source (MEP by default), at its selling price.
 		e := h.cashExpense(t, h.owner, 10, map[string]any{"currency": "USD"}).Expense
-		if e.Amount != 10 || e.Currency != "USD" || e.AmountBase != 12000 || e.RateUsed == nil || *e.RateUsed != 1200 {
+		if e.Amount != 10 || e.Currency != "USD" || e.AmountBase != 12100 || e.RateUsed == nil || *e.RateUsed != 1210 ||
+			e.RateSource == nil || *e.RateSource != "bolsa" {
 			t.Errorf("USD expense = %+v", e)
 		}
+		// A card purchase abroad, at the card dollar.
+		e = h.cashExpense(t, h.owner, 100, map[string]any{"currency": "USD", "rateSource": "tarjeta"}).Expense
+		if e.AmountBase != 204100 || *e.RateUsed != 2041 || *e.RateSource != "tarjeta" {
+			t.Errorf("USD expense at the card dollar = %+v", e)
+		}
+		// Pesos convert nothing: no rate, no source.
+		if e := h.cashExpense(t, h.owner, 10, nil).Expense; e.RateUsed != nil || e.RateSource != nil {
+			t.Errorf("ARS expense = %+v", e)
+		}
+		h.do(t, h.owner, http.MethodPost, "/expenses", map[string]any{"paymentMethodId": h.ownerCash, "amount": 10, "currency": "USD",
+			"description": "x", "spentAt": "2026-01-10", "installments": 1, "rateSource": "dolar_futuro"}).
+			WantError(t, http.StatusUnprocessableEntity, "validation", "rateSource")
 	})
 
 	t.Run("validation", func(t *testing.T) {

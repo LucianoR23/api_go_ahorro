@@ -4,6 +4,13 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 5.1 (API part): rates from DolarAPI, a source per household and per movement
+- Rates come from DolarAPI (`/v1/dolares`: oficial, blue, bolsa = MEP, contadoconliqui, tarjeta, cripto, mayorista; `/v1/cotizaciones`: the official euro). Bluelytics stays as the fallback and is the only source of the blue euro. A refresh fails only when both upstreams fail; when one does, it is logged and the other's rates are kept.
+- Migration 000037: every DolarAPI source in `exchange_rates.source`; `households.fx_source` (default `bolsa`, the MEP dollar, decided with the user); `expenses.rate_source` and `incomes.rate_source` (the source of `rate_used`, null without conversion and for older rows, which used blue).
+- `PATCH /households/{id}` takes an optional `fxSource`; households return `fxSource`. `POST /expenses` and `POST /incomes` take an optional `rateSource` (empty: the household's) and return it, e.g. the card dollar for a purchase abroad or CCL for dollars sold. Recurring items, draft confirmations, goals and the purchase simulator use the household's source (a confirmed draft keeps its own).
+- Conversion uses the source's selling price (venta), the one DolarAPI publishes, instead of the buy/sell average; the average only when there is no selling price. A euro without that source goes through the dollar: euro oficial x dollar at the source / dollar oficial.
+- `fxrates.Convert` takes the source explicitly.
+
 ### 4.8 (API part): "¿Me lo puedo comprar?"
 - `POST /simulations/purchase` (household member) simulates a purchase without saving it: `paymentMethodId`, `amount`, `currency`, `installments`, optional `categoryId`, `spentAt` (default today) and `months` (1 to 12, default 6). The installments come from the same checks and card-period math as creating an expense (`expenses.Service.Plan`).
 - Per month, keyed like "Comprometido" by statement period: what the user's cards already have (`cardsBefore`), the purchase's installment, `cardsAfter`, recurring expenses (`fixed`; one on a credit card counts only after today, since the past ones are already in a statement), recurring incomes (`income`), `left` and `pctOfIncome` (cards as a share of income, null without income). Plus the chosen card's statements before and after, and the monthly limits the purchase counts against (total, or its category or the category's parent): this period's spending with and without it, and how much of the limit each installment takes.

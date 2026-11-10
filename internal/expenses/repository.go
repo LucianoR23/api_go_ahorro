@@ -88,6 +88,7 @@ func (r *Repository) CreateTx(ctx context.Context, b CreateBundle) (domain.Expen
 			IsShared:           b.Expense.IsShared,
 			RecurringExpenseID: b.Expense.RecurringExpenseID,
 			Status:             b.Expense.Status,
+			RateSource:         rateSourceText(b.Expense.RateSource),
 		})
 		if err != nil {
 			return fmt.Errorf("insert expense: %w", err)
@@ -291,7 +292,7 @@ func (r *Repository) List(ctx context.Context, householdID uuid.UUID, f ListFilt
 
 	args = append(args, f.Limit, f.Offset)
 	sql := fmt.Sprintf(
-		"SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status FROM expenses WHERE %s ORDER BY spent_at DESC, created_at DESC LIMIT $%d OFFSET $%d",
+		"SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status, rate_source FROM expenses WHERE %s ORDER BY spent_at DESC, created_at DESC LIMIT $%d OFFSET $%d",
 		whereSQL, len(args)-1, len(args),
 	)
 	rows, err := r.pool.Query(ctx, sql, args...)
@@ -307,7 +308,7 @@ func (r *Repository) List(ctx context.Context, householdID uuid.UUID, f ListFilt
 			&e.ID, &e.HouseholdID, &e.CreatedBy, &e.CategoryID, &e.PaymentMethodID,
 			&e.Amount, &e.Currency, &e.AmountBase, &e.BaseCurrency, &e.RateUsed, &e.RateAt,
 			&e.Description, &e.SpentAt, &e.Installments, &e.IsShared,
-			&e.CreatedAt, &e.UpdatedAt, &e.RecurringExpenseID, &e.Status,
+			&e.CreatedAt, &e.UpdatedAt, &e.RecurringExpenseID, &e.Status, &e.RateSource,
 		); err != nil {
 			return nil, ListTotals{}, fmt.Errorf("expenses.List scan: %w", err)
 		}
@@ -561,6 +562,7 @@ func expenseToDomain(e sqlcgen.Expense) domain.Expense {
 		BaseCurrency:       e.BaseCurrency,
 		RateUsed:           rateUsed,
 		RateAt:             rateAt,
+		RateSource:         domain.RateSourcePtr(e.RateSource.String, e.RateSource.Valid),
 		Description:        e.Description,
 		SpentAt:            e.SpentAt.Time,
 		Installments:       int(e.Installments),
@@ -596,4 +598,12 @@ func installmentToDomain(i sqlcgen.ExpenseInstallment) domain.ExpenseInstallment
 		CreatedAt:             i.CreatedAt.Time,
 		UpdatedAt:             i.UpdatedAt.Time,
 	}
+}
+
+// rateSourceText: a nullable rate_source column.
+func rateSourceText(s *domain.RateSource) pgtype.Text {
+	if s == nil {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: string(*s), Valid: true}
 }

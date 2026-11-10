@@ -18,6 +18,7 @@ type PlannedPurchase struct {
 	Currency      string
 	AmountBase    decimal.Decimal // in BaseCurrency, today's rate
 	BaseCurrency  string
+	RateSource    domain.RateSource // the household's, used for AmountBase
 	Installments  []domain.ExpenseInstallment
 }
 
@@ -58,7 +59,11 @@ func (s *Service) Plan(ctx context.Context, in CreateInput) (PlannedPurchase, er
 		in.Installments = 1
 	}
 	in.Amount = in.Amount.Round(money.AmountScale)
-	amountBase, _, err := s.convert(ctx, in.Amount, in.Currency, hh.BaseCurrency)
+	source, err := domain.PickRateSource(in.RateSource, hh.FxSource)
+	if err != nil {
+		return PlannedPurchase{}, err
+	}
+	amountBase, _, err := s.convert(ctx, in.Amount, in.Currency, hh.BaseCurrency, source)
 	if err != nil {
 		return PlannedPurchase{}, err
 	}
@@ -68,7 +73,7 @@ func (s *Service) Plan(ctx context.Context, in CreateInput) (PlannedPurchase, er
 	}
 	out := PlannedPurchase{
 		PaymentMethod: pm, Amount: in.Amount, Currency: in.Currency,
-		AmountBase: amountBase, BaseCurrency: hh.BaseCurrency,
+		AmountBase: amountBase, BaseCurrency: hh.BaseCurrency, RateSource: source,
 		Installments: make([]domain.ExpenseInstallment, len(list)),
 	}
 	for i, x := range list {

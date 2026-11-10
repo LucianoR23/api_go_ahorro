@@ -45,7 +45,7 @@ type paymentMethods interface {
 }
 
 type converter interface {
-	Convert(ctx context.Context, amount decimal.Decimal, from, to string) (converted, rate decimal.Decimal, err error)
+	Convert(ctx context.Context, amount decimal.Decimal, from, to string, source domain.RateSource) (converted, rate decimal.Decimal, err error)
 }
 
 type categoryParents interface {
@@ -135,7 +135,7 @@ func (s *Service) Purchase(ctx context.Context, in Input) (Result, error) {
 		return Result{}, err
 	}
 	base := plan.BaseCurrency
-	cv := &conv{fx: s.d.FX, base: base, todayRate: plan.Currency != base}
+	cv := &conv{fx: s.d.FX, base: base, source: plan.RateSource, todayRate: plan.Currency != base}
 
 	committed, err := s.d.Committed.Committed(ctx, in.UserID, in.Months)
 	if err != nil {
@@ -294,6 +294,7 @@ func (s *Service) goals(ctx context.Context, in Input, installments []PlannedIns
 type conv struct {
 	fx        converter
 	base      string
+	source    domain.RateSource // the household's (plan 5.1)
 	todayRate bool
 }
 
@@ -301,7 +302,7 @@ func (c *conv) toBase(ctx context.Context, amount decimal.Decimal, currency stri
 	if currency == c.base || amount.IsZero() {
 		return amount, nil
 	}
-	v, _, err := c.fx.Convert(ctx, amount, currency, c.base)
+	v, _, err := c.fx.Convert(ctx, amount, currency, c.base, c.source)
 	if err != nil {
 		return decimal.Zero, err
 	}

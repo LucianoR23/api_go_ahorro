@@ -70,7 +70,8 @@ type createIncomeReq struct {
 	Currency        string     `json:"currency"`
 	Source          string     `json:"source"`
 	Description     string     `json:"description"`
-	ReceivedAt      string     `json:"receivedAt"` // YYYY-MM-DD
+	ReceivedAt      string     `json:"receivedAt"`           // YYYY-MM-DD
+	RateSource      string     `json:"rateSource,omitempty"` // plan 5.1; empty: the household's
 }
 
 type updateIncomeReq struct {
@@ -90,6 +91,7 @@ type incomeDTO struct {
 	BaseCurrency    string           `json:"baseCurrency"`
 	RateUsed        *decimal.Decimal `json:"rateUsed,omitempty"`
 	RateAt          *time.Time       `json:"rateAt,omitempty"`
+	RateSource      *string          `json:"rateSource,omitempty"`
 	Source          string           `json:"source"`
 	Description     string           `json:"description"`
 	ReceivedAt      string           `json:"receivedAt"`
@@ -195,6 +197,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		Source:          req.Source,
 		Description:     req.Description,
 		ReceivedAt:      receivedAt,
+		RateSource:      domain.RateSource(req.RateSource),
 	})
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, err)
@@ -620,6 +623,7 @@ func toIncomeDTO(i domain.Income) incomeDTO {
 		BaseCurrency:      i.BaseCurrency,
 		RateUsed:          i.RateUsed,
 		RateAt:            i.RateAt,
+		RateSource:        (*string)(i.RateSource),
 		Source:            i.Source,
 		Description:       i.Description,
 		ReceivedAt:        i.ReceivedAt.Format("2006-01-02"),

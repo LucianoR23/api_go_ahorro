@@ -3,9 +3,9 @@ INSERT INTO expenses (
     household_id, created_by, category_id, payment_method_id,
     amount, currency, amount_base, base_currency, rate_used, rate_at,
     description, spent_at, installments, is_shared, recurring_expense_id,
-    status
+    status, rate_source
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 RETURNING *;
 
 -- name: ListDraftExpensesByHousehold :many

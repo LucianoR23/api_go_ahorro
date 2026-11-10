@@ -205,6 +205,7 @@ type Expense struct {
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 	RecurringExpenseID *uuid.UUID         `json:"recurring_expense_id"`
 	Status             string             `json:"status"`
+	RateSource         pgtype.Text        `json:"rate_source"`
 }
 
 type ExpenseInstallment struct {
@@ -237,6 +238,7 @@ type Household struct {
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt    pgtype.Timestamptz `json:"deleted_at"`
 	Kind         string             `json:"kind"`
+	FxSource     string             `json:"fx_source"`
 }
 
 type HouseholdInvite struct {
@@ -282,6 +284,7 @@ type Income struct {
 	ReceivedAt        pgtype.Date        `json:"received_at"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	RecurringIncomeID *uuid.UUID         `json:"recurring_income_id"`
+	RateSource        pgtype.Text        `json:"rate_source"`
 }
 
 type PasswordReset struct {

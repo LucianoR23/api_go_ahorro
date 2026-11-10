@@ -155,7 +155,8 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (domain.Household, erro
 
 // Update requiere rol owner. El service valida, el middleware solo
 // valida membresía genérica.
-func (s *Service) Update(ctx context.Context, userID, householdID uuid.UUID, name, baseCurrency string) (domain.Household, error) {
+// fxSource empty keeps the current one (plan 5.1).
+func (s *Service) Update(ctx context.Context, userID, householdID uuid.UUID, name, baseCurrency string, fxSource domain.RateSource) (domain.Household, error) {
 	if err := s.requireOwner(ctx, householdID, userID); err != nil {
 		return domain.Household{}, err
 	}
@@ -169,7 +170,17 @@ func (s *Service) Update(ctx context.Context, userID, householdID uuid.UUID, nam
 	if err := validateCurrency(baseCurrency); err != nil {
 		return domain.Household{}, err
 	}
-	return s.repo.Update(ctx, householdID, name, baseCurrency)
+	if fxSource == "" {
+		current, err := s.repo.GetByID(ctx, householdID)
+		if err != nil {
+			return domain.Household{}, err
+		}
+		fxSource = current.FxSource
+	}
+	if !fxSource.Valid() {
+		return domain.Household{}, domain.NewValidationError("fxSource", "cotización desconocida")
+	}
+	return s.repo.Update(ctx, householdID, name, baseCurrency, fxSource)
 }
 
 // Delete requiere owner. CASCADE en household_members limpia la membresía.
