@@ -245,6 +245,16 @@ func (r *Repository) SumSpentAt(ctx context.Context, householdID uuid.UUID, from
 	return money.FromNumeric(n), nil
 }
 
+// BaseCurrency returns the household's base currency, the one its summed
+// amounts are in.
+func (r *Repository) BaseCurrency(ctx context.Context, householdID uuid.UUID) (string, error) {
+	h, err := r.q.GetHouseholdByID(ctx, householdID)
+	if err != nil {
+		return "", fmt.Errorf("insights.BaseCurrency: %w", err)
+	}
+	return h.BaseCurrency, nil
+}
+
 type SpentCounts struct {
 	Total              int64
 	DistinctCategories int64

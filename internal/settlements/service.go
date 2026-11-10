@@ -154,7 +154,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Settlement
 			return domain.NewValidationError("amount", "from no tiene deuda con to")
 		}
 		if in.Amount.GreaterThan(balance) {
-			return domain.NewValidationError("amount", fmt.Sprintf("excede la deuda actual (%s %s)", balance.StringFixed(2), h.BaseCurrency))
+			return domain.NewValidationError("amount", fmt.Sprintf("excede la deuda actual (%s)", money.Format(balance, h.BaseCurrency)))
 		}
 		return nil
 	}
@@ -210,7 +210,7 @@ func (s *Service) notifySettlement(ctx context.Context, sp domain.SettlementPaym
 // and the full text the in-app notification keeps.
 func settlementMessage(fromName string, sp domain.SettlementPayment) (lockScreen, full string) {
 	return fmt.Sprintf("%s registró un pago.", fromName),
-		fmt.Sprintf("%s registró un pago de %s %s", fromName, sp.AmountBase.StringFixed(2), sp.BaseCurrency)
+		fmt.Sprintf("%s registró un pago de %s", fromName, money.Format(sp.AmountBase, sp.BaseCurrency))
 }
 
 // Get devuelve el settlement validando que pertenezca al hogar del caller.

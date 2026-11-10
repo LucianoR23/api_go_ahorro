@@ -182,7 +182,7 @@ func TestInsightGenerators(t *testing.T) {
 		}
 		h.generate(t, "2026-03-15")
 		got := ofType(h.list(t, h.owner, ""), "weekly_review")
-		if len(got) != 1 || got[0].Severity != "warning" || got[0].Title != "Semana cerrada: $1500.00" ||
+		if len(got) != 1 || got[0].Severity != "warning" || got[0].Title != "Semana cerrada: $ 1.500" ||
 			!strings.Contains(got[0].Body, "50% más que la anterior") {
 			t.Errorf("weekly review = %+v", got)
 		}
@@ -224,7 +224,7 @@ func TestInsightGenerators(t *testing.T) {
 		list := listIn(t, s, u, mine)
 		due := ofType(list, "card_due_soon")
 		if len(due) != 1 || due[0].Title != "En 3 días vence tu Master" ||
-			due[0].Body != "El resumen de tu Master vence el sábado 7/3: 300.00 ARS." {
+			due[0].Body != "El resumen de tu Master vence el sábado 7/3: $ 300." {
 			t.Fatalf("due reminders = %+v", due)
 		}
 		if n := len(ofType(list, "alert")); n != 0 {
