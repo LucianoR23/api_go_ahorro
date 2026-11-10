@@ -47,7 +47,7 @@ type ExchangeRate struct {
 	RateAvg    float64
 	RateBuy    float64
 	RateSell   float64
-	FetchedAt  time.Time // cuándo lo escribimos en DB
+	FetchedAt  time.Time // last time an upstream returned it (plan 5.2)
 }
 
 // PickRateSource: the source a movement converts with: the one picked for
@@ -72,4 +72,15 @@ func RateSourcePtr(s string, valid bool) *RateSource {
 	}
 	v := RateSource(s)
 	return &v
+}
+
+// RateStaleAfter: a rate no upstream confirmed for this long is stale and
+// the app warns before using it (plan 5.2).
+const RateStaleAfter = 24 * time.Hour
+
+// Stale reports whether no upstream confirmed r in RateStaleAfter. A rate
+// that is still the latest quote (the official dollar on a weekend) is not
+// stale while an upstream keeps returning it.
+func (r ExchangeRate) Stale(now time.Time) bool {
+	return r.FetchedAt.IsZero() || now.Sub(r.FetchedAt) > RateStaleAfter
 }

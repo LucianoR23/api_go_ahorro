@@ -39,6 +39,73 @@ func (q *Queries) GetLatestExchangeRate(ctx context.Context, arg GetLatestExchan
 	return i, err
 }
 
+const listExchangeRateHistory = `-- name: ListExchangeRateHistory :many
+SELECT day, currency, source, last_update, rate_avg, rate_buy, rate_sell, fetched_at FROM (
+    SELECT DISTINCT ON ((last_update AT TIME ZONE $1::text)::date)
+        (last_update AT TIME ZONE $1::text)::date AS day,
+        currency, source, last_update, rate_avg, rate_buy, rate_sell, fetched_at
+    FROM exchange_rates
+    WHERE currency = $2 AND source = $3
+      AND last_update >= $4::timestamptz
+    ORDER BY (last_update AT TIME ZONE $1::text)::date, last_update DESC
+) days
+ORDER BY day
+`
+
+type ListExchangeRateHistoryParams struct {
+	Tz       string             `json:"tz"`
+	Currency string             `json:"currency"`
+	Source   string             `json:"source"`
+	Since    pgtype.Timestamptz `json:"since"`
+}
+
+type ListExchangeRateHistoryRow struct {
+	Day        pgtype.Date        `json:"day"`
+	Currency   string             `json:"currency"`
+	Source     string             `json:"source"`
+	LastUpdate pgtype.Timestamptz `json:"last_update"`
+	RateAvg    pgtype.Numeric     `json:"rate_avg"`
+	RateBuy    pgtype.Numeric     `json:"rate_buy"`
+	RateSell   pgtype.Numeric     `json:"rate_sell"`
+	FetchedAt  pgtype.Timestamptz `json:"fetched_at"`
+}
+
+// One quote per day (the day's last, in the app's timezone) since a date,
+// oldest first (plan 5.2).
+func (q *Queries) ListExchangeRateHistory(ctx context.Context, arg ListExchangeRateHistoryParams) ([]ListExchangeRateHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listExchangeRateHistory,
+		arg.Tz,
+		arg.Currency,
+		arg.Source,
+		arg.Since,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListExchangeRateHistoryRow{}
+	for rows.Next() {
+		var i ListExchangeRateHistoryRow
+		if err := rows.Scan(
+			&i.Day,
+			&i.Currency,
+			&i.Source,
+			&i.LastUpdate,
+			&i.RateAvg,
+			&i.RateBuy,
+			&i.RateSell,
+			&i.FetchedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLatestExchangeRates = `-- name: ListLatestExchangeRates :many
 SELECT DISTINCT ON (currency, source)
     currency, source, last_update, rate_avg, rate_buy, rate_sell, fetched_at
@@ -79,7 +146,7 @@ func (q *Queries) ListLatestExchangeRates(ctx context.Context) ([]ExchangeRate, 
 const upsertExchangeRate = `-- name: UpsertExchangeRate :exec
 INSERT INTO exchange_rates (currency, source, last_update, rate_avg, rate_buy, rate_sell)
 VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (currency, source, last_update) DO NOTHING
+ON CONFLICT (currency, source, last_update) DO UPDATE SET fetched_at = now()
 `
 
 type UpsertExchangeRateParams struct {
@@ -91,8 +158,10 @@ type UpsertExchangeRateParams struct {
 	RateSell   pgtype.Numeric     `json:"rate_sell"`
 }
 
-// El worker corre cada 15min aunque bluelytics no tenga dato nuevo
-// (fines de semana, feriados). ON CONFLICT DO NOTHING evita duplicar.
+// The worker runs every 15 min even when the upstream has nothing new
+// (weekends, holidays): a quote already stored is not duplicated, only
+// marked as confirmed again. fetched_at is "last confirmed by an upstream"
+// (plan 5.2): a rate nobody confirmed for a day is stale.
 func (q *Queries) UpsertExchangeRate(ctx context.Context, arg UpsertExchangeRateParams) error {
 	_, err := q.db.Exec(ctx, upsertExchangeRate,
 		arg.Currency,
