@@ -12,28 +12,49 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const reportUSDRate = `-- name: ReportUSDRate :one
+SELECT fx_usd_rate($1::text, $2::date, $3::text)::numeric AS rate
+`
+
+type ReportUSDRateParams struct {
+	UsdSource string      `json:"usd_source"`
+	Day       pgtype.Date `json:"day"`
+	Tz        string      `json:"tz"`
+}
+
+// The dollar a report in dollars uses on a day; NULL without quotes.
+func (q *Queries) ReportUSDRate(ctx context.Context, arg ReportUSDRateParams) (pgtype.Numeric, error) {
+	row := q.db.QueryRow(ctx, reportUSDRate, arg.UsdSource, arg.Day, arg.Tz)
+	var rate pgtype.Numeric
+	err := row.Scan(&rate)
+	return rate, err
+}
+
 const sumExpensesByCategoryInRange = `-- name: SumExpensesByCategoryInRange :many
 
 SELECT
     top.id AS category_id,
     COALESCE(top.name, '')::text AS category_name,
-    COALESCE(SUM(e.amount_base), 0)::numeric AS total_base,
+    COALESCE(SUM(report_amount(e.amount_base, e.currency, e.amount, COALESCE($1::date, e.spent_at), $2::text, $3::text)), 0)::numeric AS total_base,
     COUNT(*)::bigint AS tx_count
 FROM expenses e
 LEFT JOIN categories c ON c.id = e.category_id
 LEFT JOIN categories top ON top.id = COALESCE(c.parent_id, c.id)
-WHERE e.household_id = $1
+WHERE e.household_id = $4
   AND e.status = 'confirmed'
-  AND e.spent_at >= $2::date
-  AND e.spent_at <= $3::date
+  AND e.spent_at >= $5::date
+  AND e.spent_at <= $6::date
 GROUP BY top.id, top.name
 ORDER BY total_base DESC
 `
 
 type SumExpensesByCategoryInRangeParams struct {
+	RateDay     pgtype.Date `json:"rate_day"`
+	UsdSource   pgtype.Text `json:"usd_source"`
+	Tz          string      `json:"tz"`
 	HouseholdID uuid.UUID   `json:"household_id"`
-	Column2     pgtype.Date `json:"column_2"`
-	Column3     pgtype.Date `json:"column_3"`
+	FromDate    pgtype.Date `json:"from_date"`
+	ToDate      pgtype.Date `json:"to_date"`
 }
 
 type SumExpensesByCategoryInRangeRow struct {
@@ -48,7 +69,14 @@ type SumExpensesByCategoryInRangeRow struct {
 // Incluye categoría NULL (gastos sin categorizar). El JOIN es LEFT.
 // A subcategory adds up in its parent (plan 1.4): Luz counts as Servicios.
 func (q *Queries) SumExpensesByCategoryInRange(ctx context.Context, arg SumExpensesByCategoryInRangeParams) ([]SumExpensesByCategoryInRangeRow, error) {
-	rows, err := q.db.Query(ctx, sumExpensesByCategoryInRange, arg.HouseholdID, arg.Column2, arg.Column3)
+	rows, err := q.db.Query(ctx, sumExpensesByCategoryInRange,
+		arg.RateDay,
+		arg.UsdSource,
+		arg.Tz,
+		arg.HouseholdID,
+		arg.FromDate,
+		arg.ToDate,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -75,20 +103,23 @@ func (q *Queries) SumExpensesByCategoryInRange(ctx context.Context, arg SumExpen
 const sumExpensesByPayerInRange = `-- name: SumExpensesByPayerInRange :many
 SELECT
     e.created_by AS user_id,
-    COALESCE(SUM(e.amount_base), 0)::numeric AS total_base
+    COALESCE(SUM(report_amount(e.amount_base, e.currency, e.amount, COALESCE($1::date, e.spent_at), $2::text, $3::text)), 0)::numeric AS total_base
 FROM expenses e
-WHERE e.household_id = $1
+WHERE e.household_id = $4
   AND e.status = 'confirmed'
-  AND e.spent_at >= $2::date
-  AND e.spent_at <= $3::date
+  AND e.spent_at >= $5::date
+  AND e.spent_at <= $6::date
 GROUP BY e.created_by
 ORDER BY total_base DESC
 `
 
 type SumExpensesByPayerInRangeParams struct {
+	RateDay     pgtype.Date `json:"rate_day"`
+	UsdSource   pgtype.Text `json:"usd_source"`
+	Tz          string      `json:"tz"`
 	HouseholdID uuid.UUID   `json:"household_id"`
-	Column2     pgtype.Date `json:"column_2"`
-	Column3     pgtype.Date `json:"column_3"`
+	FromDate    pgtype.Date `json:"from_date"`
+	ToDate      pgtype.Date `json:"to_date"`
 }
 
 type SumExpensesByPayerInRangeRow struct {
@@ -99,7 +130,14 @@ type SumExpensesByPayerInRangeRow struct {
 // Inicio · Hogar (plan 1.10b): what each member paid in the range, by
 // spent_at. Whoever loads an expense is the one who paid it.
 func (q *Queries) SumExpensesByPayerInRange(ctx context.Context, arg SumExpensesByPayerInRangeParams) ([]SumExpensesByPayerInRangeRow, error) {
-	rows, err := q.db.Query(ctx, sumExpensesByPayerInRange, arg.HouseholdID, arg.Column2, arg.Column3)
+	rows, err := q.db.Query(ctx, sumExpensesByPayerInRange,
+		arg.RateDay,
+		arg.UsdSource,
+		arg.Tz,
+		arg.HouseholdID,
+		arg.FromDate,
+		arg.ToDate,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -121,21 +159,24 @@ func (q *Queries) SumExpensesByPayerInRange(ctx context.Context, arg SumExpenses
 const sumExpensesFixedVariableInRange = `-- name: SumExpensesFixedVariableInRange :one
 
 SELECT
-    COALESCE(SUM(CASE WHEN recurring_expense_id IS NOT NULL THEN amount_base ELSE 0 END), 0)::numeric AS fixed_total,
-    COALESCE(SUM(CASE WHEN recurring_expense_id IS NULL THEN amount_base ELSE 0 END), 0)::numeric AS variable_total,
+    COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, spent_at), $2::text, $3::text)) FILTER (WHERE recurring_expense_id IS NOT NULL), 0)::numeric AS fixed_total,
+    COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, spent_at), $2::text, $3::text)) FILTER (WHERE recurring_expense_id IS NULL), 0)::numeric AS variable_total,
     COUNT(*) FILTER (WHERE recurring_expense_id IS NOT NULL)::bigint AS fixed_count,
     COUNT(*) FILTER (WHERE recurring_expense_id IS NULL)::bigint AS variable_count
 FROM expenses
-WHERE household_id = $1
+WHERE household_id = $4
   AND status = 'confirmed'
-  AND spent_at >= $2::date
-  AND spent_at <= $3::date
+  AND spent_at >= $5::date
+  AND spent_at <= $6::date
 `
 
 type SumExpensesFixedVariableInRangeParams struct {
+	RateDay     pgtype.Date `json:"rate_day"`
+	UsdSource   pgtype.Text `json:"usd_source"`
+	Tz          string      `json:"tz"`
 	HouseholdID uuid.UUID   `json:"household_id"`
-	Column2     pgtype.Date `json:"column_2"`
-	Column3     pgtype.Date `json:"column_3"`
+	FromDate    pgtype.Date `json:"from_date"`
+	ToDate      pgtype.Date `json:"to_date"`
 }
 
 type SumExpensesFixedVariableInRangeRow struct {
@@ -149,7 +190,14 @@ type SumExpensesFixedVariableInRangeRow struct {
 // Split por origen: gastos con recurring_expense_id NOT NULL son "fijos"
 // (los generó el worker de CP9); el resto son "variables" (entrada manual).
 func (q *Queries) SumExpensesFixedVariableInRange(ctx context.Context, arg SumExpensesFixedVariableInRangeParams) (SumExpensesFixedVariableInRangeRow, error) {
-	row := q.db.QueryRow(ctx, sumExpensesFixedVariableInRange, arg.HouseholdID, arg.Column2, arg.Column3)
+	row := q.db.QueryRow(ctx, sumExpensesFixedVariableInRange,
+		arg.RateDay,
+		arg.UsdSource,
+		arg.Tz,
+		arg.HouseholdID,
+		arg.FromDate,
+		arg.ToDate,
+	)
 	var i SumExpensesFixedVariableInRangeRow
 	err := row.Scan(
 		&i.FixedTotal,
@@ -164,21 +212,24 @@ const sumExpensesSpentAtByMonth = `-- name: SumExpensesSpentAtByMonth :many
 
 SELECT
     date_trunc('month', spent_at)::date AS month,
-    COALESCE(SUM(amount_base), 0)::numeric AS total_base,
+    COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, spent_at), $2::text, $3::text)), 0)::numeric AS total_base,
     COUNT(*)::bigint AS tx_count
 FROM expenses
-WHERE household_id = $1
+WHERE household_id = $4
   AND status = 'confirmed'
-  AND spent_at >= $2::date
-  AND spent_at <= $3::date
+  AND spent_at >= $5::date
+  AND spent_at <= $6::date
 GROUP BY month
 ORDER BY month ASC
 `
 
 type SumExpensesSpentAtByMonthParams struct {
+	RateDay     pgtype.Date `json:"rate_day"`
+	UsdSource   pgtype.Text `json:"usd_source"`
+	Tz          string      `json:"tz"`
 	HouseholdID uuid.UUID   `json:"household_id"`
-	Column2     pgtype.Date `json:"column_2"`
-	Column3     pgtype.Date `json:"column_3"`
+	FromDate    pgtype.Date `json:"from_date"`
+	ToDate      pgtype.Date `json:"to_date"`
 }
 
 type SumExpensesSpentAtByMonthRow struct {
@@ -192,7 +243,14 @@ type SumExpensesSpentAtByMonthRow struct {
 // El caller pasa from/to calculados (start del mes más viejo ~ end del actual).
 // date_trunc normaliza al primer día del mes.
 func (q *Queries) SumExpensesSpentAtByMonth(ctx context.Context, arg SumExpensesSpentAtByMonthParams) ([]SumExpensesSpentAtByMonthRow, error) {
-	rows, err := q.db.Query(ctx, sumExpensesSpentAtByMonth, arg.HouseholdID, arg.Column2, arg.Column3)
+	rows, err := q.db.Query(ctx, sumExpensesSpentAtByMonth,
+		arg.RateDay,
+		arg.UsdSource,
+		arg.Tz,
+		arg.HouseholdID,
+		arg.FromDate,
+		arg.ToDate,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -213,24 +271,70 @@ func (q *Queries) SumExpensesSpentAtByMonth(ctx context.Context, arg SumExpenses
 
 const sumExpensesSpentAtForReport = `-- name: SumExpensesSpentAtForReport :one
 
-SELECT COALESCE(SUM(amount_base), 0)::numeric AS total_base
+
+SELECT COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, spent_at), $2::text, $3::text)), 0)::numeric AS total_base
 FROM expenses
-WHERE household_id = $1
+WHERE household_id = $4
   AND status = 'confirmed'
-  AND spent_at >= $2::date
-  AND spent_at <= $3::date
+  AND spent_at >= $5::date
+  AND spent_at <= $6::date
 `
 
 type SumExpensesSpentAtForReportParams struct {
+	RateDay     pgtype.Date `json:"rate_day"`
+	UsdSource   pgtype.Text `json:"usd_source"`
+	Tz          string      `json:"tz"`
 	HouseholdID uuid.UUID   `json:"household_id"`
-	Column2     pgtype.Date `json:"column_2"`
-	Column3     pgtype.Date `json:"column_3"`
+	FromDate    pgtype.Date `json:"from_date"`
+	ToDate      pgtype.Date `json:"to_date"`
 }
 
+// Every amount goes through report_amount (plan 5.3): pesos when usd_source
+// is NULL, dollars otherwise. Dollars use the dollar of each movement's day
+// (an installment, its purchase day) unless rate_day fixes one day (today).
 // ===================== reports: triada spent/billed/due =====================
 // "spent_this_month": lo que se compró/decidió gastar en el rango.
 func (q *Queries) SumExpensesSpentAtForReport(ctx context.Context, arg SumExpensesSpentAtForReportParams) (pgtype.Numeric, error) {
-	row := q.db.QueryRow(ctx, sumExpensesSpentAtForReport, arg.HouseholdID, arg.Column2, arg.Column3)
+	row := q.db.QueryRow(ctx, sumExpensesSpentAtForReport,
+		arg.RateDay,
+		arg.UsdSource,
+		arg.Tz,
+		arg.HouseholdID,
+		arg.FromDate,
+		arg.ToDate,
+	)
+	var total_base pgtype.Numeric
+	err := row.Scan(&total_base)
+	return total_base, err
+}
+
+const sumIncomesForReport = `-- name: SumIncomesForReport :one
+SELECT COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, received_at), $2::text, $3::text)), 0)::numeric AS total_base
+FROM incomes
+WHERE household_id = $4
+  AND received_at >= $5::date
+  AND received_at <= $6::date
+`
+
+type SumIncomesForReportParams struct {
+	RateDay     pgtype.Date `json:"rate_day"`
+	UsdSource   pgtype.Text `json:"usd_source"`
+	Tz          string      `json:"tz"`
+	HouseholdID uuid.UUID   `json:"household_id"`
+	FromDate    pgtype.Date `json:"from_date"`
+	ToDate      pgtype.Date `json:"to_date"`
+}
+
+// Incomes received in a range (Inicio, plan 5.3), like /totals/income.
+func (q *Queries) SumIncomesForReport(ctx context.Context, arg SumIncomesForReportParams) (pgtype.Numeric, error) {
+	row := q.db.QueryRow(ctx, sumIncomesForReport,
+		arg.RateDay,
+		arg.UsdSource,
+		arg.Tz,
+		arg.HouseholdID,
+		arg.FromDate,
+		arg.ToDate,
+	)
 	var total_base pgtype.Numeric
 	err := row.Scan(&total_base)
 	return total_base, err
@@ -239,19 +343,22 @@ func (q *Queries) SumExpensesSpentAtForReport(ctx context.Context, arg SumExpens
 const sumIncomesReceivedByMonth = `-- name: SumIncomesReceivedByMonth :many
 SELECT
     date_trunc('month', received_at)::date AS month,
-    COALESCE(SUM(amount_base), 0)::numeric AS total_base
+    COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, received_at), $2::text, $3::text)), 0)::numeric AS total_base
 FROM incomes
-WHERE household_id = $1
-  AND received_at >= $2::date
-  AND received_at <= $3::date
+WHERE household_id = $4
+  AND received_at >= $5::date
+  AND received_at <= $6::date
 GROUP BY month
 ORDER BY month ASC
 `
 
 type SumIncomesReceivedByMonthParams struct {
+	RateDay     pgtype.Date `json:"rate_day"`
+	UsdSource   pgtype.Text `json:"usd_source"`
+	Tz          string      `json:"tz"`
 	HouseholdID uuid.UUID   `json:"household_id"`
-	Column2     pgtype.Date `json:"column_2"`
-	Column3     pgtype.Date `json:"column_3"`
+	FromDate    pgtype.Date `json:"from_date"`
+	ToDate      pgtype.Date `json:"to_date"`
 }
 
 type SumIncomesReceivedByMonthRow struct {
@@ -261,7 +368,14 @@ type SumIncomesReceivedByMonthRow struct {
 
 // Ingresos por mes para comparar contra gastos en trends.
 func (q *Queries) SumIncomesReceivedByMonth(ctx context.Context, arg SumIncomesReceivedByMonthParams) ([]SumIncomesReceivedByMonthRow, error) {
-	rows, err := q.db.Query(ctx, sumIncomesReceivedByMonth, arg.HouseholdID, arg.Column2, arg.Column3)
+	rows, err := q.db.Query(ctx, sumIncomesReceivedByMonth,
+		arg.RateDay,
+		arg.UsdSource,
+		arg.Tz,
+		arg.HouseholdID,
+		arg.FromDate,
+		arg.ToDate,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -281,25 +395,35 @@ func (q *Queries) SumIncomesReceivedByMonth(ctx context.Context, arg SumIncomesR
 }
 
 const sumInstallmentsBilledForReport = `-- name: SumInstallmentsBilledForReport :one
-SELECT COALESCE(SUM(i.installment_amount_base), 0)::numeric AS total_base
+SELECT COALESCE(SUM(report_amount(i.installment_amount_base, e.currency, i.installment_amount, COALESCE($1::date, e.spent_at), $2::text, $3::text)), 0)::numeric AS total_base
 FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
-WHERE i.household_id = $1
+WHERE i.household_id = $4
   AND e.status = 'confirmed'
-  AND i.billing_date >= $2::date
-  AND i.billing_date <= $3::date
+  AND i.billing_date >= $5::date
+  AND i.billing_date <= $6::date
 `
 
 type SumInstallmentsBilledForReportParams struct {
+	RateDay     pgtype.Date `json:"rate_day"`
+	UsdSource   pgtype.Text `json:"usd_source"`
+	Tz          string      `json:"tz"`
 	HouseholdID uuid.UUID   `json:"household_id"`
-	Column2     pgtype.Date `json:"column_2"`
-	Column3     pgtype.Date `json:"column_3"`
+	FromDate    pgtype.Date `json:"from_date"`
+	ToDate      pgtype.Date `json:"to_date"`
 }
 
 // "billed_this_month": lo que apareció en resúmenes de tarjeta en el rango
 // (billing_date). Para no-crédito es igual a spent_at (la query no distingue).
 func (q *Queries) SumInstallmentsBilledForReport(ctx context.Context, arg SumInstallmentsBilledForReportParams) (pgtype.Numeric, error) {
-	row := q.db.QueryRow(ctx, sumInstallmentsBilledForReport, arg.HouseholdID, arg.Column2, arg.Column3)
+	row := q.db.QueryRow(ctx, sumInstallmentsBilledForReport,
+		arg.RateDay,
+		arg.UsdSource,
+		arg.Tz,
+		arg.HouseholdID,
+		arg.FromDate,
+		arg.ToDate,
+	)
 	var total_base pgtype.Numeric
 	err := row.Scan(&total_base)
 	return total_base, err
@@ -308,21 +432,24 @@ func (q *Queries) SumInstallmentsBilledForReport(ctx context.Context, arg SumIns
 const sumInstallmentsDueByMonth = `-- name: SumInstallmentsDueByMonth :many
 SELECT
     date_trunc('month', COALESCE(i.due_date, i.billing_date))::date AS month,
-    COALESCE(SUM(i.installment_amount_base), 0)::numeric AS total_base
+    COALESCE(SUM(report_amount(i.installment_amount_base, e.currency, i.installment_amount, COALESCE($1::date, e.spent_at), $2::text, $3::text)), 0)::numeric AS total_base
 FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
-WHERE i.household_id = $1
+WHERE i.household_id = $4
   AND e.status = 'confirmed'
-  AND COALESCE(i.due_date, i.billing_date) >= $2::date
-  AND COALESCE(i.due_date, i.billing_date) <= $3::date
+  AND COALESCE(i.due_date, i.billing_date) >= $5::date
+  AND COALESCE(i.due_date, i.billing_date) <= $6::date
 GROUP BY month
 ORDER BY month ASC
 `
 
 type SumInstallmentsDueByMonthParams struct {
+	RateDay     pgtype.Date `json:"rate_day"`
+	UsdSource   pgtype.Text `json:"usd_source"`
+	Tz          string      `json:"tz"`
 	HouseholdID uuid.UUID   `json:"household_id"`
-	Column2     pgtype.Date `json:"column_2"`
-	Column3     pgtype.Date `json:"column_3"`
+	FromDate    pgtype.Date `json:"from_date"`
+	ToDate      pgtype.Date `json:"to_date"`
 }
 
 type SumInstallmentsDueByMonthRow struct {
@@ -332,7 +459,14 @@ type SumInstallmentsDueByMonthRow struct {
 
 // Mismo concepto pero por due_date — lo que hay que pagar por mes.
 func (q *Queries) SumInstallmentsDueByMonth(ctx context.Context, arg SumInstallmentsDueByMonthParams) ([]SumInstallmentsDueByMonthRow, error) {
-	rows, err := q.db.Query(ctx, sumInstallmentsDueByMonth, arg.HouseholdID, arg.Column2, arg.Column3)
+	rows, err := q.db.Query(ctx, sumInstallmentsDueByMonth,
+		arg.RateDay,
+		arg.UsdSource,
+		arg.Tz,
+		arg.HouseholdID,
+		arg.FromDate,
+		arg.ToDate,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -352,25 +486,35 @@ func (q *Queries) SumInstallmentsDueByMonth(ctx context.Context, arg SumInstallm
 }
 
 const sumInstallmentsDueForReport = `-- name: SumInstallmentsDueForReport :one
-SELECT COALESCE(SUM(i.installment_amount_base), 0)::numeric AS total_base
+SELECT COALESCE(SUM(report_amount(i.installment_amount_base, e.currency, i.installment_amount, COALESCE($1::date, e.spent_at), $2::text, $3::text)), 0)::numeric AS total_base
 FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
-WHERE i.household_id = $1
+WHERE i.household_id = $4
   AND e.status = 'confirmed'
-  AND COALESCE(i.due_date, i.billing_date) >= $2::date
-  AND COALESCE(i.due_date, i.billing_date) <= $3::date
+  AND COALESCE(i.due_date, i.billing_date) >= $5::date
+  AND COALESCE(i.due_date, i.billing_date) <= $6::date
 `
 
 type SumInstallmentsDueForReportParams struct {
+	RateDay     pgtype.Date `json:"rate_day"`
+	UsdSource   pgtype.Text `json:"usd_source"`
+	Tz          string      `json:"tz"`
 	HouseholdID uuid.UUID   `json:"household_id"`
-	Column2     pgtype.Date `json:"column_2"`
-	Column3     pgtype.Date `json:"column_3"`
+	FromDate    pgtype.Date `json:"from_date"`
+	ToDate      pgtype.Date `json:"to_date"`
 }
 
 // "due_this_month": lo que hay que pagar en el rango (due_date). Para
 // no-crédito due_date es NULL, usamos COALESCE con billing_date.
 func (q *Queries) SumInstallmentsDueForReport(ctx context.Context, arg SumInstallmentsDueForReportParams) (pgtype.Numeric, error) {
-	row := q.db.QueryRow(ctx, sumInstallmentsDueForReport, arg.HouseholdID, arg.Column2, arg.Column3)
+	row := q.db.QueryRow(ctx, sumInstallmentsDueForReport,
+		arg.RateDay,
+		arg.UsdSource,
+		arg.Tz,
+		arg.HouseholdID,
+		arg.FromDate,
+		arg.ToDate,
+	)
 	var total_base pgtype.Numeric
 	err := row.Scan(&total_base)
 	return total_base, err

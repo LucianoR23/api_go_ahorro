@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/LucianoR23/valuo_api/internal/dates"
 	"github.com/LucianoR23/valuo_api/internal/domain"
 )
 
@@ -53,9 +54,59 @@ type PayerItem struct {
 	Total  decimal.Decimal `json:"total"`
 }
 
+// Currency: what a report's amounts are in (plan 5.3).
+type Currency struct {
+	// Currency: ARS, or USD when asked for dollars.
+	Currency string `json:"currency"`
+	// RateSource: the dollar used; empty in pesos.
+	RateSource string `json:"rateSource,omitempty"`
+	// RateMode: "day" (each movement's day) or "today"; empty in pesos.
+	RateMode string `json:"rateMode,omitempty"`
+	// USDRate: today's price of that dollar; empty in pesos.
+	USDRate *decimal.Decimal `json:"usdRate,omitempty"`
+}
+
+// ViewRequest: which currency the caller wants a report in.
+type ViewRequest struct {
+	USD   bool
+	Today bool // convert at today's dollar instead of each movement's day
+}
+
+// view resolves a request into the query view and what the response says.
+// A space kept in dollars is already in dollars.
+func (s *Service) view(ctx context.Context, hh domain.Household, req ViewRequest) (View, Currency, error) {
+	if !req.USD || hh.BaseCurrency == "USD" {
+		return View{}, Currency{Currency: hh.BaseCurrency}, nil
+	}
+	if hh.BaseCurrency != "ARS" {
+		return View{}, Currency{}, domain.NewValidationError("currency", "solo se puede ver en dólares un espacio en pesos")
+	}
+	src, err := domain.PickRateSource("", hh.FxSource)
+	if err != nil {
+		return View{}, Currency{}, err
+	}
+	today := dates.Today()
+	rate, ok, err := s.repo.USDRate(ctx, src, today)
+	if err != nil {
+		return View{}, Currency{}, err
+	}
+	if !ok {
+		return View{}, Currency{}, domain.NewConflictError("Todavía no tenemos la cotización de ese dólar. Probá en un rato.")
+	}
+	v := View{Source: &src}
+	mode := "day"
+	if req.Today {
+		v.RateDay = &today
+		mode = "today"
+	}
+	rate = rate.Round(money.AmountScale)
+	return v, Currency{Currency: "USD", RateSource: string(src), RateMode: mode, USDRate: &rate}, nil
+}
+
 type MonthlyReport struct {
-	HouseholdID   uuid.UUID               `json:"householdId"`
-	BaseCurrency  string                  `json:"baseCurrency"`
+	HouseholdID  uuid.UUID `json:"householdId"`
+	BaseCurrency string    `json:"baseCurrency"`
+	Currency
 	Month         string                  `json:"month"` // YYYY-MM
 	From          string                  `json:"from"`  // YYYY-MM-DD
 	To            string                  `json:"to"`
@@ -65,38 +116,48 @@ type MonthlyReport struct {
 	ByCategory    []CategoryBreakdownItem `json:"byCategory"`
 	FixedVariable FixedVariableItem       `json:"fixedVariable"`
 	ByPayer       []PayerItem             `json:"byPayer"`
+	// Income received in the month (plan 5.3).
+	Income decimal.Decimal `json:"incomeThisMonth"`
 }
 
 // Monthly calcula el reporte mensual completo para un household.
 // month es "YYYY-MM" en horario local; el rango es [primer día, último día].
-func (s *Service) Monthly(ctx context.Context, householdID uuid.UUID, month time.Time) (MonthlyReport, error) {
+func (s *Service) Monthly(ctx context.Context, householdID uuid.UUID, month time.Time, req ViewRequest) (MonthlyReport, error) {
 	hh, err := s.households.GetByID(ctx, householdID)
+	if err != nil {
+		return MonthlyReport{}, err
+	}
+	v, cur, err := s.view(ctx, hh, req)
 	if err != nil {
 		return MonthlyReport{}, err
 	}
 	from, to := monthRange(month)
 
-	spent, err := s.repo.SumSpentAt(ctx, householdID, from, to)
+	spent, err := s.repo.SumSpentAt(ctx, householdID, from, to, v)
 	if err != nil {
 		return MonthlyReport{}, err
 	}
-	billed, err := s.repo.SumBilled(ctx, householdID, from, to)
+	billed, err := s.repo.SumBilled(ctx, householdID, from, to, v)
 	if err != nil {
 		return MonthlyReport{}, err
 	}
-	due, err := s.repo.SumDue(ctx, householdID, from, to)
+	due, err := s.repo.SumDue(ctx, householdID, from, to, v)
 	if err != nil {
 		return MonthlyReport{}, err
 	}
-	cats, err := s.repo.CategoryBreakdown(ctx, householdID, from, to)
+	cats, err := s.repo.CategoryBreakdown(ctx, householdID, from, to, v)
 	if err != nil {
 		return MonthlyReport{}, err
 	}
-	fv, err := s.repo.FixedVariable(ctx, householdID, from, to)
+	fv, err := s.repo.FixedVariable(ctx, householdID, from, to, v)
 	if err != nil {
 		return MonthlyReport{}, err
 	}
-	payers, err := s.repo.ByPayer(ctx, householdID, from, to)
+	payers, err := s.repo.ByPayer(ctx, householdID, from, to, v)
+	if err != nil {
+		return MonthlyReport{}, err
+	}
+	income, err := s.repo.SumIncomes(ctx, householdID, from, to, v)
 	if err != nil {
 		return MonthlyReport{}, err
 	}
@@ -134,6 +195,7 @@ func (s *Service) Monthly(ctx context.Context, householdID uuid.UUID, month time
 	return MonthlyReport{
 		HouseholdID:   householdID,
 		BaseCurrency:  hh.BaseCurrency,
+		Currency:      cur,
 		Month:         month.Format("2006-01"),
 		From:          from.Format("2006-01-02"),
 		To:            to.Format("2006-01-02"),
@@ -143,6 +205,7 @@ func (s *Service) Monthly(ctx context.Context, householdID uuid.UUID, month time
 		ByCategory:    byCat,
 		FixedVariable: fvItem,
 		ByPayer:       byPayer,
+		Income:        income.Round(money.AmountScale),
 	}, nil
 }
 
@@ -157,14 +220,15 @@ type TrendsPoint struct {
 }
 
 type Trends struct {
-	HouseholdID  uuid.UUID     `json:"householdId"`
-	BaseCurrency string        `json:"baseCurrency"`
-	Months       int           `json:"months"`
-	Points       []TrendsPoint `json:"points"`
+	HouseholdID  uuid.UUID `json:"householdId"`
+	BaseCurrency string    `json:"baseCurrency"`
+	Currency
+	Months int           `json:"months"`
+	Points []TrendsPoint `json:"points"`
 }
 
 // TrendsByMonth: últimos N meses (incluyendo el actual) de gasto/due/income.
-func (s *Service) TrendsByMonth(ctx context.Context, householdID uuid.UUID, months int, at time.Time) (Trends, error) {
+func (s *Service) TrendsByMonth(ctx context.Context, householdID uuid.UUID, months int, at time.Time, req ViewRequest) (Trends, error) {
 	if months < 1 {
 		months = 6
 	}
@@ -175,20 +239,24 @@ func (s *Service) TrendsByMonth(ctx context.Context, householdID uuid.UUID, mont
 	if err != nil {
 		return Trends{}, err
 	}
+	v, cur, err := s.view(ctx, hh, req)
+	if err != nil {
+		return Trends{}, err
+	}
 
 	// Rango: primer día del mes (at - months + 1) hasta último día del mes de at.
 	end := lastOfMonth(at)
 	start := firstOfMonth(at.AddDate(0, -(months - 1), 0))
 
-	spentRows, err := s.repo.SpentByMonth(ctx, householdID, start, end)
+	spentRows, err := s.repo.SpentByMonth(ctx, householdID, start, end, v)
 	if err != nil {
 		return Trends{}, err
 	}
-	dueRows, err := s.repo.DueByMonth(ctx, householdID, start, end)
+	dueRows, err := s.repo.DueByMonth(ctx, householdID, start, end, v)
 	if err != nil {
 		return Trends{}, err
 	}
-	incomeRows, err := s.repo.IncomesByMonth(ctx, householdID, start, end)
+	incomeRows, err := s.repo.IncomesByMonth(ctx, householdID, start, end, v)
 	if err != nil {
 		return Trends{}, err
 	}
@@ -217,6 +285,7 @@ func (s *Service) TrendsByMonth(ctx context.Context, householdID uuid.UUID, mont
 	return Trends{
 		HouseholdID:  householdID,
 		BaseCurrency: hh.BaseCurrency,
+		Currency:     cur,
 		Months:       months,
 		Points:       points,
 	}, nil
@@ -250,11 +319,11 @@ type AICategoryLine struct {
 }
 
 func (s *Service) AIExport(ctx context.Context, householdID uuid.UUID, month time.Time) (AIExport, error) {
-	rep, err := s.Monthly(ctx, householdID, month)
+	rep, err := s.Monthly(ctx, householdID, month, ViewRequest{})
 	if err != nil {
 		return AIExport{}, err
 	}
-	trends, err := s.TrendsByMonth(ctx, householdID, 6, month)
+	trends, err := s.TrendsByMonth(ctx, householdID, 6, month, ViewRequest{})
 	if err != nil {
 		return AIExport{}, err
 	}
