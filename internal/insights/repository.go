@@ -105,6 +105,11 @@ type ListFilters struct {
 	Offset int32
 }
 
+// mutedInApp drops the insights whose kind the viewer ($%d) turned off for
+// the app (plan 10.1). Same clause as CountUnreadInsightsByHousehold.
+const mutedInApp = `NOT EXISTS (SELECT 1 FROM notification_preferences np WHERE np.user_id = $%[1]d
+	AND insight_kind(daily_insights.insight_type, daily_insights.metadata) || '.in_app' = ANY (np.disabled))`
+
 // ListByHousehold: query directa via pgx para no obligar a regenerar sqlc
 // cuando agregamos filtros. Soporta los mismos filtros que la versión
 // sqlc + búsqueda Q en title/body.
@@ -122,6 +127,8 @@ func (r *Repository) ListByHousehold(ctx context.Context, householdID uuid.UUID,
 	}
 	args = append(args, f.Viewer)
 	where = append(where, fmt.Sprintf("(user_id IS NULL OR user_id = $%d)", len(args)))
+	// Kinds the viewer muted in the app are left out (plan 10.1).
+	where = append(where, fmt.Sprintf(mutedInApp, len(args)))
 	if f.UserID != nil {
 		add("user_id = $%d", *f.UserID)
 	}

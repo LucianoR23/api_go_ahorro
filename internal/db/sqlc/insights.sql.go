@@ -49,6 +49,11 @@ WHERE household_id = $1
   AND is_read = false
   AND ($2::uuid IS NULL OR user_id = $2::uuid)
   AND (user_id IS NULL OR user_id = $3::uuid)
+  AND NOT EXISTS (
+    SELECT 1 FROM notification_preferences np
+    WHERE np.user_id = $3::uuid
+      AND insight_kind(daily_insights.insight_type, daily_insights.metadata) || '.in_app' = ANY (np.disabled)
+  )
 `
 
 type CountUnreadInsightsByHouseholdParams struct {
@@ -58,7 +63,8 @@ type CountUnreadInsightsByHouseholdParams struct {
 }
 
 // Only what the viewer may see: household-level insights and their own
-// personal ones (plan 0.6).
+// personal ones (plan 0.6), minus the kinds the viewer muted in the app
+// (plan 10.1).
 func (q *Queries) CountUnreadInsightsByHousehold(ctx context.Context, arg CountUnreadInsightsByHouseholdParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countUnreadInsightsByHousehold, arg.HouseholdID, arg.UserID, arg.Viewer)
 	var column_1 int64

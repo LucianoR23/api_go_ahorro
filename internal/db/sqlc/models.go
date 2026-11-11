@@ -293,6 +293,15 @@ type Income struct {
 	RateSource        pgtype.Text        `json:"rate_source"`
 }
 
+type NotificationPreference struct {
+	UserID       uuid.UUID          `json:"user_id"`
+	Disabled     []string           `json:"disabled"`
+	QuietEnabled bool               `json:"quiet_enabled"`
+	QuietStart   pgtype.Time        `json:"quiet_start"`
+	QuietEnd     pgtype.Time        `json:"quiet_end"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
 type PasswordReset struct {
 	ID        uuid.UUID          `json:"id"`
 	UserID    uuid.UUID          `json:"user_id"`

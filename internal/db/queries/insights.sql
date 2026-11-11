@@ -19,13 +19,19 @@ SELECT * FROM daily_insights WHERE id = $1;
 
 -- name: CountUnreadInsightsByHousehold :one
 -- Only what the viewer may see: household-level insights and their own
--- personal ones (plan 0.6).
+-- personal ones (plan 0.6), minus the kinds the viewer muted in the app
+-- (plan 10.1).
 SELECT COUNT(*)::bigint
 FROM daily_insights
 WHERE household_id = $1
   AND is_read = false
   AND (sqlc.narg(user_id)::uuid IS NULL OR user_id = sqlc.narg(user_id)::uuid)
-  AND (user_id IS NULL OR user_id = sqlc.arg(viewer)::uuid);
+  AND (user_id IS NULL OR user_id = sqlc.arg(viewer)::uuid)
+  AND NOT EXISTS (
+    SELECT 1 FROM notification_preferences np
+    WHERE np.user_id = sqlc.arg(viewer)::uuid
+      AND insight_kind(daily_insights.insight_type, daily_insights.metadata) || '.in_app' = ANY (np.disabled)
+  );
 
 -- name: MarkDailyInsightRead :exec
 UPDATE daily_insights SET is_read = true WHERE id = $1;

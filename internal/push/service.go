@@ -8,11 +8,13 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/google/uuid"
 
 	"github.com/LucianoR23/valuo_api/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/notifprefs"
 	"net/url"
 )
 
@@ -88,6 +90,21 @@ type Payload struct {
 	URL             string `json:"url,omitempty"`
 	Tag             string `json:"tag,omitempty"`
 	Icon            string `json:"icon,omitempty"`
+	// Kind decides which preference mutes this push and whether quiet
+	// hours hold it (plan 10.1). Empty: sent right away to everyone (the
+	// test push the person asks for). Never sent to the device.
+	Kind notifprefs.Kind `json:"-"`
+}
+
+// PrefsSource reads a person's notification preferences (plan 10.1).
+type PrefsSource interface {
+	ForDelivery(ctx context.Context, userID uuid.UUID) notifprefs.Prefs
+}
+
+// Deferrer holds a push until at, then hands it back to DeliverDeferred.
+// Production uses a scheduled River job.
+type Deferrer interface {
+	DeferPush(ctx context.Context, userID uuid.UUID, kind string, payload []byte, at time.Time) error
 }
 
 // Service envía push notifications. Busca las subs del user, firma con VAPID
@@ -96,14 +113,34 @@ type Payload struct {
 // Nil-safe: Send sobre un Service nil no hace nada (útil para tests y para
 // services que no fueron cableados con push).
 type Service struct {
-	repo   *Repository
-	cfg    Config
-	logger *slog.Logger
+	repo     *Repository
+	cfg      Config
+	logger   *slog.Logger
+	prefs    PrefsSource
+	deferrer Deferrer
+	loc      *time.Location
+	now      func() time.Time
 }
 
 func NewService(repo *Repository, cfg Config, logger *slog.Logger) *Service {
-	return &Service{repo: repo, cfg: cfg, logger: logger}
+	return &Service{repo: repo, cfg: cfg, logger: logger, loc: time.UTC, now: time.Now}
 }
+
+// SetPreferences makes every push with a Kind follow the person's choices;
+// quiet hours are read in loc (the app timezone).
+func (s *Service) SetPreferences(p PrefsSource, loc *time.Location) {
+	s.prefs = p
+	if loc != nil {
+		s.loc = loc
+	}
+}
+
+// SetDeferrer sets where pushes wait during quiet hours. Without one they
+// are sent right away.
+func (s *Service) SetDeferrer(d Deferrer) { s.deferrer = d }
+
+// SetClock replaces time.Now (tests).
+func (s *Service) SetClock(now func() time.Time) { s.now = now }
 
 // PublicKey devuelve la VAPID public key para que el endpoint GET la exponga
 // al frontend.
@@ -197,15 +234,53 @@ func (s *Service) NotifyUsers(ctx context.Context, userIDs []uuid.UUID, payload 
 	// Usamos un ctx nuevo con logger info si lo hubiera.
 	bg := context.Background()
 
-	go s.deliver(bg, uniq, payload) //nolint:gosec // G118: detached on purpose, delivery must outlive the request
+	go s.route(bg, uniq, payload) //nolint:gosec // G118: detached on purpose, delivery must outlive the request
 }
 
-func (s *Service) deliver(ctx context.Context, userIDs []uuid.UUID, payload Payload) {
+// route applies each person's preferences: a muted kind is dropped, and
+// during quiet hours the push waits for the end of the window.
+func (s *Service) route(ctx context.Context, userIDs []uuid.UUID, payload Payload) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "push: marshal payload", "error", err)
 		return
 	}
+	now := s.now()
+	send := make([]uuid.UUID, 0, len(userIDs))
+	for _, uid := range userIDs {
+		if payload.Kind != "" && s.prefs != nil {
+			p := s.prefs.ForDelivery(ctx, uid)
+			if !p.Allows(payload.Kind, notifprefs.Push) {
+				continue
+			}
+			if until, quiet := p.Quiet.Until(now, s.loc); quiet && s.deferrer != nil {
+				err := s.deferrer.DeferPush(ctx, uid, string(payload.Kind), body, until)
+				if err == nil {
+					continue
+				}
+				// Better a push at night than none.
+				s.logger.WarnContext(ctx, "push: defer failed, sending now", "error", err, "user_id", uid)
+			}
+		}
+		send = append(send, uid)
+	}
+	s.deliver(ctx, send, body)
+}
+
+// DeliverDeferred sends a push held by quiet hours. The kind is checked
+// again, in case the person muted it while it waited.
+func (s *Service) DeliverDeferred(ctx context.Context, userID uuid.UUID, kind string, body []byte) error {
+	if s == nil || !s.cfg.Enabled() {
+		return nil
+	}
+	if kind != "" && s.prefs != nil && !s.prefs.ForDelivery(ctx, userID).Allows(notifprefs.Kind(kind), notifprefs.Push) {
+		return nil
+	}
+	s.deliver(ctx, []uuid.UUID{userID}, body)
+	return nil
+}
+
+func (s *Service) deliver(ctx context.Context, userIDs []uuid.UUID, body []byte) {
 
 	opts := &webpush.Options{
 		Subscriber:      s.cfg.Subject,
