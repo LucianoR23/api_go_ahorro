@@ -3,7 +3,7 @@
 # ---------- build stage ----------
 # Usamos la imagen oficial de Go. Alpine porque pesa menos (~300MB vs ~1GB).
 # Keep in sync with the `toolchain` line in go.mod (exact tag, supported Alpine).
-FROM golang:1.27.3-alpine3.24 AS build
+FROM golang:1.27.4-alpine3.24 AS build
 
 # No apk here: modules come from proxy.golang.org (no git needed) and the
 # image already ships the CA bundle. Fetching from Alpine's CDN failed twice
