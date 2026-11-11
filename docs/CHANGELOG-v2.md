@@ -4,6 +4,14 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 1.11 (API part): superadmin panel
+- New `internal/admin` package, superadmin only (401 signed out, 403 for anyone else). Following plan §8b it returns counts and account metadata only: no amounts, no descriptions, nothing from inside a space.
+- `GET /admin/overview`: accounts (total, new in the last 7 days, new this month, verified, active in the last 30 days by session use), active and deleted hogares, confirmed waitlist entries, and expenses and incomes created per month for the last 6 months (by creation date, app time zone).
+- `GET /admin/users?q&offset`: accounts, newest first, 50 per page (`nextOffset`). `q` searches email and name, ignoring case; `%` and `_` are literal. Each row: email, name, sign-up, verified, onboarded, deleted, last seen, superadmin, number of hogares.
+- `GET /admin/users/{id}`: the same plus pending email, password or Google sign-in, active sessions and the account's spaces (name, kind, role, members).
+- `GET /admin/audit?userId&group&cursor`: the audit log of every account, newest first, 50 per page with a keyset cursor. Each event carries the email of the account it happened to and of whoever did it. `userId` matches both; `group` is `sessions`, `failed`, `account`, `household` or `admin`.
+- Reads only, no migration. Access to a person's financial data for support was left for later, tied to the support tickets.
+
 ### 10.1 (API part): notification preferences and quiet hours
 - `GET /me/notification-preferences` and `PUT` (signed in, per person, every space): which kinds of notice reach the person on which channel, plus quiet hours. Kinds: shared expenses and settlements (app, push), card closing and due dates (app, push), installments due (app, push), goals, recurring price rises and the weekly summary (app), the monthly summary (email). Only the channels the API really uses are offered; no new emails. Invites and security emails can't be muted.
 - In the app, a muted kind leaves Notificaciones and the unread count (also the notices already there); the notice is still created, so turning it on again brings it back.

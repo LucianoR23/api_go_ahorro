@@ -16,6 +16,23 @@ type Querier interface {
 	// household_members
 	// ============================================================
 	AddHouseholdMember(ctx context.Context, arg AddHouseholdMemberParams) (HouseholdMember, error)
+	AdminGetUser(ctx context.Context, id uuid.UUID) (AdminGetUserRow, error)
+	// Every account's events, newest first. user_id matches the account an
+	// event happened to or the one that did it. patterns are LIKE patterns
+	// (empty = all). Keyset pagination on (created_at, id).
+	AdminListAuditEvents(ctx context.Context, arg AdminListAuditEventsParams) ([]AdminListAuditEventsRow, error)
+	// q is lower-cased with LIKE wildcards escaped by the caller.
+	AdminListUsers(ctx context.Context, arg AdminListUsersParams) ([]AdminListUsersRow, error)
+	// Expenses and incomes created per month (by creation, not by spend date),
+	// months cut in the given time zone.
+	AdminMovementsByMonth(ctx context.Context, arg AdminMovementsByMonthParams) ([]AdminMovementsByMonthRow, error)
+	// ===================== superadmin panel (plan 1.11) =====================
+	// Aggregates and account metadata only (plan §8b): no amounts, no
+	// descriptions, nothing from inside a space.
+	AdminOverviewCounts(ctx context.Context, arg AdminOverviewCountsParams) (AdminOverviewCountsRow, error)
+	// The account's spaces: name, kind, role and size. Nothing from inside them.
+	AdminUserHouseholds(ctx context.Context, userID uuid.UUID) ([]AdminUserHouseholdsRow, error)
+	AdminUserProviders(ctx context.Context, userID uuid.UUID) ([]string, error)
 	// The new address was verified: it becomes the email, verified, and the
 	// pending one is cleared. A collision with another account hits the UNIQUE
 	// constraint (the repo maps it to ErrConflict).
