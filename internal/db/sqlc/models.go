@@ -370,6 +370,13 @@ type RecurringIncome struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
+type RecurringSuggestionDismissal struct {
+	HouseholdID uuid.UUID          `json:"household_id"`
+	Key         string             `json:"key"`
+	DismissedBy *uuid.UUID         `json:"dismissed_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type RiverJob struct {
 	ID           int64              `json:"id"`
 	State        RiverJobState      `json:"state"`

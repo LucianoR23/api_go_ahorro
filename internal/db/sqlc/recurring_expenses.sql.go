@@ -106,6 +106,23 @@ func (q *Queries) DeleteRecurringExpense(ctx context.Context, id uuid.UUID) erro
 	return err
 }
 
+const dismissRecurringSuggestion = `-- name: DismissRecurringSuggestion :exec
+INSERT INTO recurring_suggestion_dismissals (household_id, key, dismissed_by)
+VALUES ($1, $2, $3)
+ON CONFLICT (household_id, key) DO NOTHING
+`
+
+type DismissRecurringSuggestionParams struct {
+	HouseholdID uuid.UUID  `json:"household_id"`
+	Key         string     `json:"key"`
+	DismissedBy *uuid.UUID `json:"dismissed_by"`
+}
+
+func (q *Queries) DismissRecurringSuggestion(ctx context.Context, arg DismissRecurringSuggestionParams) error {
+	_, err := q.db.Exec(ctx, dismissRecurringSuggestion, arg.HouseholdID, arg.Key, arg.DismissedBy)
+	return err
+}
+
 const getRecurringExpenseByID = `-- name: GetRecurringExpenseByID :one
 SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, description, installments, is_shared, frequency, day_of_month, day_of_week, month_of_year, is_active, starts_at, ends_at, last_generated, created_at, amount_is_variable, alert_threshold_pct, last_amount, last_confirmed_at FROM recurring_expenses WHERE id = $1
 `
@@ -237,6 +254,88 @@ func (q *Queries) ListRecurringExpensesByHousehold(ctx context.Context, househol
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecurringSuggestionCandidates = `-- name: ListRecurringSuggestionCandidates :many
+
+SELECT description, currency, amount, spent_at, category_id, payment_method_id
+FROM expenses
+WHERE household_id = $1
+  AND recurring_expense_id IS NULL
+  AND status = 'confirmed'
+  AND installments = 1
+  AND spent_at >= $2::date
+  AND spent_at < $3::date
+ORDER BY spent_at, created_at
+`
+
+type ListRecurringSuggestionCandidatesParams struct {
+	HouseholdID uuid.UUID   `json:"household_id"`
+	FromDate    pgtype.Date `json:"from_date"`
+	ToDate      pgtype.Date `json:"to_date"`
+}
+
+type ListRecurringSuggestionCandidatesRow struct {
+	Description     string         `json:"description"`
+	Currency        string         `json:"currency"`
+	Amount          pgtype.Numeric `json:"amount"`
+	SpentAt         pgtype.Date    `json:"spent_at"`
+	CategoryID      *uuid.UUID     `json:"category_id"`
+	PaymentMethodID uuid.UUID      `json:"payment_method_id"`
+}
+
+// ===================== suggestions (plan 7.3) =====================
+// Manual one-payment expenses of a space in a window, oldest first. The
+// grouping into "repeats every month" happens in Go.
+func (q *Queries) ListRecurringSuggestionCandidates(ctx context.Context, arg ListRecurringSuggestionCandidatesParams) ([]ListRecurringSuggestionCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, listRecurringSuggestionCandidates, arg.HouseholdID, arg.FromDate, arg.ToDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRecurringSuggestionCandidatesRow{}
+	for rows.Next() {
+		var i ListRecurringSuggestionCandidatesRow
+		if err := rows.Scan(
+			&i.Description,
+			&i.Currency,
+			&i.Amount,
+			&i.SpentAt,
+			&i.CategoryID,
+			&i.PaymentMethodID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecurringSuggestionDismissals = `-- name: ListRecurringSuggestionDismissals :many
+SELECT key FROM recurring_suggestion_dismissals WHERE household_id = $1
+`
+
+func (q *Queries) ListRecurringSuggestionDismissals(ctx context.Context, householdID uuid.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, listRecurringSuggestionDismissals, householdID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		items = append(items, key)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

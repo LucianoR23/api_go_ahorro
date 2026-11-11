@@ -62,3 +62,26 @@ UPDATE recurring_expenses SET last_generated = $2::date WHERE id = $1;
 
 -- name: DeleteRecurringExpense :exec
 DELETE FROM recurring_expenses WHERE id = $1;
+
+-- ===================== suggestions (plan 7.3) =====================
+
+-- name: ListRecurringSuggestionCandidates :many
+-- Manual one-payment expenses of a space in a window, oldest first. The
+-- grouping into "repeats every month" happens in Go.
+SELECT description, currency, amount, spent_at, category_id, payment_method_id
+FROM expenses
+WHERE household_id = $1
+  AND recurring_expense_id IS NULL
+  AND status = 'confirmed'
+  AND installments = 1
+  AND spent_at >= sqlc.arg(from_date)::date
+  AND spent_at < sqlc.arg(to_date)::date
+ORDER BY spent_at, created_at;
+
+-- name: ListRecurringSuggestionDismissals :many
+SELECT key FROM recurring_suggestion_dismissals WHERE household_id = $1;
+
+-- name: DismissRecurringSuggestion :exec
+INSERT INTO recurring_suggestion_dismissals (household_id, key, dismissed_by)
+VALUES ($1, $2, $3)
+ON CONFLICT (household_id, key) DO NOTHING;
