@@ -438,6 +438,44 @@ func (q *Queries) MarkRecurringIncomeGenerated(ctx context.Context, arg MarkRecu
 	return err
 }
 
+const moveIncome = `-- name: MoveIncome :one
+UPDATE incomes
+SET household_id = $1,
+    recurring_income_id = NULL
+WHERE id = $2
+RETURNING id, household_id, received_by, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, source, description, received_at, created_at, recurring_income_id, rate_source
+`
+
+type MoveIncomeParams struct {
+	TargetHouseholdID uuid.UUID `json:"target_household_id"`
+	ID                uuid.UUID `json:"id"`
+}
+
+// Plan 9.1: the income changes space; its recurring series stays behind.
+func (q *Queries) MoveIncome(ctx context.Context, arg MoveIncomeParams) (Income, error) {
+	row := q.db.QueryRow(ctx, moveIncome, arg.TargetHouseholdID, arg.ID)
+	var i Income
+	err := row.Scan(
+		&i.ID,
+		&i.HouseholdID,
+		&i.ReceivedBy,
+		&i.PaymentMethodID,
+		&i.Amount,
+		&i.Currency,
+		&i.AmountBase,
+		&i.BaseCurrency,
+		&i.RateUsed,
+		&i.RateAt,
+		&i.Source,
+		&i.Description,
+		&i.ReceivedAt,
+		&i.CreatedAt,
+		&i.RecurringIncomeID,
+		&i.RateSource,
+	)
+	return i, err
+}
+
 const recurringIncomeHasOccurrence = `-- name: RecurringIncomeHasOccurrence :one
 SELECT EXISTS (SELECT 1 FROM incomes WHERE recurring_income_id = $1 AND received_at = $2)::bool
 `

@@ -46,6 +46,7 @@ func (h *Handler) Mount(r chi.Router) {
 				r.Patch("/", h.Update)
 				r.Delete("/", h.Delete)
 				r.Post("/confirm", h.Confirm)
+				r.Post("/move", h.Move)
 				r.Patch("/installments/{n}", h.UpdateInstallment)
 			})
 		})
@@ -591,4 +592,39 @@ func toDetailDTO(d domain.ExpenseDetail) expenseDetailDTO {
 
 func decodeJSON(r *http.Request, dst any) error {
 	return httpx.DecodeJSON(r, dst)
+}
+
+// moveReq: POST /expenses/{id}/move (plan 9.1).
+type moveReq struct {
+	HouseholdID uuid.UUID `json:"householdId"`
+}
+
+// Move takes the expense to another space of its author and returns it as
+// it is there (its id stays the same).
+func (h *Handler) Move(w http.ResponseWriter, r *http.Request) {
+	userID, householdID, err := h.ctxUserAndHousehold(r)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	var req moveReq
+	if err := decodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	if req.HouseholdID == uuid.Nil {
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("householdId", "es obligatorio"))
+		return
+	}
+	detail, err := h.svc.Move(r.Context(), householdID, id, userID, req.HouseholdID)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, toDetailDTO(detail))
 }

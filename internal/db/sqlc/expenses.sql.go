@@ -229,6 +229,16 @@ func (q *Queries) DeleteExpense(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const deleteSharesByExpense = `-- name: DeleteSharesByExpense :exec
+DELETE FROM expense_installment_shares
+WHERE installment_id IN (SELECT id FROM expense_installments WHERE expense_id = $1)
+`
+
+func (q *Queries) DeleteSharesByExpense(ctx context.Context, expenseID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteSharesByExpense, expenseID)
+	return err
+}
+
 const getExpenseByID = `-- name: GetExpenseByID :one
 SELECT id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status, rate_source FROM expenses WHERE id = $1
 `
@@ -461,6 +471,61 @@ func (q *Queries) ListSharesByExpense(ctx context.Context, expenseID uuid.UUID) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const moveExpense = `-- name: MoveExpense :one
+
+UPDATE expenses
+SET household_id = $1,
+    category_id = $2,
+    is_shared = $3,
+    recurring_expense_id = NULL,
+    updated_at = NOW()
+WHERE id = $4
+RETURNING id, household_id, created_by, category_id, payment_method_id, amount, currency, amount_base, base_currency, rate_used, rate_at, description, spent_at, installments, is_shared, created_at, updated_at, recurring_expense_id, status, rate_source
+`
+
+type MoveExpenseParams struct {
+	TargetHouseholdID uuid.UUID  `json:"target_household_id"`
+	CategoryID        *uuid.UUID `json:"category_id"`
+	IsShared          bool       `json:"is_shared"`
+	ID                uuid.UUID  `json:"id"`
+}
+
+// ===== move between spaces (plan 9.1) =====
+// The installments follow through ON UPDATE CASCADE (migration 000043). The
+// recurring series belongs to the old space, so the link is dropped.
+func (q *Queries) MoveExpense(ctx context.Context, arg MoveExpenseParams) (Expense, error) {
+	row := q.db.QueryRow(ctx, moveExpense,
+		arg.TargetHouseholdID,
+		arg.CategoryID,
+		arg.IsShared,
+		arg.ID,
+	)
+	var i Expense
+	err := row.Scan(
+		&i.ID,
+		&i.HouseholdID,
+		&i.CreatedBy,
+		&i.CategoryID,
+		&i.PaymentMethodID,
+		&i.Amount,
+		&i.Currency,
+		&i.AmountBase,
+		&i.BaseCurrency,
+		&i.RateUsed,
+		&i.RateAt,
+		&i.Description,
+		&i.SpentAt,
+		&i.Installments,
+		&i.IsShared,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RecurringExpenseID,
+		&i.Status,
+		&i.RateSource,
+	)
+	return i, err
 }
 
 const setInstallmentPaid = `-- name: SetInstallmentPaid :one

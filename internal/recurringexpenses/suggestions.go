@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -15,6 +14,7 @@ import (
 	sqlcgen "github.com/LucianoR23/valuo_api/internal/db/sqlc"
 	"github.com/LucianoR23/valuo_api/internal/domain"
 	"github.com/LucianoR23/valuo_api/internal/money"
+	"github.com/LucianoR23/valuo_api/internal/textnorm"
 )
 
 // Subscription detection (plan 7.3): expenses loaded by hand that repeat
@@ -61,41 +61,8 @@ type candidate struct {
 	PaymentMethodID uuid.UUID
 }
 
-// normalizeDescription: lower case, no accents, only letters and digits
-// separated by single spaces. "Netflix ", "NETFLIX" and "netflix." match.
-func normalizeDescription(s string) string {
-	var b strings.Builder
-	space := false
-	for _, r := range strings.ToLower(s) {
-		r = unaccent(r)
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			if space && b.Len() > 0 {
-				b.WriteByte(' ')
-			}
-			b.WriteRune(r)
-			space = false
-		} else {
-			space = true
-		}
-	}
-	return b.String()
-}
-
-func unaccent(r rune) rune {
-	switch r {
-	case 'á', 'à', 'ä', 'â':
-		return 'a'
-	case 'é', 'è', 'ë', 'ê':
-		return 'e'
-	case 'í', 'ì', 'ï', 'î':
-		return 'i'
-	case 'ó', 'ò', 'ö', 'ô':
-		return 'o'
-	case 'ú', 'ù', 'ü', 'û':
-		return 'u'
-	}
-	return r
-}
+// normalizeDescription: see textnorm.Key.
+func normalizeDescription(s string) string { return textnorm.Key(s) }
 
 func suggestionKey(description, currency string) string {
 	k := currency + ":" + normalizeDescription(description)
