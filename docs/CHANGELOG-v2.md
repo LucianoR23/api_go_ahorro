@@ -4,6 +4,14 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 11.1 (API part): Excel export
+- `GET /exports/expenses.xlsx?from&to` (space member): the space's confirmed expenses in the period as an Excel file, oldest first. Takes the same filters as `GET /expenses` (`categoryId` with its subcategories, `paymentMethodId`, `kind=fixed|variable`, `q`). Columns: date, description, category ("Servicios > Luz"), payment method, amount, currency, rate, amount in pesos, installments, fixed or variable, shared, who loaded it.
+- `GET /exports/incomes.xlsx?from&to`: the space's incomes in the period (date, description, type, payment method, amount, currency, rate, amount in pesos, who received it).
+- `from` and `to` are required and cover at most 366 days; a file holds at most 20.000 rows (a 422 asks for a shorter period). The file is named after the period: `gastos-2026-11.xlsx`, `gastos-2026.xlsx`, or both dates. `Cache-Control: no-store`.
+- A payment method's name is only filled in for its owner, as in the app; other members' rows leave it blank.
+- Dates and amounts are real Excel dates and numbers in Excel's built-in formats, so Excel shows them in the reader's language (03/11/2026, 19.450,50 in Spanish). Header row frozen with filters.
+- Written with the standard library (`internal/xlsx`, a zip of XML parts): no new dependency. Read-only, no migration. CSV was left out: Excel is what people open.
+
 ### 7.3 (API part): subscription suggestions
 - `GET /recurring-expenses/suggestions` (space member): expenses loaded by hand that look recurring. A suggestion is a description (case, accents and punctuation ignored) in one currency that shows up once a month in at least 3 of the last 4 months (this one included), with the biggest amount at most 25% over the smallest. Only confirmed one-payment expenses outside a series count; groceries bought several times a month do not.
 - Each suggestion carries a `key`, the description as written last, currency, last amount, smallest and biggest, months seen, day of the month and payment method of the last one, so the app can prefill a recurring expense. Descriptions already used by a recurring expense of the space (active or paused) are left out.

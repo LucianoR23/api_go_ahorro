@@ -287,6 +287,12 @@ type Querier interface {
 	// Histórico confirmado de una serie (recurring_expense). Lo usa el endpoint
 	// de stats para calcular variación %, promedio, tendencia.
 	ListExpensesBySeries(ctx context.Context, arg ListExpensesBySeriesParams) ([]Expense, error)
+	// Spreadsheet exports (plan 11.1). Oldest first, like a ledger.
+	// A payment method's name is shown only to its owner: the app never shows a
+	// member's cards to the others, so the export doesn't either.
+	// Confirmed expenses in [from_date, to_date] with the same filters as
+	// GET /expenses. q must come escaped for LIKE (backslash escape).
+	ListExpensesForExport(ctx context.Context, arg ListExpensesForExportParams) ([]ListExpensesForExportRow, error)
 	// Devuelve los miembros con el nombre/email del user (JOIN).
 	// Usamos sqlc.embed(u) para que genere un struct anidado con todo user,
 	// así el handler puede devolver la info combinada sin queries extra.
@@ -297,6 +303,7 @@ type Querier interface {
 	ListHouseholdsForUser(ctx context.Context, userID uuid.UUID) ([]Household, error)
 	// Filtros opcionales: receivedBy, paymentMethodId, source, desde/hasta.
 	ListIncomesByHousehold(ctx context.Context, arg ListIncomesByHouseholdParams) ([]Income, error)
+	ListIncomesForExport(ctx context.Context, arg ListIncomesForExportParams) ([]ListIncomesForExportRow, error)
 	ListInstallmentsByExpense(ctx context.Context, expenseID uuid.UUID) ([]ExpenseInstallment, error)
 	// Devuelve la última fila por (currency, source) usando DISTINCT ON.
 	// Útil para el endpoint /current y para rehidratar el caché al arrancar.
