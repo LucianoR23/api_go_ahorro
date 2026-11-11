@@ -25,6 +25,7 @@ import (
 	"github.com/LucianoR23/valuo_api/internal/auth"
 	"github.com/LucianoR23/valuo_api/internal/auth/google"
 	"github.com/LucianoR23/valuo_api/internal/balances"
+	"github.com/LucianoR23/valuo_api/internal/calendar"
 	"github.com/LucianoR23/valuo_api/internal/categories"
 	"github.com/LucianoR23/valuo_api/internal/config"
 	"github.com/LucianoR23/valuo_api/internal/cpi"
@@ -338,6 +339,9 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	recurringExpensesSvc.SetExpensesReader(expensesRepo)
 	recurringExpensesHandler := recurringexpenses.NewHandler(recurringExpensesSvc, authMW, householdsMW, logger)
 
+	// Calendar (plan 7.2): card dates + the space's recurring series.
+	calendarHandler := calendar.NewHandler(calendar.NewService(statementsSvc, recurringExpensesSvc, incomesSvc), authMW, householdsMW, logger)
+
 	// goals: metas presupuestarias (category_limit / total_limit / savings),
 	// scope household o user. El progreso se calcula vivo contra expense_installments
 	// e incomes — no cachea nada.
@@ -577,6 +581,9 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 
 		// Recurring expenses (auth + household member).
 		recurringExpensesHandler.Mount(r)
+
+		// Calendar (auth + household member).
+		calendarHandler.Mount(r)
 
 		// Goals (auth + household member).
 		goalsHandler.Mount(r)

@@ -194,3 +194,16 @@ type CardReminder struct {
 	Date            time.Time
 	Totals          []CurrencyAmount
 }
+
+// CardDate: a card's closing or due date inside a month (calendar, plan
+// 7.2). A due date carries the statement's total and status.
+type CardDate struct {
+	Kind             CardReminderKind
+	PaymentMethodID  uuid.UUID
+	CardName         string
+	PeriodYM         string
+	Date             time.Time
+	Totals           []CurrencyAmount
+	Status           StatementStatus
+	InstallmentCount int
+}

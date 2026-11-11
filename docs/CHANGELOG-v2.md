@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 7.2 (API part): due-date calendar
+- `GET /calendar?month=YYYY-MM` (signed in, space member; this month by default): what is due or comes in, day by day. Events are the user's card closing and due dates (as in Tarjetas, in every space) and the space's recurring expenses and incomes on each day they fall in the month (paused series and days outside start/end are left out).
+- A card's due date is listed only when its statement has something to pay, with its totals per currency, status and installment count; its closing always. A recurring expense or income carries its amount (the estimate when variable), currency, payment method and series id.
+- Card installments are not listed one by one: they are already inside each statement's total.
+- Same day order: income, card due, recurring expense, card closing, then by name. Read-only, no migration.
+
 ### 5.6 (API part): reports in other currencies and crypto
 - `GET /reports/monthly` and `GET /reports/trends` take `currency` in USD, EUR, BRL, CLP, UYU, USDT, BTC or ETH (view only: movements still take ARS, USD or EUR). The dollar keeps both modes; every other currency converts at today's rate. A movement loaded in the currency shown keeps its amount.
 - A fiat currency goes through the household's dollar, like a movement would (the official real moved by MEP / official). A crypto has one market price: USDT is DolarAPI's crypto dollar, BTC and ETH come from CoinGecko.

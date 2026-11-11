@@ -549,3 +549,42 @@ func (s *Service) DeleteAdjustment(ctx context.Context, ownerID, pmID uuid.UUID,
 	}
 	return s.detail(ctx, cc, periodYM)
 }
+
+// CardDates: the closing and due dates of every active card of the user
+// that fall in month (calendar, plan 7.2). A due date is listed only when
+// its statement has something to pay; a closing always. month is the first
+// day of a calendar month.
+func (s *Service) CardDates(ctx context.Context, ownerID uuid.UUID, month time.Time) ([]domain.CardDate, error) {
+	cards, err := s.cards.ListCreditCards(ctx, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	today := dates.DateOf(s.now())
+	first, last := month, month.AddDate(0, 1, -1)
+	in := func(d time.Time) bool { return !d.Before(first) && !d.After(last) }
+	// A statement closing the month before is usually due in month; an
+	// override can move a closing across a month boundary.
+	from, to := month.AddDate(0, -1, 0), month.AddDate(0, 1, 0)
+	always := map[string]bool{ym(from): true, ym(month): true, ym(to): true}
+	var out []domain.CardDate
+	for _, c := range cards {
+		list, err := s.build(ctx, *c.CreditCard, from, to, today, always)
+		if err != nil {
+			return nil, err
+		}
+		for _, st := range list {
+			base := domain.CardDate{PaymentMethodID: c.ID, CardName: c.Name, PeriodYM: st.PeriodYM}
+			if in(st.ClosingDate) {
+				d := base
+				d.Kind, d.Date = domain.CardReminderClosing, st.ClosingDate
+				out = append(out, d)
+			}
+			if in(st.DueDate) && len(st.Totals) > 0 {
+				d := base
+				d.Kind, d.Date, d.Totals, d.Status, d.InstallmentCount = domain.CardReminderDue, st.DueDate, st.Totals, st.Status, st.InstallmentCount
+				out = append(out, d)
+			}
+		}
+	}
+	return out, nil
+}
