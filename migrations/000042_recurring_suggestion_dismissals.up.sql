@@ -9,3 +9,6 @@ CREATE TABLE recurring_suggestion_dismissals (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (household_id, key)
 );
+
+CREATE INDEX idx_recurring_suggestion_dismissals_dismissed_by
+    ON recurring_suggestion_dismissals(dismissed_by);
