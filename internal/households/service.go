@@ -34,13 +34,11 @@ type splitRulesSeeder interface {
 	SeedForMemberTx(ctx context.Context, tx pgx.Tx, householdID, userID uuid.UUID) error
 }
 
-// Monedas soportadas por el sistema (coincide con los fetchers de bluelytics).
-// Si agregamos más, el fetcher y el validador se actualizan juntos.
-var supportedCurrencies = map[string]struct{}{
-	"ARS": {},
-	"USD": {},
-	"EUR": {},
-}
+// baseCurrency: a space always sums in pesos (plan 5.5). Movements keep their
+// own currency; changing a space's base used to leave old amounts in the old
+// one, so it can no longer be chosen. Opening another country = dropping the
+// check in migration 000040 and accepting its currency here, at creation only.
+const baseCurrency = "ARS"
 
 // pushNotifier: nil-safe. Notifica al invitado cuando se lo agrega a un hogar.
 type pushNotifier interface {
@@ -66,14 +64,13 @@ func (s *Service) SetNotifier(n pushNotifier) {
 
 // Create valida input, normaliza currency y crea el hogar con el caller
 // como owner (atómico).
-func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, name, baseCurrency string) (domain.Household, error) {
+func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, name, currency string) (domain.Household, error) {
 	name = strings.TrimSpace(name)
-	baseCurrency = strings.ToUpper(strings.TrimSpace(baseCurrency))
 
 	if name == "" {
 		return domain.Household{}, domain.NewValidationError("name", "no puede estar vacío")
 	}
-	if err := validateCurrency(baseCurrency); err != nil {
+	if err := validateCurrency(currency); err != nil {
 		return domain.Household{}, err
 	}
 
@@ -109,18 +106,15 @@ func (s *Service) seedHooks() (AfterCreateHook, AfterMemberHook) {
 	return createHook, memberHook
 }
 
-// Name and currency of a new "Mi plata". The app shows its own label for the
-// personal space; the name is what lists and exports read.
-const (
-	personalName     = "Mi plata"
-	personalCurrency = "ARS"
-)
+// Name of a new "Mi plata". The app shows its own label for the personal
+// space; the name is what lists and exports read.
+const personalName = "Mi plata"
 
 // EnsurePersonalTx creates the user's "Mi plata" inside the caller's
 // transaction (registration). Plan 1.2.
 func (s *Service) EnsurePersonalTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID) error {
 	createHook, memberHook := s.seedHooks()
-	_, err := s.repo.CreateWithOwnerTx(ctx, tx, personalName, personalCurrency, domain.HouseholdPersonal, userID, createHook, memberHook)
+	_, err := s.repo.CreateWithOwnerTx(ctx, tx, personalName, baseCurrency, domain.HouseholdPersonal, userID, createHook, memberHook)
 	return err
 }
 
@@ -132,7 +126,7 @@ func (s *Service) EnsurePersonal(ctx context.Context, userID uuid.UUID) (domain.
 		return h, err
 	}
 	createHook, memberHook := s.seedHooks()
-	h, err := s.repo.CreateWithOwner(ctx, personalName, personalCurrency, domain.HouseholdPersonal, userID, createHook, memberHook)
+	h, err := s.repo.CreateWithOwner(ctx, personalName, baseCurrency, domain.HouseholdPersonal, userID, createHook, memberHook)
 	if errors.Is(err, domain.ErrConflict) {
 		return s.repo.PersonalForUser(ctx, userID)
 	}
@@ -156,18 +150,17 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (domain.Household, erro
 // Update requiere rol owner. El service valida, el middleware solo
 // valida membresía genérica.
 // fxSource empty keeps the current one (plan 5.1).
-func (s *Service) Update(ctx context.Context, userID, householdID uuid.UUID, name, baseCurrency string, fxSource domain.RateSource) (domain.Household, error) {
+func (s *Service) Update(ctx context.Context, userID, householdID uuid.UUID, name, currency string, fxSource domain.RateSource) (domain.Household, error) {
 	if err := s.requireOwner(ctx, householdID, userID); err != nil {
 		return domain.Household{}, err
 	}
 
 	name = strings.TrimSpace(name)
-	baseCurrency = strings.ToUpper(strings.TrimSpace(baseCurrency))
 
 	if name == "" {
 		return domain.Household{}, domain.NewValidationError("name", "no puede estar vacío")
 	}
-	if err := validateCurrency(baseCurrency); err != nil {
+	if err := validateCurrency(currency); err != nil {
 		return domain.Household{}, err
 	}
 	if fxSource == "" {
@@ -321,12 +314,11 @@ func (s *Service) requireOwner(ctx context.Context, householdID, userID uuid.UUI
 	return nil
 }
 
+// validateCurrency: the base may be left out; if sent, it must be pesos.
 func validateCurrency(currency string) error {
-	if currency == "" {
-		return domain.NewValidationError("baseCurrency", "no puede estar vacío")
-	}
-	if _, ok := supportedCurrencies[currency]; !ok {
-		return domain.NewValidationError("baseCurrency", fmt.Sprintf("moneda no soportada: %s (usar ARS, USD, EUR)", currency))
+	currency = strings.ToUpper(strings.TrimSpace(currency))
+	if currency != "" && currency != baseCurrency {
+		return domain.NewValidationError("baseCurrency", "los espacios suman todo en pesos; los gastos e ingresos en otra moneda se cargan igual")
 	}
 	return nil
 }

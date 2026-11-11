@@ -98,15 +98,6 @@ func TestReportsInRealTerms(t *testing.T) {
 		s.Do(t, apitest.Req{Method: http.MethodGet, Path: "/reports/trends?adjust=usd", Token: h.member.Token, Household: h.id}).
 			WantError(t, http.StatusUnprocessableEntity, "validation", "adjust")
 	})
-
-	t.Run("a space kept in dollars", func(t *testing.T) {
-		d := newHouse(t, s)
-		if _, err := s.Pool.Exec(t.Context(), `UPDATE households SET base_currency = 'USD' WHERE id = $1`, d.id); err != nil {
-			t.Fatal(err)
-		}
-		s.Do(t, apitest.Req{Method: http.MethodGet, Path: "/reports/trends?adjust=cpi", Token: d.member.Token, Household: d.id}).
-			WantError(t, http.StatusUnprocessableEntity, "validation", "adjust")
-	})
 }
 
 func TestReportsInRealTermsWithoutIndex(t *testing.T) {

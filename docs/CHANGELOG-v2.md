@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 5.5 (API part): the base currency is always pesos
+- A space always sums in pesos. Expenses and incomes still take ARS, USD or EUR and keep their own amount; only the space's base is locked. Changing it used to leave old amounts in the old currency.
+- `POST /households` and `PATCH /households/{id}`: `baseCurrency` is optional and, if sent, must be `ARS`; anything else is a 422 on `baseCurrency`.
+- Migration 000040 adds `CHECK (base_currency = 'ARS')` on `households` (`NOT VALID`, so an old test space in another currency does not break the deploy). The column stays: opening another country means dropping the check.
+- The reports' "space kept in another currency" branches stay, unreachable for new spaces.
+
 ### 5.4 (API part): spending in today's pesos
 - New table `cpi_index` (migration 000039): INDEC's national CPI, nivel general, base December 2016, one row per month. Global, not per household.
 - Daily job `cpi_refresh` (05:00 and on start) reads INDEC's own CSV (`serie_ipc_divisiones.csv`, Codigo 0, Region Nacional), which has a month the day INDEC publishes it. The datos.gob.ar Series API (`148.3_INIVELNAL_DICI_M_26`) is the fallback: same series, republished weeks later. A file with fewer than 12 months or a changed layout is rejected and the fallback is used; when both fail, what is stored stays. Revised months are updated.

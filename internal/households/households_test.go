@@ -65,9 +65,9 @@ func TestCreateAndListHouseholds(t *testing.T) {
 	t.Run("creator becomes owner, defaults are seeded", func(t *testing.T) {
 		u := s.Register(t)
 		var h householdJSON
-		s.Do(t, req(http.MethodPost, "/households", u.Token, map[string]string{"name": "  Casa ", "baseCurrency": " usd "})).
+		s.Do(t, req(http.MethodPost, "/households", u.Token, map[string]string{"name": "  Casa "})).
 			Status(t, http.StatusCreated).JSON(t, &h)
-		if h.Name != "Casa" || h.BaseCurrency != "USD" || h.CreatedBy != u.ID {
+		if h.Name != "Casa" || h.BaseCurrency != "ARS" || h.CreatedBy != u.ID {
 			t.Errorf("household = %+v", h)
 		}
 		if roles := members(t, s, u, h.ID); len(roles) != 1 || roles[u.ID] != "owner" {
@@ -95,7 +95,7 @@ func TestCreateAndListHouseholds(t *testing.T) {
 
 	for name, body := range map[string]map[string]string{
 		"empty name":           {"name": " ", "baseCurrency": "ARS"},
-		"empty currency":       {"name": "Casa", "baseCurrency": ""},
+		"dollars":              {"name": "Casa", "baseCurrency": "USD"},
 		"unsupported currency": {"name": "Casa", "baseCurrency": "BRL"},
 	} {
 		t.Run("validation: "+name, func(t *testing.T) {
@@ -158,12 +158,19 @@ func TestHouseholdAccess(t *testing.T) {
 		}
 	})
 
-	t.Run("owner updates name and currency", func(t *testing.T) {
+	t.Run("owner updates the name; the currency stays pesos (plan 5.5)", func(t *testing.T) {
 		var got householdJSON
-		s.Do(t, req(http.MethodPatch, path, owner.Token, map[string]string{"name": " Casa nueva ", "baseCurrency": "eur"})).
+		s.Do(t, req(http.MethodPatch, path, owner.Token, map[string]string{"name": " Casa nueva "})).
 			Status(t, http.StatusOK).JSON(t, &got)
-		if got.Name != "Casa nueva" || got.BaseCurrency != "EUR" {
+		if got.Name != "Casa nueva" || got.BaseCurrency != "ARS" {
 			t.Errorf("update = %+v", got)
+		}
+		s.Do(t, req(http.MethodPatch, path, owner.Token, map[string]string{"name": "Casa nueva", "baseCurrency": "ars"})).
+			Status(t, http.StatusOK)
+		s.Do(t, req(http.MethodPatch, path, owner.Token, map[string]string{"name": "Casa nueva", "baseCurrency": "EUR"})).
+			WantError(t, http.StatusUnprocessableEntity, "validation", "baseCurrency")
+		if _, err := s.Pool.Exec(t.Context(), `UPDATE households SET base_currency = 'USD' WHERE id = $1`, h.ID); err == nil {
+			t.Error("the database let a space switch to dollars")
 		}
 		s.Do(t, req(http.MethodPatch, path, owner.Token, map[string]string{"name": "", "baseCurrency": "ARS"})).
 			WantError(t, http.StatusUnprocessableEntity, "validation", "name")
