@@ -425,9 +425,10 @@ type Querier interface {
 	// El caller pasa from/to calculados (start del mes más viejo ~ end del actual).
 	// date_trunc normaliza al primer día del mes.
 	SumExpensesSpentAtByMonth(ctx context.Context, arg SumExpensesSpentAtByMonthParams) ([]SumExpensesSpentAtByMonthRow, error)
-	// Every amount goes through report_amount (plan 5.3): pesos when usd_source
-	// is NULL, dollars otherwise. Dollars use the dollar of each movement's day
-	// (an installment, its purchase day) unless rate_day fixes one day (today).
+	// Every amount goes through report_amount (plan 5.3, 5.6): pesos when
+	// view_currency is NULL. In the dollar without view_rate, each movement's
+	// day's dollar (an installment, its purchase day) unless rate_day fixes one
+	// day (today); any other currency, or view_rate set, converts at view_rate.
 	// ===================== reports: triada spent/billed/due =====================
 	// "spent_this_month": lo que se compró/decidió gastar en el rango.
 	SumExpensesSpentAtForReport(ctx context.Context, arg SumExpensesSpentAtForReportParams) (pgtype.Numeric, error)

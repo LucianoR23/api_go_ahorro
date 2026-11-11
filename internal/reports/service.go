@@ -2,6 +2,7 @@ package reports
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/LucianoR23/valuo_api/internal/money"
 	"github.com/shopspring/decimal"
@@ -24,7 +25,13 @@ type Service struct {
 	repo       *Repository
 	households householdLookup
 	cpi        cpiSource
+	rates      viewRater
 	logger     *slog.Logger
+}
+
+// viewRater prices the currencies a report can be shown in (plan 5.6).
+type viewRater interface {
+	ViewRate(ctx context.Context, currency string, source domain.RateSource) (decimal.Decimal, error)
 }
 
 // cpiSource serves INDEC's index (plan 5.4).
@@ -32,8 +39,8 @@ type cpiSource interface {
 	Series(ctx context.Context) (cpi.Series, error)
 }
 
-func NewService(repo *Repository, households householdLookup, cpiSrc cpiSource, logger *slog.Logger) *Service {
-	return &Service{repo: repo, households: households, cpi: cpiSrc, logger: logger}
+func NewService(repo *Repository, households householdLookup, cpiSrc cpiSource, rates viewRater, logger *slog.Logger) *Service {
+	return &Service{repo: repo, households: households, cpi: cpiSrc, rates: rates, logger: logger}
 }
 
 // realSeries is the index for a report in pesos: a space in another base
@@ -74,55 +81,85 @@ type PayerItem struct {
 	Total  decimal.Decimal `json:"total"`
 }
 
-// Currency: what a report's amounts are in (plan 5.3).
+// Currency: what a report's amounts are in (plan 5.3, 5.6).
 type Currency struct {
-	// Currency: ARS, or USD when asked for dollars.
+	// Currency: ARS, or the currency asked for (domain.ViewCurrencies).
 	Currency string `json:"currency"`
-	// RateSource: the dollar used; empty in pesos.
+	// RateSource: the dollar used, or "cripto" for a crypto; empty in pesos.
 	RateSource string `json:"rateSource,omitempty"`
-	// RateMode: "day" (each movement's day) or "today"; empty in pesos.
+	// RateMode: "day" (each movement's day) or "today"; empty in pesos. Only
+	// the dollar has "day".
 	RateMode string `json:"rateMode,omitempty"`
-	// USDRate: today's price of that dollar; empty in pesos.
+	// USDRate: today's price of that dollar; only in dollars.
 	USDRate *decimal.Decimal `json:"usdRate,omitempty"`
+	// Rate: today's pesos per unit of Currency; empty in pesos.
+	Rate *decimal.Decimal `json:"rate,omitempty"`
+	// Scale: the decimals amounts keep (8 for bitcoin).
+	Scale int32 `json:"scale"`
 }
 
 // ViewRequest: which currency the caller wants a report in.
 type ViewRequest struct {
-	USD   bool
-	Today bool // convert at today's dollar instead of each movement's day
+	// Currency: empty or ARS for pesos, else a domain.ViewCurrencies code.
+	Currency string
+	Today    bool // the dollar at today's rate instead of each movement's day
 	// Real: trends in today's pesos, adjusted by INDEC's index (plan 5.4).
 	Real bool
 }
 
+// inPesos reports whether the request keeps pesos.
+func (r ViewRequest) inPesos() bool { return r.Currency == "" || r.Currency == "ARS" }
+
+// errNoRate: there is no quote for the currency asked for yet.
+var errNoRate = domain.NewConflictError("Todavía no tenemos la cotización de esa moneda. Probá en un rato.")
+
 // view resolves a request into the query view and what the response says.
-// A space kept in dollars is already in dollars.
+// A space kept in another currency is shown in it.
 func (s *Service) view(ctx context.Context, hh domain.Household, req ViewRequest) (View, Currency, error) {
-	if !req.USD || hh.BaseCurrency == "USD" {
-		return View{}, Currency{Currency: hh.BaseCurrency}, nil
+	pesos := Currency{Currency: hh.BaseCurrency, Scale: money.AmountScale}
+	if req.inPesos() || req.Currency == hh.BaseCurrency {
+		return View{}, pesos, nil
+	}
+	vc, ok := domain.LookupViewCurrency(req.Currency)
+	if !ok {
+		return View{}, Currency{}, domain.NewValidationError("currency", "moneda desconocida")
 	}
 	if hh.BaseCurrency != "ARS" {
-		return View{}, Currency{}, domain.NewValidationError("currency", "solo se puede ver en dólares un espacio en pesos")
+		return View{}, Currency{}, domain.NewValidationError("currency", "solo se puede ver en otra moneda un espacio en pesos")
 	}
 	src, err := domain.PickRateSource("", hh.FxSource)
 	if err != nil {
 		return View{}, Currency{}, err
 	}
-	today := dates.Today()
-	rate, ok, err := s.repo.USDRate(ctx, src, today)
+	rate, err := s.rates.ViewRate(ctx, vc.Code, src)
+	if errors.Is(err, domain.ErrNotFound) {
+		return View{}, Currency{}, errNoRate
+	}
 	if err != nil {
 		return View{}, Currency{}, err
 	}
-	if !ok {
-		return View{}, Currency{}, domain.NewConflictError("Todavía no tenemos la cotización de ese dólar. Probá en un rato.")
+	rate = rate.Round(4)
+	if rate.Sign() <= 0 {
+		return View{}, Currency{}, errNoRate
 	}
-	v := View{Source: &src}
-	mode := "day"
-	if req.Today {
-		v.RateDay = &today
-		mode = "today"
+	cur := Currency{Currency: vc.Code, RateSource: string(src), RateMode: "today", Rate: &rate, Scale: vc.Scale}
+	if vc.Crypto {
+		cur.RateSource = string(domain.RateSourceCripto)
 	}
-	rate = rate.Round(money.AmountScale)
-	return v, Currency{Currency: "USD", RateSource: string(src), RateMode: mode, USDRate: &rate}, nil
+	v := View{Currency: vc.Code, Rate: &rate}
+	if vc.Code == "USD" {
+		// The dollar keeps both modes (plan 5.3): day by day through SQL, or
+		// at today's dollar.
+		cur.USDRate = &rate
+		v = View{Currency: "USD", Source: &src}
+		if req.Today {
+			today := dates.Today()
+			v.RateDay = &today
+		} else {
+			cur.RateMode = "day"
+		}
+	}
+	return v, cur, nil
 }
 
 type MonthlyReport struct {
@@ -192,7 +229,7 @@ func (s *Service) Monthly(ctx context.Context, householdID uuid.UUID, month time
 	}
 	byPayer := make([]PayerItem, len(payers))
 	for i, p := range payers {
-		byPayer[i] = PayerItem{UserID: p.UserID, Total: p.Total.Round(money.AmountScale)}
+		byPayer[i] = PayerItem{UserID: p.UserID, Total: p.Total.Round(cur.Scale)}
 	}
 
 	byCat := make([]CategoryBreakdownItem, len(cats))
@@ -205,15 +242,15 @@ func (s *Service) Monthly(ctx context.Context, householdID uuid.UUID, month time
 		byCat[i] = CategoryBreakdownItem{
 			CategoryID:   c.CategoryID,
 			CategoryName: name,
-			Total:        c.Total.Round(money.AmountScale),
+			Total:        c.Total.Round(cur.Scale),
 			Pct:          pct,
 			TxCount:      c.TxCount,
 		}
 	}
 
 	fvItem := FixedVariableItem{
-		FixedTotal:    fv.FixedTotal.Round(money.AmountScale),
-		VariableTotal: fv.VariableTotal.Round(money.AmountScale),
+		FixedTotal:    fv.FixedTotal.Round(cur.Scale),
+		VariableTotal: fv.VariableTotal.Round(cur.Scale),
 		FixedCount:    fv.FixedCount,
 		VariableCount: fv.VariableCount,
 	}
@@ -228,20 +265,20 @@ func (s *Service) Monthly(ctx context.Context, householdID uuid.UUID, month time
 		Month:         month.Format("2006-01"),
 		From:          from.Format("2006-01-02"),
 		To:            to.Format("2006-01-02"),
-		Spent:         spent.Round(money.AmountScale),
-		Billed:        billed.Round(money.AmountScale),
-		Due:           due.Round(money.AmountScale),
+		Spent:         spent.Round(cur.Scale),
+		Billed:        billed.Round(cur.Scale),
+		Due:           due.Round(cur.Scale),
 		ByCategory:    byCat,
 		FixedVariable: fvItem,
 		ByPayer:       byPayer,
-		Income:        income.Round(money.AmountScale),
+		Income:        income.Round(cur.Scale),
 	}
 	series, ok, err := s.realSeries(ctx, hh, cur)
 	if err != nil {
 		return MonthlyReport{}, err
 	}
 	if f := series.Factor(month); ok && !f.Equal(decimal.NewFromInt(1)) {
-		spentReal := spent.Mul(f).Round(money.AmountScale)
+		spentReal := spent.Mul(f).Round(cur.Scale)
 		rep.SpentReal = &spentReal
 		rep.CPIThrough = series.Through().Format("2006-01")
 	}
@@ -289,7 +326,7 @@ func (s *Service) TrendsByMonth(ctx context.Context, householdID uuid.UUID, mont
 	}
 	var series cpi.Series
 	if req.Real {
-		if req.USD {
+		if !req.inPesos() {
 			return Trends{}, domain.NewValidationError("adjust", "el ajuste por inflación es solo en pesos")
 		}
 		if hh.BaseCurrency != "ARS" {
@@ -339,10 +376,10 @@ func (s *Service) TrendsByMonth(ctx context.Context, householdID uuid.UUID, mont
 		}
 		points = append(points, TrendsPoint{
 			Month:      key,
-			SpentTotal: spent.Round(money.AmountScale),
-			DueTotal:   due.Round(money.AmountScale),
-			Income:     income.Round(money.AmountScale),
-			Net:        income.Sub(due).Round(money.AmountScale),
+			SpentTotal: spent.Round(cur.Scale),
+			DueTotal:   due.Round(cur.Scale),
+			Income:     income.Round(cur.Scale),
+			Net:        income.Sub(due).Round(cur.Scale),
 		})
 		cursor = cursor.AddDate(0, 1, 0)
 	}

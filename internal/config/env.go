@@ -100,6 +100,10 @@ type Config struct {
 	SupportAPIURL string // dev: http://localhost:8081 — prod: https://api-soporte.lemydev.com
 	SupportAPIKey string
 
+	// CoinGeckoAPIKey: CoinGecko demo key for bitcoin and ether (plan 5.6).
+	// Empty leaves them out of "Ver en".
+	CoinGeckoAPIKey string
+
 	// Error monitoring (plan 0.12): GlitchTip, Sentry compatible. Empty DSN
 	// turns reporting off. GlitchTipEnvironment tells staging from prod in
 	// the dashboard (both run with ENV=prod); it defaults to Env.
@@ -154,6 +158,7 @@ func Load() (*Config, error) {
 		SupportAPIURL:          getOrDefault("SOPORTE_API_URL", "http://localhost:8081"),
 		SupportAPIKey:          os.Getenv("SOPORTE_API_KEY"),
 		GlitchTipDSN:           os.Getenv("GLITCHTIP_DSN"),
+		CoinGeckoAPIKey:        os.Getenv("COINGECKO_API_KEY"),
 	}
 
 	cfg.WaitlistAllowedOrigins = splitAndTrim(getOrDefault("WAITLIST_ALLOWED_ORIGINS", cfg.WaitlistSiteURL), ",")

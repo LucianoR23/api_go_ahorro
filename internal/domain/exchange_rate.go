@@ -41,7 +41,7 @@ func (s RateSource) Valid() bool {
 // ExchangeRate: una cotización ARS por unidad de moneda extranjera.
 // Ejemplo: currency=USD, source=blue, rate_avg=1200 → 1 USD = 1200 ARS.
 type ExchangeRate struct {
-	Currency   string // USD o EUR
+	Currency   string // USD, EUR, or a ViewCurrencies code (plan 5.6)
 	Source     RateSource
 	LastUpdate time.Time // reportado por el upstream (bluelytics)
 	RateAvg    float64
@@ -83,4 +83,37 @@ const RateStaleAfter = 24 * time.Hour
 // stale while an upstream keeps returning it.
 func (r ExchangeRate) Stale(now time.Time) bool {
 	return r.FetchedAt.IsZero() || now.Sub(r.FetchedAt) > RateStaleAfter
+}
+
+// ViewCurrency: a currency reports can be shown in besides pesos (plan 5.6).
+// View only: movements still take ARS, USD or EUR.
+type ViewCurrency struct {
+	Code string
+	// Scale: decimals an amount in it keeps.
+	Scale int32
+	// Crypto: priced in the crypto market (source cripto), not converted
+	// through the household's dollar.
+	Crypto bool
+}
+
+// ViewCurrencies, in the order the app lists them.
+var ViewCurrencies = []ViewCurrency{
+	{Code: "USD", Scale: 2},
+	{Code: "EUR", Scale: 2},
+	{Code: "BRL", Scale: 2},
+	{Code: "CLP", Scale: 2},
+	{Code: "UYU", Scale: 2},
+	{Code: "USDT", Scale: 2, Crypto: true},
+	{Code: "BTC", Scale: 8, Crypto: true},
+	{Code: "ETH", Scale: 8, Crypto: true},
+}
+
+// LookupViewCurrency finds code in ViewCurrencies.
+func LookupViewCurrency(code string) (ViewCurrency, bool) {
+	for _, c := range ViewCurrencies {
+		if c.Code == code {
+			return c, true
+		}
+	}
+	return ViewCurrency{}, false
 }

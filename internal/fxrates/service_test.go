@@ -106,9 +106,10 @@ func TestFetch(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// 7 dollars (the unknown "futuro" is dropped), the official euro from
-		// DolarAPI and the blue euro from Bluelytics.
-		if len(rates) != 9 {
+		// 7 dollars (the unknown "futuro" is dropped), USDT at the crypto
+		// dollar, the official euro and real from DolarAPI and the blue euro
+		// from Bluelytics. No CoinGecko key: no bitcoin.
+		if len(rates) != 11 {
 			t.Fatalf("got %d rates: %+v", len(rates), rates)
 		}
 		mep, _ := find(rates, "USD", domain.RateSourceBolsa)
@@ -181,15 +182,15 @@ func TestRefreshHydrateAndConvert(t *testing.T) {
 	if err := svc.Refresh(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(svc.Current()); got != 9 {
+	if got := len(svc.Current()); got != 11 {
 		t.Errorf("cache has %d rates after refresh", got)
 	}
 	stored, err := repo.ListLatest(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(stored) != 9 {
-		t.Errorf("db has %d latest rates, want 9", len(stored))
+	if len(stored) != 11 {
+		t.Errorf("db has %d latest rates, want 11", len(stored))
 	}
 
 	t.Run("refreshing the same snapshot is idempotent", func(t *testing.T) {
@@ -200,8 +201,8 @@ func TestRefreshHydrateAndConvert(t *testing.T) {
 		if err := pool.QueryRow(ctx, `SELECT count(*) FROM exchange_rates`).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
-		if n != 9 {
-			t.Errorf("exchange_rates rows = %d, want 9", n)
+		if n != 11 {
+			t.Errorf("exchange_rates rows = %d, want 11", n)
 		}
 	})
 
@@ -246,7 +247,7 @@ func TestRefreshHydrateAndConvert(t *testing.T) {
 		if err := broken.Refresh(ctx); err == nil {
 			t.Error("refresh against a failing upstream returned nil")
 		}
-		if len(broken.Current()) != 9 {
+		if len(broken.Current()) != 11 {
 			t.Errorf("cache lost after a failed refresh: %d", len(broken.Current()))
 		}
 	})
@@ -336,7 +337,7 @@ func TestStaleRates(t *testing.T) {
 		t.Errorf("rate confirmed again is still stale: %+v", r)
 	}
 	var n int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM exchange_rates`).Scan(&n); err != nil || n != 9 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM exchange_rates`).Scan(&n); err != nil || n != 11 {
 		t.Errorf("rows = %d, %v; confirming must not duplicate quotes", n, err)
 	}
 }
