@@ -31,9 +31,11 @@ import (
 	"github.com/LucianoR23/valuo_api/internal/cpi"
 	"github.com/LucianoR23/valuo_api/internal/creditperiods"
 	"github.com/LucianoR23/valuo_api/internal/dates"
+	sqlcgen "github.com/LucianoR23/valuo_api/internal/db/sqlc"
 	"github.com/LucianoR23/valuo_api/internal/domain"
 	"github.com/LucianoR23/valuo_api/internal/email"
 	"github.com/LucianoR23/valuo_api/internal/expenses"
+	"github.com/LucianoR23/valuo_api/internal/exports"
 	"github.com/LucianoR23/valuo_api/internal/fxrates"
 	"github.com/LucianoR23/valuo_api/internal/goals"
 	"github.com/LucianoR23/valuo_api/internal/households"
@@ -422,6 +424,9 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	reportsSvc := reports.NewService(reportsRepo, householdsRepo, cpiSvc, fxSvc, logger)
 	reportsHandler := reports.NewHandler(reportsSvc, authMW, householdsMW, logger)
 
+	// exports: Excel files of expenses and incomes (plan 11.1).
+	exportsHandler := exports.NewHandler(exports.NewService(sqlcgen.New(pool)), authMW, householdsMW, logger)
+
 	// Resend sender for the monthly email. Without RESEND_API_KEY the job
 	// runs and sends nothing (dev without credentials).
 	reportsSender := opts.NewEmailSender(cfg.ReportFromEmail)
@@ -596,6 +601,9 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 
 		// Reports (auth + household member).
 		reportsHandler.Mount(r)
+
+		// Excel exports (auth + household member).
+		exportsHandler.Mount(r)
 
 		// Push subscriptions + VAPID public key (public key sin auth;
 		// subscribe/unsubscribe requieren auth).
