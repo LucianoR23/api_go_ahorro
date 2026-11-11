@@ -105,3 +105,21 @@ FROM expense_installment_shares s
 JOIN expense_installments i ON i.id = s.installment_id
 WHERE i.expense_id = $1
 ORDER BY i.installment_number ASC;
+
+-- ===== move between spaces (plan 9.1) =====
+
+-- name: MoveExpense :one
+-- The installments follow through ON UPDATE CASCADE (migration 000043). The
+-- recurring series belongs to the old space, so the link is dropped.
+UPDATE expenses
+SET household_id = sqlc.arg(target_household_id),
+    category_id = sqlc.narg(category_id),
+    is_shared = sqlc.arg(is_shared),
+    recurring_expense_id = NULL,
+    updated_at = NOW()
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- name: DeleteSharesByExpense :exec
+DELETE FROM expense_installment_shares
+WHERE installment_id IN (SELECT id FROM expense_installments WHERE expense_id = $1);

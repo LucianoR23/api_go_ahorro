@@ -44,3 +44,20 @@ func (s *Server) MakeSuperadmin(t testing.TB, u User) {
 		t.Fatalf("apitest: make superadmin: %v", err)
 	}
 }
+
+// PersonalSpace returns the id of u's Mi plata (the space of kind personal).
+func (s *Server) PersonalSpace(t testing.TB, u User) string {
+	t.Helper()
+	var spaces []struct {
+		ID   string `json:"id"`
+		Kind string `json:"kind"`
+	}
+	s.Do(t, Req{Method: http.MethodGet, Path: "/households", Token: u.Token}).Status(t, http.StatusOK).JSON(t, &spaces)
+	for _, sp := range spaces {
+		if sp.Kind == "personal" {
+			return sp.ID
+		}
+	}
+	t.Fatalf("apitest: %s has no personal space", u.Email)
+	return ""
+}

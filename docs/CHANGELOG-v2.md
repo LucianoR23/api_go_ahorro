@@ -4,6 +4,14 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 9.1 (API part): move expenses and incomes between Mi plata and a hogar
+- `POST /expenses/{id}/move {householdId}`: the author takes an expense to another space they belong to; the id stays the same. Into a hogar it splits by the hogar's rules and the other members get the usual "new shared expense" notice; back to Mi plata it stops splitting (its shares go, so it leaves "Cuentas entre ustedes"; recorded payments are not touched) and the members of the old split get a push.
+- Installments move with the expense and keep their dates and paid state. The category becomes the one with the same name in the target space ("Súper" matches "super"; a subcategory matches "Parent > Child", then the parent alone, else none). A draft must be confirmed first (422). The link to a recurring series is dropped, since the series belongs to the old space.
+- `POST /incomes/{id}/move {householdId}`: the member who received an income takes it to another space of theirs. Incomes don't split, so only the space changes; the recurring link is dropped.
+- Only the author (or receiver) moves, not even the hogar owner (403); a target space the user isn't in is a 404; the same space or no `householdId` is a 422.
+- Plan 9.1 rescoped with the user: no `visibility` column, since private things already live in Mi plata, a space nobody else sees.
+- Migration 000043 makes the installments' `(expense_id, household_id)` foreign key `ON UPDATE CASCADE`, so they follow the expense. The name comparison moved to `internal/textnorm`, shared with the subscription suggestions.
+
 ### 11.1 (API part): Excel export
 - `GET /exports/expenses.xlsx?from&to` (space member): the space's confirmed expenses in the period as an Excel file, oldest first. Takes the same filters as `GET /expenses` (`categoryId` with its subcategories, `paymentMethodId`, `kind=fixed|variable`, `q`). Columns: date, description, category ("Servicios > Luz"), payment method, amount, currency, rate, amount in pesos, installments, fixed or variable, shared, who loaded it.
 - `GET /exports/incomes.xlsx?from&to`: the space's incomes in the period (date, description, type, payment method, amount, currency, rate, amount in pesos, who received it).

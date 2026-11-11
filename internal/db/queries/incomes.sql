@@ -116,3 +116,11 @@ UPDATE recurring_incomes SET last_generated = $2::date WHERE id = $1;
 
 -- name: DeleteRecurringIncome :exec
 DELETE FROM recurring_incomes WHERE id = $1;
+
+-- name: MoveIncome :one
+-- Plan 9.1: the income changes space; its recurring series stays behind.
+UPDATE incomes
+SET household_id = sqlc.arg(target_household_id),
+    recurring_income_id = NULL
+WHERE id = sqlc.arg(id)
+RETURNING *;

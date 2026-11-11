@@ -820,6 +820,8 @@ type expenseMutationKind int
 const (
 	expenseMutationUpdate expenseMutationKind = iota
 	expenseMutationDelete
+	// expenseMutationMoveOut: the author took it out of the hogar (plan 9.1).
+	expenseMutationMoveOut
 )
 
 // notifyExpenseMutation: si el gasto era compartido, avisa al resto de los
@@ -867,6 +869,11 @@ func (s *Service) notifyExpenseMutation(ctx context.Context, d domain.ExpenseDet
 		body = fmt.Sprintf("%s eliminó \"%s\"", actorName, d.Expense.Description)
 		url = "/movimientos"
 		tag = "expense-deleted:" + d.Expense.ID.String()
+	case expenseMutationMoveOut:
+		title = "Gasto compartido quitado"
+		body = moveOutMessage(actorName, d.Expense.Description)
+		url = "/movimientos"
+		tag = "expense-moved:" + d.Expense.ID.String()
 	}
 	for uid := range recipients {
 		if s.push != nil {

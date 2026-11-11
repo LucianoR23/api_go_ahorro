@@ -144,6 +144,7 @@ type Querier interface {
 	DeleteRecurringExpense(ctx context.Context, id uuid.UUID) error
 	DeleteRecurringIncome(ctx context.Context, id uuid.UUID) error
 	DeleteSettlement(ctx context.Context, id uuid.UUID) error
+	DeleteSharesByExpense(ctx context.Context, expenseID uuid.UUID) error
 	// Normalmente no se usa (al sacar miembro el CASCADE lo limpia), pero
 	// lo expongo por simetría con el resto del CRUD.
 	DeleteSplitRule(ctx context.Context, arg DeleteSplitRuleParams) error
@@ -347,6 +348,12 @@ type Querier interface {
 	// Plan 1.3: onboarding finished or skipped. Keeps the first timestamp, so
 	// calling it twice is harmless.
 	MarkUserOnboarded(ctx context.Context, id uuid.UUID) (User, error)
+	// ===== move between spaces (plan 9.1) =====
+	// The installments follow through ON UPDATE CASCADE (migration 000043). The
+	// recurring series belongs to the old space, so the link is dropped.
+	MoveExpense(ctx context.Context, arg MoveExpenseParams) (Expense, error)
+	// Plan 9.1: the income changes space; its recurring series stays behind.
+	MoveIncome(ctx context.Context, arg MoveIncomeParams) (Income, error)
 	// A payment method id sent by a client belongs to that user (plan 0.6).
 	PaymentMethodOwnedBy(ctx context.Context, arg PaymentMethodOwnedByParams) (bool, error)
 	// Admin-only: borrado físico. ON DELETE CASCADE arrastra miembros,
