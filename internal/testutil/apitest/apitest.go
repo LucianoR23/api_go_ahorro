@@ -22,6 +22,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
@@ -67,6 +68,11 @@ func WithRealRateLimits() Option {
 // delivers events. Background workers stay off.
 func WithRealtime() Option {
 	return func(s *settings) { s.realtime = true }
+}
+
+// WithNow sets the clock pushes read quiet hours with (plan 10.1).
+func WithNow(now func() time.Time) Option {
+	return func(s *settings) { s.opts.Now = now }
 }
 
 // WithConfig edits the Config (e.g. SupportAPIURL pointing at a fake server).

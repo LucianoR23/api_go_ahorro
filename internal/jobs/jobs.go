@@ -10,8 +10,10 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/riverqueue/river"
 )
 
@@ -26,6 +28,8 @@ type Units struct {
 	MonthlyReports  func(ctx context.Context, at time.Time) error
 	AuditRetention  func(ctx context.Context) error
 	WaitlistCleanup func(ctx context.Context) (deleted int64, err error)
+	// DeliverPush sends a push that waited for the end of quiet hours.
+	DeliverPush func(ctx context.Context, userID uuid.UUID, kind string, payload []byte) error
 }
 
 // Queues. Generation jobs (recurring, insights, monthly email) run one at a
@@ -121,4 +125,17 @@ type WaitlistCleanupArgs struct{}
 func (WaitlistCleanupArgs) Kind() string { return "waitlist_cleanup" }
 func (WaitlistCleanupArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: queueMaintenance, MaxAttempts: 5}
+}
+
+// PushDeliveryArgs is a push held by the person's quiet hours (plan 10.1),
+// scheduled for the end of the window.
+type PushDeliveryArgs struct {
+	UserID     uuid.UUID       `json:"user_id"`
+	NoticeKind string          `json:"kind"`
+	Payload    json.RawMessage `json:"payload"`
+}
+
+func (PushDeliveryArgs) Kind() string { return "push_delivery" }
+func (PushDeliveryArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueMaintenance, MaxAttempts: 3}
 }

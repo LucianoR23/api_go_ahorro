@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -126,6 +127,9 @@ func newRunner(pool *pgxpool.Pool, u Units, logger *slog.Logger, testOnly bool) 
 	addWorker(workers, 2*time.Minute, func(ctx context.Context, _ AuditRetentionArgs) error {
 		return u.AuditRetention(ctx)
 	})
+	addWorker(workers, time.Minute, func(ctx context.Context, a PushDeliveryArgs) error {
+		return u.DeliverPush(ctx, a.UserID, a.NoticeKind, a.Payload)
+	})
 	addWorker(workers, time.Minute, func(ctx context.Context, _ WaitlistCleanupArgs) error {
 		n, err := u.WaitlistCleanup(ctx)
 		if err != nil {
@@ -217,6 +221,17 @@ func (r *Runner) Start(ctx context.Context) func() {
 			_ = r.client.StopAndCancel(hardCtx)
 		}
 	}
+}
+
+// DeferPush schedules a push for at (the end of the person's quiet hours,
+// plan 10.1). It works before Start too: the job waits in the table.
+func (r *Runner) DeferPush(ctx context.Context, userID uuid.UUID, kind string, payload []byte, at time.Time) error {
+	opts := PushDeliveryArgs{}.InsertOpts()
+	opts.ScheduledAt = at
+	if _, err := r.client.Insert(ctx, PushDeliveryArgs{UserID: userID, NoticeKind: kind, Payload: payload}, &opts); err != nil {
+		return fmt.Errorf("jobs: defer push: %w", err)
+	}
+	return nil
 }
 
 // Backfill enqueues every period from the one after the last completed run

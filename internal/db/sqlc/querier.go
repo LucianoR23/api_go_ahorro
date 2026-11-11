@@ -65,7 +65,8 @@ type Querier interface {
 	CountHouseholdsOwnedByUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountIncomesByHousehold(ctx context.Context, arg CountIncomesByHouseholdParams) (int64, error)
 	// Only what the viewer may see: household-level insights and their own
-	// personal ones (plan 0.6).
+	// personal ones (plan 0.6), minus the kinds the viewer muted in the app
+	// (plan 10.1).
 	CountUnreadInsightsByHousehold(ctx context.Context, arg CountUnreadInsightsByHouseholdParams) (int64, error)
 	// ===================== audit_events (plan 0.17) =====================
 	CreateAuditEvent(ctx context.Context, arg CreateAuditEventParams) error
@@ -191,6 +192,7 @@ type Querier interface {
 	GetInstallmentByExpenseAndNumber(ctx context.Context, arg GetInstallmentByExpenseAndNumberParams) (ExpenseInstallment, error)
 	GetLatestCreditCardPeriod(ctx context.Context, creditCardID uuid.UUID) (CreditCardPeriod, error)
 	GetLatestExchangeRate(ctx context.Context, arg GetLatestExchangeRateParams) (ExchangeRate, error)
+	GetNotificationPreferences(ctx context.Context, userID uuid.UUID) (NotificationPreference, error)
 	GetPasswordResetByTokenHash(ctx context.Context, tokenHash string) (PasswordReset, error)
 	GetPaymentMethodByID(ctx context.Context, id uuid.UUID) (PaymentMethod, error)
 	// Busca por (owner, name) sin filtrar por is_active. El service la usa
@@ -536,6 +538,7 @@ type Querier interface {
 	// marked as confirmed again. fetched_at is "last confirmed by an upstream"
 	// (plan 5.2): a rate nobody confirmed for a day is stale.
 	UpsertExchangeRate(ctx context.Context, arg UpsertExchangeRateParams) error
+	UpsertNotificationPreferences(ctx context.Context, arg UpsertNotificationPreferencesParams) (NotificationPreference, error)
 	// Usado al bootstrappear un hogar (owner) y al sumar miembros (weight=1.0).
 	// También desde PATCH /households/{id}/split cuando el owner edita pesos.
 	UpsertSplitRule(ctx context.Context, arg UpsertSplitRuleParams) (HouseholdSplitRule, error)

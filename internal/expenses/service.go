@@ -11,6 +11,7 @@ import (
 
 	"github.com/LucianoR23/valuo_api/internal/domain"
 	"github.com/LucianoR23/valuo_api/internal/money"
+	"github.com/LucianoR23/valuo_api/internal/notifprefs"
 	"github.com/LucianoR23/valuo_api/internal/ownership"
 )
 
@@ -50,10 +51,10 @@ type splitRulesReader interface {
 // se crea un gasto compartido. Nil-safe: si es nil, no se envía nada.
 // Definido como interface local para no acoplar expenses → push.
 type pushNotifier interface {
-	NotifyUsers(ctx context.Context, userIDs []uuid.UUID, title, body, url, tag string)
+	NotifyUsers(ctx context.Context, userIDs []uuid.UUID, kind notifprefs.Kind, title, body, url, tag string)
 	// NotifyUsersWithAmounts: body never shows an amount (lock screen, plan
 	// 1.9); bodyWithAmounts is shown only on devices that opted in.
-	NotifyUsersWithAmounts(ctx context.Context, userIDs []uuid.UUID, title, body, bodyWithAmounts, url, tag string)
+	NotifyUsersWithAmounts(ctx context.Context, userIDs []uuid.UUID, kind notifprefs.Kind, title, body, bodyWithAmounts, url, tag string)
 }
 
 // insightCreator: dependencia opcional para persistir un insight visible en
@@ -329,6 +330,7 @@ func (s *Service) notifySharedExpense(ctx context.Context, d domain.ExpenseDetai
 			s.push.NotifyUsersWithAmounts(
 				ctx,
 				[]uuid.UUID{uid},
+				notifprefs.SharedExpense,
 				title,
 				lockScreen,
 				body,
@@ -877,7 +879,7 @@ func (s *Service) notifyExpenseMutation(ctx context.Context, d domain.ExpenseDet
 	}
 	for uid := range recipients {
 		if s.push != nil {
-			s.push.NotifyUsers(ctx, []uuid.UUID{uid}, title, body, url, tag)
+			s.push.NotifyUsers(ctx, []uuid.UUID{uid}, notifprefs.SharedExpense, title, body, url, tag)
 		}
 		if s.insights != nil {
 			s.insights.CreateSharedExpenseInsight(ctx, d.Expense.HouseholdID, d.Expense.ID, uid, title, body)

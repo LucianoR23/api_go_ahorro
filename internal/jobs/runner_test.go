@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
@@ -53,6 +54,10 @@ func (f *fakeUnits) units() Units {
 		},
 		AuditRetention:  func(context.Context) error { f.record("audit", time.Time{}, ""); return nil },
 		WaitlistCleanup: func(context.Context) (int64, error) { f.record("waitlist", time.Time{}, ""); return 0, nil },
+		DeliverPush: func(_ context.Context, _ uuid.UUID, kind string, _ []byte) error {
+			f.record("push:"+kind, time.Time{}, "")
+			return nil
+		},
 	}
 }
 

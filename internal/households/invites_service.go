@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/LucianoR23/valuo_api/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/notifprefs"
 )
 
 // inviteEmailSender: el service depende de esta interface (no del
@@ -379,6 +380,7 @@ func (s *InvitesService) Accept(ctx context.Context, userID uuid.UUID, token str
 			s.push.NotifyUsers(
 				ctx,
 				[]uuid.UUID{userID},
+				notifprefs.Invite,
 				title, body,
 				"/ajustes",
 				"household-invite:"+inv.HouseholdID.String(),
@@ -397,6 +399,7 @@ func (s *InvitesService) Accept(ctx context.Context, userID uuid.UUID, token str
 				s.push.NotifyUsers(
 					ctx,
 					[]uuid.UUID{inv.InvitedBy},
+					notifprefs.Invite,
 					inviterTitle, inviterBody,
 					"/ajustes",
 					"household-invite-accepted:"+inv.ID.String(),
@@ -454,6 +457,7 @@ func (s *InvitesService) AcceptOnRegisterTx(ctx context.Context, tx pgx.Tx, user
 			s.push.NotifyUsers(
 				ctx,
 				[]uuid.UUID{inv.InvitedBy},
+				notifprefs.Invite,
 				title, body,
 				"/ajustes",
 				"household-invite-accepted:"+inv.ID.String(),

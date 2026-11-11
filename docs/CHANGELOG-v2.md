@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 10.1 (API part): notification preferences and quiet hours
+- `GET /me/notification-preferences` and `PUT` (signed in, per person, every space): which kinds of notice reach the person on which channel, plus quiet hours. Kinds: shared expenses and settlements (app, push), card closing and due dates (app, push), installments due (app, push), goals, recurring price rises and the weekly summary (app), the monthly summary (email). Only the channels the API really uses are offered; no new emails. Invites and security emails can't be muted.
+- In the app, a muted kind leaves Notificaciones and the unread count (also the notices already there); the notice is still created, so turning it on again brings it back.
+- Quiet hours (on by default, 23:00 to 08:00, app timezone): a push that falls inside waits for the end of the window as a scheduled River job (`push_delivery`) and is checked again before sending, in case the kind was muted meanwhile. This also moves the card reminder pushes that the 01:00 insights job sent at night to 08:00. The test push is never held.
+- Migration 000044 adds `notification_preferences` (one row per person; no row means the defaults) and the `insight_kind(type, metadata)` SQL function that maps a notice to its kind. Each push now carries its kind; the monthly email skips whoever turned it off.
+
 ### 9.1 (API part): move expenses and incomes between Mi plata and a hogar
 - `POST /expenses/{id}/move {householdId}`: the author takes an expense to another space they belong to; the id stays the same. Into a hogar it splits by the hogar's rules and the other members get the usual "new shared expense" notice; back to Mi plata it stops splitting (its shares go, so it leaves "Cuentas entre ustedes"; recorded payments are not touched) and the members of the old split get a push.
 - Installments move with the expense and keep their dates and paid state. The category becomes the one with the same name in the target space ("Súper" matches "super"; a subcategory matches "Parent > Child", then the parent alone, else none). A draft must be confirmed first (422). The link to a recurring series is dropped, since the series belongs to the old space.

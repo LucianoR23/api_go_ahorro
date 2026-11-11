@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/LucianoR23/valuo_api/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/notifprefs"
 )
 
 // userLookup es la interface mínima que necesitamos del paquete users
@@ -42,7 +43,7 @@ const baseCurrency = "ARS"
 
 // pushNotifier: nil-safe. Notifica al invitado cuando se lo agrega a un hogar.
 type pushNotifier interface {
-	NotifyUsers(ctx context.Context, userIDs []uuid.UUID, title, body, url, tag string)
+	NotifyUsers(ctx context.Context, userIDs []uuid.UUID, kind notifprefs.Kind, title, body, url, tag string)
 }
 
 type Service struct {

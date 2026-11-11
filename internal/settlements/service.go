@@ -12,6 +12,7 @@ import (
 
 	"github.com/LucianoR23/valuo_api/internal/dates"
 	"github.com/LucianoR23/valuo_api/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/notifprefs"
 )
 
 // householdLookup: interface mínima del paquete households. Lo usamos para
@@ -33,10 +34,10 @@ type balanceReader interface {
 // pushNotifier: opcional, nil-safe. Se dispara cuando un miembro registra
 // un pago (le avisa al receptor).
 type pushNotifier interface {
-	NotifyUsers(ctx context.Context, userIDs []uuid.UUID, title, body, url, tag string)
+	NotifyUsers(ctx context.Context, userIDs []uuid.UUID, kind notifprefs.Kind, title, body, url, tag string)
 	// NotifyUsersWithAmounts: body never shows an amount (lock screen, plan
 	// 1.9); bodyWithAmounts is shown only on devices that opted in.
-	NotifyUsersWithAmounts(ctx context.Context, userIDs []uuid.UUID, title, body, bodyWithAmounts, url, tag string)
+	NotifyUsersWithAmounts(ctx context.Context, userIDs []uuid.UUID, kind notifprefs.Kind, title, body, bodyWithAmounts, url, tag string)
 }
 
 // userLookup: para obtener el nombre del from user en el título del push.
@@ -196,6 +197,7 @@ func (s *Service) notifySettlement(ctx context.Context, sp domain.SettlementPaym
 		s.push.NotifyUsersWithAmounts(
 			ctx,
 			[]uuid.UUID{sp.ToUser},
+			notifprefs.Settlement,
 			title, lockScreen, body,
 			"/deudas",
 			"settlement:"+sp.ID.String(),

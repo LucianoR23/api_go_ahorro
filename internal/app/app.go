@@ -43,6 +43,7 @@ import (
 	"github.com/LucianoR23/valuo_api/internal/incomes"
 	"github.com/LucianoR23/valuo_api/internal/insights"
 	"github.com/LucianoR23/valuo_api/internal/jobs"
+	"github.com/LucianoR23/valuo_api/internal/notifprefs"
 	"github.com/LucianoR23/valuo_api/internal/ownership"
 	"github.com/LucianoR23/valuo_api/internal/paymethods"
 	"github.com/LucianoR23/valuo_api/internal/push"
@@ -87,6 +88,8 @@ type Options struct {
 	TurnstileVerifier waitlist.TurnstileVerifier
 	// WaitlistLimiter limits POST /waitlist. Default: 5 per 10 min per IP.
 	WaitlistLimiter func(http.Handler) http.Handler
+	// Now is the clock pushes read quiet hours with. Default: time.Now.
+	Now func() time.Time
 }
 
 // App is the wired API.
@@ -109,6 +112,8 @@ type Jobs struct {
 	Insights func(ctx context.Context, at time.Time) (generated, failed int, err error)
 	// MonthlyReports emails the previous month's summary as of "at".
 	MonthlyReports func(ctx context.Context, at time.Time) error
+	// DeliverPush sends a push that waited for the end of quiet hours.
+	DeliverPush func(ctx context.Context, userID uuid.UUID, kind string, payload []byte) error
 }
 
 // Jobs returns the background jobs' units of work.
@@ -256,6 +261,14 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		ExtraHosts: cfg.PushExtraHosts,
 	}, logger)
 	pushHandler := push.NewHandler(pushSvc, authMW, logger)
+	// Notification preferences (plan 10.1): pushes follow them and wait for
+	// the end of quiet hours (the deferrer is the job runner, set below).
+	notifPrefsSvc := notifprefs.NewService(pool, logger)
+	notifPrefsHandler := notifprefs.NewHandler(notifPrefsSvc, authMW, dates.Location().String(), logger)
+	pushSvc.SetPreferences(notifPrefsSvc, dates.Location())
+	if opts.Now != nil {
+		pushSvc.SetClock(opts.Now)
+	}
 
 	// AccountService: account deletion (soft delete), one transaction in
 	// userRepo. Wired into authHandler through a setter.
@@ -431,6 +444,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// runs and sends nothing (dev without credentials).
 	reportsSender := opts.NewEmailSender(cfg.ReportFromEmail)
 	reportsMailer := reports.NewMailer(reportsSvc, householdsRepo, reportsSender, cfg.BrandName, logger)
+	reportsMailer.SetPreferences(notifPrefsSvc)
 	a.jobs.MonthlyReports = reportsMailer.SendMonthly
 
 	// support: proxy al servicio centralizado Lemy Support. Stateless, sin
@@ -489,6 +503,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		RecurringExpenses: a.jobs.RecurringExpenses,
 		Insights:          a.jobs.Insights,
 		MonthlyReports:    a.jobs.MonthlyReports,
+		DeliverPush:       pushSvc.DeliverDeferred,
 		AuditRetention:    func(ctx context.Context) error { return audit.ApplyRetention(ctx, pool, logger) },
 		WaitlistCleanup:   waitlistSvc.Cleanup,
 	}, logger)
@@ -496,6 +511,8 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		return nil, err
 	}
 	a.starters = append(a.starters, runner.Start)
+	pushSvc.SetDeferrer(runner)
+	a.jobs.DeliverPush = pushSvc.DeliverDeferred
 	r.Use(byPathPrefix("/waitlist", waitlistHandler.CORS()))
 
 	r.Use(skipPathPrefix("/waitlist", cors.Handler(cors.Options{
@@ -608,6 +625,9 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		// Push subscriptions + VAPID public key (public key sin auth;
 		// subscribe/unsubscribe requieren auth).
 		pushHandler.Mount(r)
+
+		// Notification preferences (auth, per person).
+		notifPrefsHandler.Mount(r)
 	})
 
 	// Waitlist (plan B.5): public, its own CORS and limits.
@@ -733,22 +753,24 @@ type pushNotifierAdapter struct {
 	svc *push.Service
 }
 
-func (a pushNotifierAdapter) NotifyUsers(ctx context.Context, userIDs []uuid.UUID, title, body, url, tag string) {
+func (a pushNotifierAdapter) NotifyUsers(ctx context.Context, userIDs []uuid.UUID, kind notifprefs.Kind, title, body, url, tag string) {
 	a.svc.NotifyUsers(ctx, userIDs, push.Payload{
 		Title: title,
 		Body:  body,
 		URL:   url,
 		Tag:   tag,
+		Kind:  kind,
 	})
 }
 
-func (a pushNotifierAdapter) NotifyUsersWithAmounts(ctx context.Context, userIDs []uuid.UUID, title, body, bodyWithAmounts, url, tag string) {
+func (a pushNotifierAdapter) NotifyUsersWithAmounts(ctx context.Context, userIDs []uuid.UUID, kind notifprefs.Kind, title, body, bodyWithAmounts, url, tag string) {
 	a.svc.NotifyUsers(ctx, userIDs, push.Payload{
 		Title:           title,
 		Body:            body,
 		BodyWithAmounts: bodyWithAmounts,
 		URL:             url,
 		Tag:             tag,
+		Kind:            kind,
 	})
 }
 

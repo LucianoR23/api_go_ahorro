@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/LucianoR23/valuo_api/internal/domain"
+	"github.com/LucianoR23/valuo_api/internal/notifprefs"
 )
 
 // allHouseholdsLister: necesitamos iterar todos los hogares para el envío.
@@ -26,7 +27,16 @@ type Mailer struct {
 	sender     Sender
 	brand      string
 	logger     *slog.Logger
+	prefs      prefsSource
 }
+
+// prefsSource reads who turned the monthly email off (plan 10.1).
+type prefsSource interface {
+	ForDelivery(ctx context.Context, userID uuid.UUID) notifprefs.Prefs
+}
+
+// SetPreferences leaves out the members who turned the monthly email off.
+func (w *Mailer) SetPreferences(p prefsSource) { w.prefs = p }
 
 // Sender delivers the monthly email. Production passes the shared Resend
 // sender (internal/email).
@@ -85,6 +95,9 @@ func (w *Mailer) sendForHousehold(ctx context.Context, householdID uuid.UUID, mo
 	}
 	recipients := make([]string, 0, len(members))
 	for _, m := range members {
+		if w.prefs != nil && !w.prefs.ForDelivery(ctx, m.User.ID).Allows(notifprefs.MonthlyReport, notifprefs.Email) {
+			continue
+		}
 		if m.User.Email != "" {
 			recipients = append(recipients, m.User.Email)
 		}

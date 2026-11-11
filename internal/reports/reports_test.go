@@ -353,3 +353,33 @@ func TestMonthlyEmail(t *testing.T) {
 		}
 	}
 }
+
+// A member who turned the monthly email off does not get it (plan 10.1).
+func TestMonthlyEmailPreference(t *testing.T) {
+	t.Parallel()
+	s := apitest.New(t)
+	h := newHouse(t, s)
+	h.spend(t, 1234, "2026-02-10", nil)
+	s.Do(t, apitest.Req{Method: http.MethodPut, Path: "/me/notification-preferences", Token: h.member.Token, Body: map[string]any{
+		"kinds":      []map[string]any{{"kind": "monthly_report", "channels": map[string]bool{"email": false}}},
+		"quietHours": map[string]any{"enabled": true, "start": "23:00", "end": "08:00"},
+	}}).Status(t, http.StatusOK)
+
+	if err := s.Jobs.MonthlyReports(context.Background(), time.Date(2026, 3, 1, 8, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	var hogar []string
+	for _, m := range s.Mail.Sent() {
+		for _, to := range m.To {
+			if to == h.member.Email && strings.Contains(m.Subject, "Resumen") {
+				t.Errorf("member got %q", m.Subject)
+			}
+		}
+		if strings.HasSuffix(m.Subject, "Resumen 2026-02 · Casa Reportes") {
+			hogar = append(hogar, m.To...)
+		}
+	}
+	if len(hogar) != 1 || hogar[0] != h.owner.Email {
+		t.Errorf("hogar summary sent to %v, want only the owner", hogar)
+	}
+}

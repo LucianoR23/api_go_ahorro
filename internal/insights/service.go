@@ -13,6 +13,7 @@ import (
 	"github.com/LucianoR23/valuo_api/internal/dates"
 	"github.com/LucianoR23/valuo_api/internal/domain"
 	"github.com/LucianoR23/valuo_api/internal/money"
+	"github.com/LucianoR23/valuo_api/internal/notifprefs"
 )
 
 // householdsLister: el worker necesita iterar todos los hogares.
@@ -85,10 +86,10 @@ func (a InstallmentsDueAdapter) ListInstallmentsDueOn(ctx context.Context, house
 // pushNotifier: dependencia opcional para fire-and-forget de web push.
 // Misma shape que el de expenses/settlements para reusar el adapter de main.
 type pushNotifier interface {
-	NotifyUsers(ctx context.Context, userIDs []uuid.UUID, title, body, url, tag string)
+	NotifyUsers(ctx context.Context, userIDs []uuid.UUID, kind notifprefs.Kind, title, body, url, tag string)
 	// NotifyUsersWithAmounts: body never shows an amount (lock screen, plan
 	// 1.9); bodyWithAmounts is shown only on devices that opted in.
-	NotifyUsersWithAmounts(ctx context.Context, userIDs []uuid.UUID, title, body, bodyWithAmounts, url, tag string)
+	NotifyUsersWithAmounts(ctx context.Context, userIDs []uuid.UUID, kind notifprefs.Kind, title, body, bodyWithAmounts, url, tag string)
 }
 
 type Service struct {
@@ -436,7 +437,7 @@ func (s *Service) genCardReminders(ctx context.Context, householdID uuid.UUID, a
 			created++
 			s.publish(ctx, ins)
 			if s.push != nil {
-				s.push.NotifyUsersWithAmounts(ctx, []uuid.UUID{ownerID}, msg.title, msg.lockScreen, msg.full, msg.url,
+				s.push.NotifyUsersWithAmounts(ctx, []uuid.UUID{ownerID}, notifprefs.Cards, msg.title, msg.lockScreen, msg.full, msg.url,
 					msg.insightType+":"+r.PaymentMethodID.String())
 			}
 		}
@@ -536,6 +537,7 @@ func (s *Service) genInstallmentsDueSoon(ctx context.Context, householdID uuid.U
 				s.push.NotifyUsersWithAmounts(
 					ctx,
 					[]uuid.UUID{owner},
+					notifprefs.Installments,
 					title, lockScreen, body,
 					"/movimientos/"+row.ExpenseID.String(),
 					"installment-due-soon:"+row.ExpenseID.String(),
