@@ -4,6 +4,14 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 5.6 (API part): reports in other currencies and crypto
+- `GET /reports/monthly` and `GET /reports/trends` take `currency` in USD, EUR, BRL, CLP, UYU, USDT, BTC or ETH (view only: movements still take ARS, USD or EUR). The dollar keeps both modes; every other currency converts at today's rate. A movement loaded in the currency shown keeps its amount.
+- A fiat currency goes through the household's dollar, like a movement would (the official real moved by MEP / official). A crypto has one market price: USDT is DolarAPI's crypto dollar, BTC and ETH come from CoinGecko.
+- Responses add `rate` (today's pesos per unit) and `scale` (decimals amounts keep: 8 for BTC and ETH, 2 otherwise). `usdRate` stays, only in dollars. No quote yet for the currency asked for: 409. `adjust=cpi` is only in pesos.
+- `fx_refresh` stores the official real, Chilean and Uruguayan peso from DolarAPI and USDT at the crypto dollar. With `COINGECKO_API_KEY` (a free demo key) it also stores bitcoin and ether in pesos, asking CoinGecko at most once every 55 minutes; without it they are skipped. A CoinGecko failure never drops the dollars.
+- Migration 000041 widens `exchange_rates.currency` to those currencies, grows the rate columns to `NUMERIC(18,4)` (a bitcoin costs more than 99.999.999 pesos), and replaces `report_amount` with a version that takes the currency shown and today's rate. No movement table changes.
+- `GET /exchange-rates/current` now also lists the new currencies. `GET /exchange-rates/history` still takes only USD and EUR.
+
 ### 5.5 (API part): the base currency is always pesos
 - A space always sums in pesos. Expenses and incomes still take ARS, USD or EUR and keep their own amount; only the space's base is locked. Changing it used to leave old amounts in the old currency.
 - `POST /households` and `PATCH /households/{id}`: `baseCurrency` is optional and, if sent, must be `ARS`; anything else is a 422 on `baseCurrency`.

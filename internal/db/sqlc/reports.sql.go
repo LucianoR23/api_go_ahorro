@@ -35,26 +35,28 @@ const sumExpensesByCategoryInRange = `-- name: SumExpensesByCategoryInRange :man
 SELECT
     top.id AS category_id,
     COALESCE(top.name, '')::text AS category_name,
-    COALESCE(SUM(report_amount(e.amount_base, e.currency, e.amount, COALESCE($1::date, e.spent_at), $2::text, $3::text)), 0)::numeric AS total_base,
+    COALESCE(SUM(report_amount(e.amount_base, e.currency, e.amount, COALESCE($1::date, e.spent_at), $2::text, $3::text, $4::text, $5::numeric)), 0)::numeric AS total_base,
     COUNT(*)::bigint AS tx_count
 FROM expenses e
 LEFT JOIN categories c ON c.id = e.category_id
 LEFT JOIN categories top ON top.id = COALESCE(c.parent_id, c.id)
-WHERE e.household_id = $4
+WHERE e.household_id = $6
   AND e.status = 'confirmed'
-  AND e.spent_at >= $5::date
-  AND e.spent_at <= $6::date
+  AND e.spent_at >= $7::date
+  AND e.spent_at <= $8::date
 GROUP BY top.id, top.name
 ORDER BY total_base DESC
 `
 
 type SumExpensesByCategoryInRangeParams struct {
-	RateDay     pgtype.Date `json:"rate_day"`
-	UsdSource   pgtype.Text `json:"usd_source"`
-	Tz          string      `json:"tz"`
-	HouseholdID uuid.UUID   `json:"household_id"`
-	FromDate    pgtype.Date `json:"from_date"`
-	ToDate      pgtype.Date `json:"to_date"`
+	RateDay      pgtype.Date    `json:"rate_day"`
+	UsdSource    pgtype.Text    `json:"usd_source"`
+	Tz           string         `json:"tz"`
+	ViewCurrency pgtype.Text    `json:"view_currency"`
+	ViewRate     pgtype.Numeric `json:"view_rate"`
+	HouseholdID  uuid.UUID      `json:"household_id"`
+	FromDate     pgtype.Date    `json:"from_date"`
+	ToDate       pgtype.Date    `json:"to_date"`
 }
 
 type SumExpensesByCategoryInRangeRow struct {
@@ -73,6 +75,8 @@ func (q *Queries) SumExpensesByCategoryInRange(ctx context.Context, arg SumExpen
 		arg.RateDay,
 		arg.UsdSource,
 		arg.Tz,
+		arg.ViewCurrency,
+		arg.ViewRate,
 		arg.HouseholdID,
 		arg.FromDate,
 		arg.ToDate,
@@ -103,23 +107,25 @@ func (q *Queries) SumExpensesByCategoryInRange(ctx context.Context, arg SumExpen
 const sumExpensesByPayerInRange = `-- name: SumExpensesByPayerInRange :many
 SELECT
     e.created_by AS user_id,
-    COALESCE(SUM(report_amount(e.amount_base, e.currency, e.amount, COALESCE($1::date, e.spent_at), $2::text, $3::text)), 0)::numeric AS total_base
+    COALESCE(SUM(report_amount(e.amount_base, e.currency, e.amount, COALESCE($1::date, e.spent_at), $2::text, $3::text, $4::text, $5::numeric)), 0)::numeric AS total_base
 FROM expenses e
-WHERE e.household_id = $4
+WHERE e.household_id = $6
   AND e.status = 'confirmed'
-  AND e.spent_at >= $5::date
-  AND e.spent_at <= $6::date
+  AND e.spent_at >= $7::date
+  AND e.spent_at <= $8::date
 GROUP BY e.created_by
 ORDER BY total_base DESC
 `
 
 type SumExpensesByPayerInRangeParams struct {
-	RateDay     pgtype.Date `json:"rate_day"`
-	UsdSource   pgtype.Text `json:"usd_source"`
-	Tz          string      `json:"tz"`
-	HouseholdID uuid.UUID   `json:"household_id"`
-	FromDate    pgtype.Date `json:"from_date"`
-	ToDate      pgtype.Date `json:"to_date"`
+	RateDay      pgtype.Date    `json:"rate_day"`
+	UsdSource    pgtype.Text    `json:"usd_source"`
+	Tz           string         `json:"tz"`
+	ViewCurrency pgtype.Text    `json:"view_currency"`
+	ViewRate     pgtype.Numeric `json:"view_rate"`
+	HouseholdID  uuid.UUID      `json:"household_id"`
+	FromDate     pgtype.Date    `json:"from_date"`
+	ToDate       pgtype.Date    `json:"to_date"`
 }
 
 type SumExpensesByPayerInRangeRow struct {
@@ -134,6 +140,8 @@ func (q *Queries) SumExpensesByPayerInRange(ctx context.Context, arg SumExpenses
 		arg.RateDay,
 		arg.UsdSource,
 		arg.Tz,
+		arg.ViewCurrency,
+		arg.ViewRate,
 		arg.HouseholdID,
 		arg.FromDate,
 		arg.ToDate,
@@ -159,24 +167,26 @@ func (q *Queries) SumExpensesByPayerInRange(ctx context.Context, arg SumExpenses
 const sumExpensesFixedVariableInRange = `-- name: SumExpensesFixedVariableInRange :one
 
 SELECT
-    COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, spent_at), $2::text, $3::text)) FILTER (WHERE recurring_expense_id IS NOT NULL), 0)::numeric AS fixed_total,
-    COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, spent_at), $2::text, $3::text)) FILTER (WHERE recurring_expense_id IS NULL), 0)::numeric AS variable_total,
+    COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, spent_at), $2::text, $3::text, $4::text, $5::numeric)) FILTER (WHERE recurring_expense_id IS NOT NULL), 0)::numeric AS fixed_total,
+    COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, spent_at), $2::text, $3::text, $4::text, $5::numeric)) FILTER (WHERE recurring_expense_id IS NULL), 0)::numeric AS variable_total,
     COUNT(*) FILTER (WHERE recurring_expense_id IS NOT NULL)::bigint AS fixed_count,
     COUNT(*) FILTER (WHERE recurring_expense_id IS NULL)::bigint AS variable_count
 FROM expenses
-WHERE household_id = $4
+WHERE household_id = $6
   AND status = 'confirmed'
-  AND spent_at >= $5::date
-  AND spent_at <= $6::date
+  AND spent_at >= $7::date
+  AND spent_at <= $8::date
 `
 
 type SumExpensesFixedVariableInRangeParams struct {
-	RateDay     pgtype.Date `json:"rate_day"`
-	UsdSource   pgtype.Text `json:"usd_source"`
-	Tz          string      `json:"tz"`
-	HouseholdID uuid.UUID   `json:"household_id"`
-	FromDate    pgtype.Date `json:"from_date"`
-	ToDate      pgtype.Date `json:"to_date"`
+	RateDay      pgtype.Date    `json:"rate_day"`
+	UsdSource    pgtype.Text    `json:"usd_source"`
+	Tz           string         `json:"tz"`
+	ViewCurrency pgtype.Text    `json:"view_currency"`
+	ViewRate     pgtype.Numeric `json:"view_rate"`
+	HouseholdID  uuid.UUID      `json:"household_id"`
+	FromDate     pgtype.Date    `json:"from_date"`
+	ToDate       pgtype.Date    `json:"to_date"`
 }
 
 type SumExpensesFixedVariableInRangeRow struct {
@@ -194,6 +204,8 @@ func (q *Queries) SumExpensesFixedVariableInRange(ctx context.Context, arg SumEx
 		arg.RateDay,
 		arg.UsdSource,
 		arg.Tz,
+		arg.ViewCurrency,
+		arg.ViewRate,
 		arg.HouseholdID,
 		arg.FromDate,
 		arg.ToDate,
@@ -212,24 +224,26 @@ const sumExpensesSpentAtByMonth = `-- name: SumExpensesSpentAtByMonth :many
 
 SELECT
     date_trunc('month', spent_at)::date AS month,
-    COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, spent_at), $2::text, $3::text)), 0)::numeric AS total_base,
+    COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, spent_at), $2::text, $3::text, $4::text, $5::numeric)), 0)::numeric AS total_base,
     COUNT(*)::bigint AS tx_count
 FROM expenses
-WHERE household_id = $4
+WHERE household_id = $6
   AND status = 'confirmed'
-  AND spent_at >= $5::date
-  AND spent_at <= $6::date
+  AND spent_at >= $7::date
+  AND spent_at <= $8::date
 GROUP BY month
 ORDER BY month ASC
 `
 
 type SumExpensesSpentAtByMonthParams struct {
-	RateDay     pgtype.Date `json:"rate_day"`
-	UsdSource   pgtype.Text `json:"usd_source"`
-	Tz          string      `json:"tz"`
-	HouseholdID uuid.UUID   `json:"household_id"`
-	FromDate    pgtype.Date `json:"from_date"`
-	ToDate      pgtype.Date `json:"to_date"`
+	RateDay      pgtype.Date    `json:"rate_day"`
+	UsdSource    pgtype.Text    `json:"usd_source"`
+	Tz           string         `json:"tz"`
+	ViewCurrency pgtype.Text    `json:"view_currency"`
+	ViewRate     pgtype.Numeric `json:"view_rate"`
+	HouseholdID  uuid.UUID      `json:"household_id"`
+	FromDate     pgtype.Date    `json:"from_date"`
+	ToDate       pgtype.Date    `json:"to_date"`
 }
 
 type SumExpensesSpentAtByMonthRow struct {
@@ -247,6 +261,8 @@ func (q *Queries) SumExpensesSpentAtByMonth(ctx context.Context, arg SumExpenses
 		arg.RateDay,
 		arg.UsdSource,
 		arg.Tz,
+		arg.ViewCurrency,
+		arg.ViewRate,
 		arg.HouseholdID,
 		arg.FromDate,
 		arg.ToDate,
@@ -272,26 +288,29 @@ func (q *Queries) SumExpensesSpentAtByMonth(ctx context.Context, arg SumExpenses
 const sumExpensesSpentAtForReport = `-- name: SumExpensesSpentAtForReport :one
 
 
-SELECT COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, spent_at), $2::text, $3::text)), 0)::numeric AS total_base
+SELECT COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, spent_at), $2::text, $3::text, $4::text, $5::numeric)), 0)::numeric AS total_base
 FROM expenses
-WHERE household_id = $4
+WHERE household_id = $6
   AND status = 'confirmed'
-  AND spent_at >= $5::date
-  AND spent_at <= $6::date
+  AND spent_at >= $7::date
+  AND spent_at <= $8::date
 `
 
 type SumExpensesSpentAtForReportParams struct {
-	RateDay     pgtype.Date `json:"rate_day"`
-	UsdSource   pgtype.Text `json:"usd_source"`
-	Tz          string      `json:"tz"`
-	HouseholdID uuid.UUID   `json:"household_id"`
-	FromDate    pgtype.Date `json:"from_date"`
-	ToDate      pgtype.Date `json:"to_date"`
+	RateDay      pgtype.Date    `json:"rate_day"`
+	UsdSource    pgtype.Text    `json:"usd_source"`
+	Tz           string         `json:"tz"`
+	ViewCurrency pgtype.Text    `json:"view_currency"`
+	ViewRate     pgtype.Numeric `json:"view_rate"`
+	HouseholdID  uuid.UUID      `json:"household_id"`
+	FromDate     pgtype.Date    `json:"from_date"`
+	ToDate       pgtype.Date    `json:"to_date"`
 }
 
-// Every amount goes through report_amount (plan 5.3): pesos when usd_source
-// is NULL, dollars otherwise. Dollars use the dollar of each movement's day
-// (an installment, its purchase day) unless rate_day fixes one day (today).
+// Every amount goes through report_amount (plan 5.3, 5.6): pesos when
+// view_currency is NULL. In the dollar without view_rate, each movement's
+// day's dollar (an installment, its purchase day) unless rate_day fixes one
+// day (today); any other currency, or view_rate set, converts at view_rate.
 // ===================== reports: triada spent/billed/due =====================
 // "spent_this_month": lo que se compró/decidió gastar en el rango.
 func (q *Queries) SumExpensesSpentAtForReport(ctx context.Context, arg SumExpensesSpentAtForReportParams) (pgtype.Numeric, error) {
@@ -299,6 +318,8 @@ func (q *Queries) SumExpensesSpentAtForReport(ctx context.Context, arg SumExpens
 		arg.RateDay,
 		arg.UsdSource,
 		arg.Tz,
+		arg.ViewCurrency,
+		arg.ViewRate,
 		arg.HouseholdID,
 		arg.FromDate,
 		arg.ToDate,
@@ -309,20 +330,22 @@ func (q *Queries) SumExpensesSpentAtForReport(ctx context.Context, arg SumExpens
 }
 
 const sumIncomesForReport = `-- name: SumIncomesForReport :one
-SELECT COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, received_at), $2::text, $3::text)), 0)::numeric AS total_base
+SELECT COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, received_at), $2::text, $3::text, $4::text, $5::numeric)), 0)::numeric AS total_base
 FROM incomes
-WHERE household_id = $4
-  AND received_at >= $5::date
-  AND received_at <= $6::date
+WHERE household_id = $6
+  AND received_at >= $7::date
+  AND received_at <= $8::date
 `
 
 type SumIncomesForReportParams struct {
-	RateDay     pgtype.Date `json:"rate_day"`
-	UsdSource   pgtype.Text `json:"usd_source"`
-	Tz          string      `json:"tz"`
-	HouseholdID uuid.UUID   `json:"household_id"`
-	FromDate    pgtype.Date `json:"from_date"`
-	ToDate      pgtype.Date `json:"to_date"`
+	RateDay      pgtype.Date    `json:"rate_day"`
+	UsdSource    pgtype.Text    `json:"usd_source"`
+	Tz           string         `json:"tz"`
+	ViewCurrency pgtype.Text    `json:"view_currency"`
+	ViewRate     pgtype.Numeric `json:"view_rate"`
+	HouseholdID  uuid.UUID      `json:"household_id"`
+	FromDate     pgtype.Date    `json:"from_date"`
+	ToDate       pgtype.Date    `json:"to_date"`
 }
 
 // Incomes received in a range (Inicio, plan 5.3), like /totals/income.
@@ -331,6 +354,8 @@ func (q *Queries) SumIncomesForReport(ctx context.Context, arg SumIncomesForRepo
 		arg.RateDay,
 		arg.UsdSource,
 		arg.Tz,
+		arg.ViewCurrency,
+		arg.ViewRate,
 		arg.HouseholdID,
 		arg.FromDate,
 		arg.ToDate,
@@ -343,22 +368,24 @@ func (q *Queries) SumIncomesForReport(ctx context.Context, arg SumIncomesForRepo
 const sumIncomesReceivedByMonth = `-- name: SumIncomesReceivedByMonth :many
 SELECT
     date_trunc('month', received_at)::date AS month,
-    COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, received_at), $2::text, $3::text)), 0)::numeric AS total_base
+    COALESCE(SUM(report_amount(amount_base, currency, amount, COALESCE($1::date, received_at), $2::text, $3::text, $4::text, $5::numeric)), 0)::numeric AS total_base
 FROM incomes
-WHERE household_id = $4
-  AND received_at >= $5::date
-  AND received_at <= $6::date
+WHERE household_id = $6
+  AND received_at >= $7::date
+  AND received_at <= $8::date
 GROUP BY month
 ORDER BY month ASC
 `
 
 type SumIncomesReceivedByMonthParams struct {
-	RateDay     pgtype.Date `json:"rate_day"`
-	UsdSource   pgtype.Text `json:"usd_source"`
-	Tz          string      `json:"tz"`
-	HouseholdID uuid.UUID   `json:"household_id"`
-	FromDate    pgtype.Date `json:"from_date"`
-	ToDate      pgtype.Date `json:"to_date"`
+	RateDay      pgtype.Date    `json:"rate_day"`
+	UsdSource    pgtype.Text    `json:"usd_source"`
+	Tz           string         `json:"tz"`
+	ViewCurrency pgtype.Text    `json:"view_currency"`
+	ViewRate     pgtype.Numeric `json:"view_rate"`
+	HouseholdID  uuid.UUID      `json:"household_id"`
+	FromDate     pgtype.Date    `json:"from_date"`
+	ToDate       pgtype.Date    `json:"to_date"`
 }
 
 type SumIncomesReceivedByMonthRow struct {
@@ -372,6 +399,8 @@ func (q *Queries) SumIncomesReceivedByMonth(ctx context.Context, arg SumIncomesR
 		arg.RateDay,
 		arg.UsdSource,
 		arg.Tz,
+		arg.ViewCurrency,
+		arg.ViewRate,
 		arg.HouseholdID,
 		arg.FromDate,
 		arg.ToDate,
@@ -395,22 +424,24 @@ func (q *Queries) SumIncomesReceivedByMonth(ctx context.Context, arg SumIncomesR
 }
 
 const sumInstallmentsBilledForReport = `-- name: SumInstallmentsBilledForReport :one
-SELECT COALESCE(SUM(report_amount(i.installment_amount_base, e.currency, i.installment_amount, COALESCE($1::date, e.spent_at), $2::text, $3::text)), 0)::numeric AS total_base
+SELECT COALESCE(SUM(report_amount(i.installment_amount_base, e.currency, i.installment_amount, COALESCE($1::date, e.spent_at), $2::text, $3::text, $4::text, $5::numeric)), 0)::numeric AS total_base
 FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
-WHERE i.household_id = $4
+WHERE i.household_id = $6
   AND e.status = 'confirmed'
-  AND i.billing_date >= $5::date
-  AND i.billing_date <= $6::date
+  AND i.billing_date >= $7::date
+  AND i.billing_date <= $8::date
 `
 
 type SumInstallmentsBilledForReportParams struct {
-	RateDay     pgtype.Date `json:"rate_day"`
-	UsdSource   pgtype.Text `json:"usd_source"`
-	Tz          string      `json:"tz"`
-	HouseholdID uuid.UUID   `json:"household_id"`
-	FromDate    pgtype.Date `json:"from_date"`
-	ToDate      pgtype.Date `json:"to_date"`
+	RateDay      pgtype.Date    `json:"rate_day"`
+	UsdSource    pgtype.Text    `json:"usd_source"`
+	Tz           string         `json:"tz"`
+	ViewCurrency pgtype.Text    `json:"view_currency"`
+	ViewRate     pgtype.Numeric `json:"view_rate"`
+	HouseholdID  uuid.UUID      `json:"household_id"`
+	FromDate     pgtype.Date    `json:"from_date"`
+	ToDate       pgtype.Date    `json:"to_date"`
 }
 
 // "billed_this_month": lo que apareció en resúmenes de tarjeta en el rango
@@ -420,6 +451,8 @@ func (q *Queries) SumInstallmentsBilledForReport(ctx context.Context, arg SumIns
 		arg.RateDay,
 		arg.UsdSource,
 		arg.Tz,
+		arg.ViewCurrency,
+		arg.ViewRate,
 		arg.HouseholdID,
 		arg.FromDate,
 		arg.ToDate,
@@ -432,24 +465,26 @@ func (q *Queries) SumInstallmentsBilledForReport(ctx context.Context, arg SumIns
 const sumInstallmentsDueByMonth = `-- name: SumInstallmentsDueByMonth :many
 SELECT
     date_trunc('month', COALESCE(i.due_date, i.billing_date))::date AS month,
-    COALESCE(SUM(report_amount(i.installment_amount_base, e.currency, i.installment_amount, COALESCE($1::date, e.spent_at), $2::text, $3::text)), 0)::numeric AS total_base
+    COALESCE(SUM(report_amount(i.installment_amount_base, e.currency, i.installment_amount, COALESCE($1::date, e.spent_at), $2::text, $3::text, $4::text, $5::numeric)), 0)::numeric AS total_base
 FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
-WHERE i.household_id = $4
+WHERE i.household_id = $6
   AND e.status = 'confirmed'
-  AND COALESCE(i.due_date, i.billing_date) >= $5::date
-  AND COALESCE(i.due_date, i.billing_date) <= $6::date
+  AND COALESCE(i.due_date, i.billing_date) >= $7::date
+  AND COALESCE(i.due_date, i.billing_date) <= $8::date
 GROUP BY month
 ORDER BY month ASC
 `
 
 type SumInstallmentsDueByMonthParams struct {
-	RateDay     pgtype.Date `json:"rate_day"`
-	UsdSource   pgtype.Text `json:"usd_source"`
-	Tz          string      `json:"tz"`
-	HouseholdID uuid.UUID   `json:"household_id"`
-	FromDate    pgtype.Date `json:"from_date"`
-	ToDate      pgtype.Date `json:"to_date"`
+	RateDay      pgtype.Date    `json:"rate_day"`
+	UsdSource    pgtype.Text    `json:"usd_source"`
+	Tz           string         `json:"tz"`
+	ViewCurrency pgtype.Text    `json:"view_currency"`
+	ViewRate     pgtype.Numeric `json:"view_rate"`
+	HouseholdID  uuid.UUID      `json:"household_id"`
+	FromDate     pgtype.Date    `json:"from_date"`
+	ToDate       pgtype.Date    `json:"to_date"`
 }
 
 type SumInstallmentsDueByMonthRow struct {
@@ -463,6 +498,8 @@ func (q *Queries) SumInstallmentsDueByMonth(ctx context.Context, arg SumInstallm
 		arg.RateDay,
 		arg.UsdSource,
 		arg.Tz,
+		arg.ViewCurrency,
+		arg.ViewRate,
 		arg.HouseholdID,
 		arg.FromDate,
 		arg.ToDate,
@@ -486,22 +523,24 @@ func (q *Queries) SumInstallmentsDueByMonth(ctx context.Context, arg SumInstallm
 }
 
 const sumInstallmentsDueForReport = `-- name: SumInstallmentsDueForReport :one
-SELECT COALESCE(SUM(report_amount(i.installment_amount_base, e.currency, i.installment_amount, COALESCE($1::date, e.spent_at), $2::text, $3::text)), 0)::numeric AS total_base
+SELECT COALESCE(SUM(report_amount(i.installment_amount_base, e.currency, i.installment_amount, COALESCE($1::date, e.spent_at), $2::text, $3::text, $4::text, $5::numeric)), 0)::numeric AS total_base
 FROM expense_installments i
 JOIN expenses e ON e.id = i.expense_id
-WHERE i.household_id = $4
+WHERE i.household_id = $6
   AND e.status = 'confirmed'
-  AND COALESCE(i.due_date, i.billing_date) >= $5::date
-  AND COALESCE(i.due_date, i.billing_date) <= $6::date
+  AND COALESCE(i.due_date, i.billing_date) >= $7::date
+  AND COALESCE(i.due_date, i.billing_date) <= $8::date
 `
 
 type SumInstallmentsDueForReportParams struct {
-	RateDay     pgtype.Date `json:"rate_day"`
-	UsdSource   pgtype.Text `json:"usd_source"`
-	Tz          string      `json:"tz"`
-	HouseholdID uuid.UUID   `json:"household_id"`
-	FromDate    pgtype.Date `json:"from_date"`
-	ToDate      pgtype.Date `json:"to_date"`
+	RateDay      pgtype.Date    `json:"rate_day"`
+	UsdSource    pgtype.Text    `json:"usd_source"`
+	Tz           string         `json:"tz"`
+	ViewCurrency pgtype.Text    `json:"view_currency"`
+	ViewRate     pgtype.Numeric `json:"view_rate"`
+	HouseholdID  uuid.UUID      `json:"household_id"`
+	FromDate     pgtype.Date    `json:"from_date"`
+	ToDate       pgtype.Date    `json:"to_date"`
 }
 
 // "due_this_month": lo que hay que pagar en el rango (due_date). Para
@@ -511,6 +550,8 @@ func (q *Queries) SumInstallmentsDueForReport(ctx context.Context, arg SumInstal
 		arg.RateDay,
 		arg.UsdSource,
 		arg.Tz,
+		arg.ViewCurrency,
+		arg.ViewRate,
 		arg.HouseholdID,
 		arg.FromDate,
 		arg.ToDate,

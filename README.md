@@ -103,6 +103,7 @@ Ver [`.env.example`](./.env.example). Resumen:
 | `APP_BASE_URL` | no (localhost:3005) | URL pública del front para los links de los emails |
 | `GLITCHTIP_DSN` | no | DSN del proyecto en GlitchTip. Vacía = no reporta errores |
 | `GLITCHTIP_ENVIRONMENT` | no (`ENV`) | `staging` / `production` en el dashboard de GlitchTip |
+| `COINGECKO_API_KEY` | no | key demo de CoinGecko (gratis). Precio de bitcoin y ether para "Ver en", como mucho una vez por hora. Vacía = sin BTC/ETH |
 
 ## Arquitectura
 
@@ -120,7 +121,7 @@ Ver [`.env.example`](./.env.example). Resumen:
 
 | Job | Cadencia | Qué hace |
 |---|---|---|
-| `fx_refresh` | 15 min y al arrancar | rates from DolarAPI (every dollar and the official euro), Bluelytics as fallback and for the blue euro |
+| `fx_refresh` | 15 min y al arrancar | rates from DolarAPI (every dollar, USDT at the crypto dollar, and the official euro, real, Chilean and Uruguayan peso), Bluelytics as fallback and for the blue euro, CoinGecko for bitcoin and ether at most once an hour (with `COINGECKO_API_KEY`) |
 | `recurring_incomes` | diario 00:30 | genera ingresos desde plantillas |
 | `recurring_expenses` | diario 00:30 | genera gastos desde plantillas |
 | `insights_daily` | diario 01:00 | arma daily_summary + alerts + weekly (domingos) |
@@ -149,7 +150,7 @@ docker run --rm -p 8080:8080 --env-file .env valuo-api
 ## Convenciones
 
 - **Dates**: `YYYY-MM-DD` en request/response. Timestamps en ISO-8601 UTC.
-- **Money**: `float64` con 2 decimales. Los campos `amount_base` ya están convertidos a la moneda base del hogar (denormalizado).
+- **Money**: `float64` con 2 decimales. Los campos `amount_base` ya están convertidos a la moneda base del hogar, que siempre es ARS (plan 5.5; denormalizado). Los reportes aceptan `currency` en USD, EUR, BRL, CLP, UYU, USDT, BTC o ETH solo para mostrar (plan 5.6).
 - **IDs**: UUIDs v4 en todas las tablas.
 - **Soft deletes**: `users` y `households` usan `deleted_at`; el resto se borra físicamente.
 - **Paginación**: offset/limit simple. Migrar a keyset cuando crezca el volumen.

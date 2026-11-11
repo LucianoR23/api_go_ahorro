@@ -88,6 +88,7 @@ without superuser. Check with `\du`, `\l valuo_next` and `\ddp`.
 | `*_FROM_EMAIL` (4) | sender on the verified domain (default `<BRAND_NAME> <onboarding@resend.dev>`) |
 | `SOPORTE_API_URL` / `SOPORTE_API_KEY` | empty = `/support/*` responds 503 |
 | `GLITCHTIP_DSN` | DSN of the environment's GlitchTip project (section 8); empty = no error reporting |
+| `COINGECKO_API_KEY` | CoinGecko demo key (free); prices bitcoin and ether for "Ver en", at most once an hour. Empty = no BTC/ETH |
 | `GLITCHTIP_ENVIRONMENT` | `staging` or `production` (defaults to `ENV`, which is `prod` in both) |
 
 `<DB_HOST>` is the internal hostname Coolify shows in "Postgres URL (internal)". The
@@ -341,6 +342,7 @@ gitleaks in CI). Rotation, one at a time:
 | DB passwords (`valuo_app`, `valuo_migrate`) | `ALTER ROLE ... PASSWORD`, update both URLs, redeploy | none if done together |
 | `RESEND_API_KEY` | new key in Resend, update, redeploy, revoke the old one | none |
 | `SOPORTE_API_KEY` | new key from the support service, update, redeploy | none |
+| `COINGECKO_API_KEY` | new demo key in CoinGecko's dashboard, update, redeploy, revoke the old one | BTC/ETH stop updating until redeployed |
 | VAPID keys | avoid: new keys invalidate every push subscription | users enable push again |
 | `API_DEPLOY_KEY` (valuo_app CI) | new read-only deploy key on valuo_api, update the secret, delete the old key | none |
 

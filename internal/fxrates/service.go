@@ -113,17 +113,7 @@ func (s *Service) Convert(ctx context.Context, amount decimal.Decimal, from, to 
 
 	const ars = "ARS"
 	get := func(currency string) (decimal.Decimal, error) {
-		r, err := s.rate(ctx, currency, source)
-		if err == nil || currency == "USD" || source == domain.RateSourceOficial {
-			return r, err
-		}
-		cur, errC := s.rate(ctx, currency, domain.RateSourceOficial)
-		usd, errU := s.rate(ctx, "USD", source)
-		usdOf, errO := s.rate(ctx, "USD", domain.RateSourceOficial)
-		if errC != nil || errU != nil || errO != nil {
-			return decimal.Zero, err
-		}
-		return cur.Mul(usd).Div(usdOf).Round(4), nil
+		return s.rateThroughDollar(ctx, currency, source)
 	}
 
 	switch {
@@ -151,6 +141,42 @@ func (s *Service) Convert(ctx context.Context, amount decimal.Decimal, from, to 
 		cross := rFrom.Div(rTo)
 		return amount.Mul(rFrom).Div(rTo), cross, nil
 	}
+}
+
+// rateThroughDollar: currency's rate at source, or, when that source has no
+// quote for it (only the dollar has every casa), its official rate moved by
+// the gap between source's dollar and the official one.
+func (s *Service) rateThroughDollar(ctx context.Context, currency string, source domain.RateSource) (decimal.Decimal, error) {
+	r, err := s.rate(ctx, currency, source)
+	if err == nil || currency == "USD" || source == domain.RateSourceOficial {
+		return r, err
+	}
+	cur, errC := s.rate(ctx, currency, domain.RateSourceOficial)
+	usd, errU := s.rate(ctx, "USD", source)
+	usdOf, errO := s.rate(ctx, "USD", domain.RateSourceOficial)
+	if errC != nil || errU != nil || errO != nil {
+		return decimal.Zero, err
+	}
+	return cur.Mul(usd).Div(usdOf).Round(4), nil
+}
+
+// ViewRate: today's pesos per unit of a view currency (plan 5.6). A fiat
+// currency goes through source, the household's dollar, like a movement
+// would; a crypto has one market price (source cripto). It returns
+// domain.ErrNotFound when there is no quote yet (bitcoin without a CoinGecko
+// key, say).
+func (s *Service) ViewRate(ctx context.Context, currency string, source domain.RateSource) (decimal.Decimal, error) {
+	vc, ok := domain.LookupViewCurrency(currency)
+	if !ok {
+		return decimal.Zero, domain.NewValidationError("currency", "moneda desconocida")
+	}
+	if vc.Crypto {
+		return s.rate(ctx, vc.Code, domain.RateSourceCripto)
+	}
+	if !source.Valid() {
+		return decimal.Zero, domain.NewValidationError("rateSource", "cotización desconocida")
+	}
+	return s.rateThroughDollar(ctx, vc.Code, source)
 }
 
 // rate: the rate of a foreign currency against ARS for source, from the

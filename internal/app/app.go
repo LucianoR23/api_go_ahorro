@@ -279,9 +279,9 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	statementsHandler := statements.NewHandler(statementsSvc, authMW, logger)
 
 	// fxrates: tasas ARS/USD/EUR. Hidratamos caché desde DB al arrancar; el
-	// job fx_refresh refresca cada 15min (bluelytics).
+	// job fx_refresh refresca cada 15min (DolarAPI, Bluelytics, CoinGecko).
 	fxRepo := fxrates.NewRepository(pool)
-	fxFetcher := fxrates.NewFetcher(opts.FXHTTPClient)
+	fxFetcher := fxrates.NewFetcher(opts.FXHTTPClient).WithCoinGecko(cfg.CoinGeckoAPIKey)
 	fxSvc := fxrates.NewService(fxRepo, fxFetcher, logger)
 	if err := fxSvc.Hydrate(ctx); err != nil {
 		// No es fatal: si DB está vacía (primer arranque) el worker poblará.
@@ -415,7 +415,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	}
 
 	reportsRepo := reports.NewRepository(pool)
-	reportsSvc := reports.NewService(reportsRepo, householdsRepo, cpiSvc, logger)
+	reportsSvc := reports.NewService(reportsRepo, householdsRepo, cpiSvc, fxSvc, logger)
 	reportsHandler := reports.NewHandler(reportsSvc, authMW, householdsMW, logger)
 
 	// Resend sender for the monthly email. Without RESEND_API_KEY the job

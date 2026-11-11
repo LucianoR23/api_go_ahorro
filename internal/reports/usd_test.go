@@ -84,7 +84,7 @@ func TestReportsInUSD(t *testing.T) {
 		do := func(path string) *apitest.Res {
 			return s.Do(t, apitest.Req{Method: http.MethodGet, Path: path, Token: h.member.Token, Household: h.id})
 		}
-		do("/reports/monthly?currency=EUR").WantError(t, http.StatusUnprocessableEntity, "validation", "currency")
+		do("/reports/monthly?currency=XYZ").WantError(t, http.StatusUnprocessableEntity, "validation", "currency")
 		do("/reports/trends?currency=USD&rate=ayer").WantError(t, http.StatusUnprocessableEntity, "validation", "rate")
 	})
 

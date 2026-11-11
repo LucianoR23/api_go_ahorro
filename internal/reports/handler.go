@@ -146,16 +146,18 @@ func parseMonth(s string) (time.Time, error) {
 }
 
 // parseView: ?currency=USD shows dollars (plan 5.3), at each movement's
-// day's dollar, or at today's with &rate=today.
+// day's dollar, or at today's with &rate=today. Any other currency of
+// domain.ViewCurrencies converts at today's rate (plan 5.6).
 func parseView(r *http.Request) (ViewRequest, error) {
 	q := r.URL.Query()
 	var v ViewRequest
-	switch q.Get("currency") {
+	switch c := q.Get("currency"); c {
 	case "", "ARS":
-	case "USD":
-		v.USD = true
 	default:
-		return v, domain.NewValidationError("currency", "debe ser ARS o USD")
+		if _, ok := domain.LookupViewCurrency(c); !ok {
+			return v, domain.NewValidationError("currency", "moneda desconocida")
+		}
+		v.Currency = c
 	}
 	switch q.Get("rate") {
 	case "", "day":

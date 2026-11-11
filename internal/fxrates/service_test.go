@@ -106,9 +106,10 @@ func TestFetch(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// 7 dollars (the unknown "futuro" is dropped), the official euro from
-		// DolarAPI and the blue euro from Bluelytics.
-		if len(rates) != 9 {
+		// 7 dollars (the unknown "futuro" is dropped), USDT at the crypto
+		// dollar, the official euro and real from DolarAPI and the blue euro
+		// from Bluelytics. No CoinGecko key: no bitcoin.
+		if len(rates) != 11 {
 			t.Fatalf("got %d rates: %+v", len(rates), rates)
 		}
 		mep, _ := find(rates, "USD", domain.RateSourceBolsa)
