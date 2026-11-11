@@ -1,0 +1,1 @@
+ALTER TABLE households DROP CONSTRAINT households_base_currency_ars;
