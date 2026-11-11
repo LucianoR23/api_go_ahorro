@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 7.3 (API part): subscription suggestions
+- `GET /recurring-expenses/suggestions` (space member): expenses loaded by hand that look recurring. A suggestion is a description (case, accents and punctuation ignored) in one currency that shows up once a month in at least 3 of the last 4 months (this one included), with the biggest amount at most 25% over the smallest. Only confirmed one-payment expenses outside a series count; groceries bought several times a month do not.
+- Each suggestion carries a `key`, the description as written last, currency, last amount, smallest and biggest, months seen, day of the month and payment method of the last one, so the app can prefill a recurring expense. Descriptions already used by a recurring expense of the space (active or paused) are left out.
+- `POST /recurring-expenses/suggestions/dismiss {key}`: the suggestion stops showing for every member of the space. Twice is fine; an empty key is a 422.
+- Migration 000042 adds `recurring_suggestion_dismissals` (space, key, who, when).
+
 ### 7.2 (API part): due-date calendar
 - `GET /calendar?month=YYYY-MM` (signed in, space member; this month by default): what is due or comes in, day by day. Events are the user's card closing and due dates (as in Tarjetas, in every space) and the space's recurring expenses and incomes on each day they fall in the month (paused series and days outside start/end are left out).
 - A card's due date is listed only when its statement has something to pay, with its totals per currency, status and installment count; its closing always. A recurring expense or income carries its amount (the estimate when variable), currency, payment method and series id.

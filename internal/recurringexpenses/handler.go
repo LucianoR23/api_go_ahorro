@@ -37,6 +37,8 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Route("/recurring-expenses", func(r chi.Router) {
 			r.Get("/", h.List)
 			r.Post("/", h.Create)
+			r.Get("/suggestions", h.Suggestions)
+			r.Post("/suggestions/dismiss", h.DismissSuggestion)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", h.Get)
 				r.Patch("/", h.Update)
@@ -446,4 +448,74 @@ func parsePositiveInt(s string, max int) (int, error) {
 
 func decodeJSON(r *http.Request, dst any) error {
 	return httpx.DecodeJSON(r, dst)
+}
+
+// ===================== suggestions (plan 7.3) =====================
+
+type suggestionDTO struct {
+	Key             string          `json:"key"`
+	Description     string          `json:"description"`
+	Currency        string          `json:"currency"`
+	Amount          decimal.Decimal `json:"amount"`
+	MinAmount       decimal.Decimal `json:"minAmount"`
+	MaxAmount       decimal.Decimal `json:"maxAmount"`
+	Months          int             `json:"months"`
+	DayOfMonth      int             `json:"dayOfMonth"`
+	LastSpentAt     string          `json:"lastSpentAt"`
+	CategoryID      *string         `json:"categoryId,omitempty"`
+	PaymentMethodID string          `json:"paymentMethodId"`
+}
+
+type dismissReq struct {
+	Key string `json:"key"`
+}
+
+// Suggestions: GET /recurring-expenses/suggestions, expenses of the space
+// that look recurring.
+func (h *Handler) Suggestions(w http.ResponseWriter, r *http.Request) {
+	_, householdID, err := h.ctxUserAndHousehold(r)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	list, err := h.svc.Suggestions(r.Context(), householdID)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	out := make([]suggestionDTO, 0, len(list))
+	for _, sg := range list {
+		d := suggestionDTO{
+			Key: sg.Key, Description: sg.Description, Currency: sg.Currency,
+			Amount: sg.Amount, MinAmount: sg.MinAmount, MaxAmount: sg.MaxAmount,
+			Months: sg.Months, DayOfMonth: sg.DayOfMonth, LastSpentAt: sg.LastSpentAt.Format("2006-01-02"),
+			PaymentMethodID: sg.PaymentMethodID.String(),
+		}
+		if sg.CategoryID != nil {
+			c := sg.CategoryID.String()
+			d.CategoryID = &c
+		}
+		out = append(out, d)
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+// DismissSuggestion: POST /recurring-expenses/suggestions/dismiss {key}, the
+// suggestion stops showing for the whole space.
+func (h *Handler) DismissSuggestion(w http.ResponseWriter, r *http.Request) {
+	userID, householdID, err := h.ctxUserAndHousehold(r)
+	if err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	var req dismissReq
+	if err := decodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	if err := h.svc.DismissSuggestion(r.Context(), householdID, userID, req.Key); err != nil {
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

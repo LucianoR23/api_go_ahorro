@@ -155,6 +155,7 @@ type Querier interface {
 	DeleteUserPushSubscriptions(ctx context.Context, userID uuid.UUID) error
 	DeleteWaitlistEntry(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteWaitlistEntryByEmail(ctx context.Context, email string) (int64, error)
+	DismissRecurringSuggestion(ctx context.Context, arg DismissRecurringSuggestionParams) error
 	EnsureCardStatement(ctx context.Context, arg EnsureCardStatementParams) error
 	// The shared space ("Hogar") the user belongs to, if any (plan 1.2: at most
 	// one active). Oldest first so accounts from before the rule pick the same.
@@ -307,6 +308,11 @@ type Querier interface {
 	ListPendingInvitesForHousehold(ctx context.Context, householdID uuid.UUID) ([]HouseholdInvite, error)
 	ListRecurringExpensesByHousehold(ctx context.Context, householdID uuid.UUID) ([]RecurringExpense, error)
 	ListRecurringIncomesByHousehold(ctx context.Context, householdID uuid.UUID) ([]RecurringIncome, error)
+	// ===================== suggestions (plan 7.3) =====================
+	// Manual one-payment expenses of a space in a window, oldest first. The
+	// grouping into "repeats every month" happens in Go.
+	ListRecurringSuggestionCandidates(ctx context.Context, arg ListRecurringSuggestionCandidatesParams) ([]ListRecurringSuggestionCandidatesRow, error)
+	ListRecurringSuggestionDismissals(ctx context.Context, householdID uuid.UUID) ([]string, error)
 	ListSharesByExpense(ctx context.Context, expenseID uuid.UUID) ([]ExpenseInstallmentShare, error)
 	ListSplitRulesByHousehold(ctx context.Context, householdID uuid.UUID) ([]HouseholdSplitRule, error)
 	// Serializes settlements per household (plan 0.8): the debt check and the
