@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/LucianoR23/valuo_api/internal/admin"
 	"github.com/LucianoR23/valuo_api/internal/audit"
 	"github.com/LucianoR23/valuo_api/internal/auth"
 	"github.com/LucianoR23/valuo_api/internal/auth/google"
@@ -566,6 +567,8 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		// Admin households (/admin/households/*): requiere auth + is_superadmin.
 		// Endpoints: listar soft-deleted, restaurar, purgar (DELETE físico con CASCADE).
 		householdsAdminHandler.Mount(r)
+		// Superadmin panel (plan 1.11): counts, accounts, audit of every account.
+		admin.NewHandler(pool, authMW, dates.Location(), opts.Now, logger).Mount(r)
 
 		// Household invites: /invites/{token} es pública (preview pre-login).
 		// Create/List/Revoke/Accept aplican auth dentro del mount.
