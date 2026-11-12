@@ -58,6 +58,10 @@ func (f *fakeUnits) units() Units {
 			f.record("push:"+kind, time.Time{}, "")
 			return nil
 		},
+		DailyReminders: func(_ context.Context, slot time.Time) (int, error) {
+			f.record("reminders", slot, time.RFC3339)
+			return 0, nil
+		},
 	}
 }
 
@@ -286,4 +290,34 @@ func TestBackfill(t *testing.T) {
 			t.Fatalf("monthly_report = %v, want none", got)
 		}
 	})
+}
+
+// The reminders unit gets the slot in the app timezone (plan 10.2).
+func TestRunnerWorksDailyReminders(t *testing.T) {
+	pool := testdb.New(t)
+	ctx := context.Background()
+	f := &fakeUnits{}
+	r := newTestRunner(t, pool, f, time.Date(2026, 11, 11, 21, 1, 0, 0, testutil.Location(t)))
+
+	events, cancel := r.client.Subscribe(river.EventKindJobCompleted, river.EventKindJobFailed)
+	defer cancel()
+	stop := r.Start(ctx)
+	defer stop()
+
+	res, err := r.client.Insert(ctx, DailyRemindersArgs{Slot: "2026-11-11T21:00"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, events, res.Job.ID)
+	if got := f.get("reminders"); !slices.Contains(got, "2026-11-11T21:00:00-03:00") {
+		t.Fatalf("reminders runs = %v, want 2026-11-11T21:00:00-03:00", got)
+	}
+	// The same slot again is a duplicate: replicas never send twice.
+	again, err := r.client.Insert(ctx, DailyRemindersArgs{Slot: "2026-11-11T21:00"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !again.UniqueSkippedAsDuplicate {
+		t.Error("second insert of the same slot was not skipped")
+	}
 }

@@ -21,6 +21,10 @@ type prefsJSON struct {
 		Start   string `json:"start"`
 		End     string `json:"end"`
 	} `json:"quietHours"`
+	DailyReminder *struct {
+		Enabled bool   `json:"enabled"`
+		At      string `json:"at"`
+	} `json:"dailyReminder"`
 	Timezone string `json:"timezone"`
 }
 
@@ -70,6 +74,9 @@ func TestPreferences(t *testing.T) {
 		if q := p.QuietHours; !q.Enabled || q.Start != "23:00" || q.End != "08:00" {
 			t.Errorf("quiet hours = %+v", q)
 		}
+		if r := p.DailyReminder; r == nil || r.Enabled || r.At != "21:00" {
+			t.Errorf("daily reminder = %+v, want off at 21:00", r)
+		}
 		// Only the channels each kind really uses.
 		if _, ok := p.channel("shared_expense", "email"); ok {
 			t.Error("shared_expense offers email")
@@ -113,6 +120,30 @@ func TestPreferences(t *testing.T) {
 		if on, _ := get(t, s, u).channel("shared_expense", "push"); !on {
 			t.Error("shared_expense.push stayed off")
 		}
+	})
+
+	t.Run("daily reminder (plan 10.2)", func(t *testing.T) {
+		u := s.Register(t)
+		var saved prefsJSON
+		put(t, s, u, map[string]any{
+			"quietHours":    quiet(true, "23:00", "08:00"),
+			"dailyReminder": map[string]any{"enabled": true, "at": "22:30"},
+		}).Status(t, http.StatusOK).JSON(t, &saved)
+		for _, p := range []prefsJSON{saved, get(t, s, u)} {
+			if r := p.DailyReminder; r == nil || !r.Enabled || r.At != "22:30" {
+				t.Errorf("daily reminder = %+v", r)
+			}
+		}
+		// A body without it (an app from before 10.2) keeps it.
+		put(t, s, u, map[string]any{"quietHours": quiet(false, "23:00", "08:00")}).Status(t, http.StatusOK)
+		if r := get(t, s, u).DailyReminder; r == nil || !r.Enabled || r.At != "22:30" {
+			t.Errorf("daily reminder after an old PUT = %+v", r)
+		}
+		ok := quiet(true, "23:00", "08:00")
+		put(t, s, u, map[string]any{"quietHours": ok, "dailyReminder": map[string]any{"enabled": true, "at": "22:10"}}).
+			WantError(t, http.StatusUnprocessableEntity, "validation", "dailyReminder.at")
+		put(t, s, u, map[string]any{"quietHours": ok, "dailyReminder": map[string]any{"enabled": true, "at": "tarde"}}).
+			WantError(t, http.StatusUnprocessableEntity, "validation", "dailyReminder.at")
 	})
 
 	t.Run("validation", func(t *testing.T) {

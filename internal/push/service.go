@@ -208,18 +208,34 @@ func (s *Service) DeleteByID(ctx context.Context, userID, id uuid.UUID) error {
 //
 // Deduplica userIDs. Si Service es nil o no hay VAPID configurado, no hace nada.
 func (s *Service) NotifyUsers(ctx context.Context, userIDs []uuid.UUID, payload Payload) {
-	if s == nil {
+	uniq := s.recipients(ctx, userIDs)
+	if len(uniq) == 0 {
 		return
+	}
+	// Detach del request ctx para que no se cancele al responder HTTP.
+	// Usamos un ctx nuevo con logger info si lo hubiera.
+	bg := context.Background()
+
+	go s.route(bg, uniq, payload) //nolint:gosec // G118: detached on purpose, delivery must outlive the request
+}
+
+// NotifyUsersNow is NotifyUsers for background jobs: it returns once the
+// pushes are sent (or held), so the job's timeout and shutdown cover them.
+func (s *Service) NotifyUsersNow(ctx context.Context, userIDs []uuid.UUID, payload Payload) {
+	if uniq := s.recipients(ctx, userIDs); len(uniq) > 0 {
+		s.route(ctx, uniq, payload)
+	}
+}
+
+// recipients dedupes userIDs; none when s is nil or VAPID is not set.
+func (s *Service) recipients(ctx context.Context, userIDs []uuid.UUID) []uuid.UUID {
+	if s == nil {
+		return nil
 	}
 	if !s.cfg.Enabled() {
 		s.logger.DebugContext(ctx, "push: VAPID no configurado, skip", "users", len(userIDs))
-		return
+		return nil
 	}
-	if len(userIDs) == 0 {
-		return
-	}
-
-	// Dedupe.
 	seen := make(map[uuid.UUID]struct{}, len(userIDs))
 	uniq := make([]uuid.UUID, 0, len(userIDs))
 	for _, id := range userIDs {
@@ -229,16 +245,12 @@ func (s *Service) NotifyUsers(ctx context.Context, userIDs []uuid.UUID, payload 
 		seen[id] = struct{}{}
 		uniq = append(uniq, id)
 	}
-
-	// Detach del request ctx para que no se cancele al responder HTTP.
-	// Usamos un ctx nuevo con logger info si lo hubiera.
-	bg := context.Background()
-
-	go s.route(bg, uniq, payload) //nolint:gosec // G118: detached on purpose, delivery must outlive the request
+	return uniq
 }
 
 // route applies each person's preferences: a muted kind is dropped, and
-// during quiet hours the push waits for the end of the window.
+// during quiet hours the push waits for the end of the window (or is
+// dropped, for a kind that expires).
 func (s *Service) route(ctx context.Context, userIDs []uuid.UUID, payload Payload) {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -253,7 +265,11 @@ func (s *Service) route(ctx context.Context, userIDs []uuid.UUID, payload Payloa
 			if !p.Allows(payload.Kind, notifprefs.Push) {
 				continue
 			}
-			if until, quiet := p.Quiet.Until(now, s.loc); quiet && s.deferrer != nil {
+			until, quiet := p.Quiet.Until(now, s.loc)
+			if quiet && payload.Kind.Expires() {
+				continue
+			}
+			if quiet && s.deferrer != nil {
 				err := s.deferrer.DeferPush(ctx, uid, string(payload.Kind), body, until)
 				if err == nil {
 					continue

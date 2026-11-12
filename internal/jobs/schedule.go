@@ -58,3 +58,17 @@ func (s monthly) lastReported(t time.Time) time.Time {
 	}
 	return time.Date(p.Year(), p.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -1, 0)
 }
+
+// every fires at each multiple of step since midnight in the app timezone
+// (every 15 minutes: 00:00, 00:15, ...). step must divide a day.
+type every struct{ step time.Duration }
+
+// last is the latest firing at or before t.
+func (s every) last(t time.Time) time.Time {
+	t = t.In(dates.Location())
+	midnight := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+	return midnight.Add(t.Sub(midnight).Truncate(s.step))
+}
+
+// Next is the first firing strictly after t (river.PeriodicSchedule).
+func (s every) Next(t time.Time) time.Time { return s.last(t).Add(s.step) }

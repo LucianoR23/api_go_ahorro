@@ -63,3 +63,31 @@ func TestMonthlySchedule(t *testing.T) {
 		}
 	}
 }
+
+func TestEverySchedule(t *testing.T) {
+	loc := testutil.Location(t)
+	at := func(d, h, min, sec int) time.Time { return time.Date(2026, 11, d, h, min, sec, 0, loc) }
+	s := every{15 * time.Minute}
+
+	tests := []struct {
+		name     string
+		from     time.Time
+		wantLast time.Time
+		wantNext time.Time
+	}{
+		{"on a slot", at(11, 21, 0, 0), at(11, 21, 0, 0), at(11, 21, 15, 0)},
+		{"just after a slot", at(11, 21, 0, 2), at(11, 21, 0, 0), at(11, 21, 15, 0)},
+		{"just before a slot", at(11, 21, 14, 59), at(11, 21, 0, 0), at(11, 21, 15, 0)},
+		{"last slot of the day", at(11, 23, 50, 0), at(11, 23, 45, 0), at(12, 0, 0, 0)},
+		// 00:20 UTC on the 12th is 21:20 on the 11th in Buenos Aires.
+		{"UTC input uses the app timezone", time.Date(2026, 11, 12, 0, 20, 0, 0, time.UTC), at(11, 21, 15, 0), at(11, 21, 30, 0)},
+	}
+	for _, tt := range tests {
+		if got := s.last(tt.from); !got.Equal(tt.wantLast) {
+			t.Errorf("%s: last = %s, want %s", tt.name, got, tt.wantLast)
+		}
+		if got := s.Next(tt.from); !got.Equal(tt.wantNext) {
+			t.Errorf("%s: Next = %s, want %s", tt.name, got, tt.wantNext)
+		}
+	}
+}

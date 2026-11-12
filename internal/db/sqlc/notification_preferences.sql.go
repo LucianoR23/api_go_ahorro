@@ -12,8 +12,61 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const dueDailyReminders = `-- name: DueDailyReminders :many
+SELECT p.user_id
+FROM notification_preferences p
+JOIN users u ON u.id = p.user_id
+WHERE p.reminder_enabled
+  AND p.reminder_at >= $1::time
+  AND p.reminder_at < $2::time
+  AND u.deleted_at IS NULL
+  AND u.onboarded_at IS NOT NULL
+  AND EXISTS (SELECT 1 FROM push_subscriptions s WHERE s.user_id = p.user_id)
+  AND NOT EXISTS (
+      SELECT 1 FROM expenses e
+      WHERE e.created_by = p.user_id
+        AND e.created_at >= $3::timestamptz
+        AND e.recurring_expense_id IS NULL)
+  AND NOT EXISTS (
+      SELECT 1 FROM incomes i
+      WHERE i.received_by = p.user_id
+        AND i.created_at >= $3::timestamptz
+        AND i.recurring_income_id IS NULL)
+ORDER BY p.user_id
+`
+
+type DueDailyRemindersParams struct {
+	FromTime pgtype.Time        `json:"from_time"`
+	ToTime   pgtype.Time        `json:"to_time"`
+	DayStart pgtype.Timestamptz `json:"day_start"`
+}
+
+// People whose daily reminder (plan 10.2) falls in [from_time, to_time) and
+// who loaded nothing since day_start: no expense they created and no income
+// they received, leaving out the ones generated from a recurring entry.
+// Only onboarded accounts with at least one device to push to.
+func (q *Queries) DueDailyReminders(ctx context.Context, arg DueDailyRemindersParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, dueDailyReminders, arg.FromTime, arg.ToTime, arg.DayStart)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var user_id uuid.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getNotificationPreferences = `-- name: GetNotificationPreferences :one
-SELECT user_id, disabled, quiet_enabled, quiet_start, quiet_end, updated_at FROM notification_preferences WHERE user_id = $1
+SELECT user_id, disabled, quiet_enabled, quiet_start, quiet_end, updated_at, reminder_enabled, reminder_at FROM notification_preferences WHERE user_id = $1
 `
 
 func (q *Queries) GetNotificationPreferences(ctx context.Context, userID uuid.UUID) (NotificationPreference, error) {
@@ -26,28 +79,34 @@ func (q *Queries) GetNotificationPreferences(ctx context.Context, userID uuid.UU
 		&i.QuietStart,
 		&i.QuietEnd,
 		&i.UpdatedAt,
+		&i.ReminderEnabled,
+		&i.ReminderAt,
 	)
 	return i, err
 }
 
 const upsertNotificationPreferences = `-- name: UpsertNotificationPreferences :one
-INSERT INTO notification_preferences (user_id, disabled, quiet_enabled, quiet_start, quiet_end)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO notification_preferences (user_id, disabled, quiet_enabled, quiet_start, quiet_end, reminder_enabled, reminder_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (user_id) DO UPDATE SET
-    disabled      = EXCLUDED.disabled,
-    quiet_enabled = EXCLUDED.quiet_enabled,
-    quiet_start   = EXCLUDED.quiet_start,
-    quiet_end     = EXCLUDED.quiet_end,
-    updated_at    = NOW()
-RETURNING user_id, disabled, quiet_enabled, quiet_start, quiet_end, updated_at
+    disabled         = EXCLUDED.disabled,
+    quiet_enabled    = EXCLUDED.quiet_enabled,
+    quiet_start      = EXCLUDED.quiet_start,
+    quiet_end        = EXCLUDED.quiet_end,
+    reminder_enabled = EXCLUDED.reminder_enabled,
+    reminder_at      = EXCLUDED.reminder_at,
+    updated_at       = NOW()
+RETURNING user_id, disabled, quiet_enabled, quiet_start, quiet_end, updated_at, reminder_enabled, reminder_at
 `
 
 type UpsertNotificationPreferencesParams struct {
-	UserID       uuid.UUID   `json:"user_id"`
-	Disabled     []string    `json:"disabled"`
-	QuietEnabled bool        `json:"quiet_enabled"`
-	QuietStart   pgtype.Time `json:"quiet_start"`
-	QuietEnd     pgtype.Time `json:"quiet_end"`
+	UserID          uuid.UUID   `json:"user_id"`
+	Disabled        []string    `json:"disabled"`
+	QuietEnabled    bool        `json:"quiet_enabled"`
+	QuietStart      pgtype.Time `json:"quiet_start"`
+	QuietEnd        pgtype.Time `json:"quiet_end"`
+	ReminderEnabled bool        `json:"reminder_enabled"`
+	ReminderAt      pgtype.Time `json:"reminder_at"`
 }
 
 func (q *Queries) UpsertNotificationPreferences(ctx context.Context, arg UpsertNotificationPreferencesParams) (NotificationPreference, error) {
@@ -57,6 +116,8 @@ func (q *Queries) UpsertNotificationPreferences(ctx context.Context, arg UpsertN
 		arg.QuietEnabled,
 		arg.QuietStart,
 		arg.QuietEnd,
+		arg.ReminderEnabled,
+		arg.ReminderAt,
 	)
 	var i NotificationPreference
 	err := row.Scan(
@@ -66,6 +127,8 @@ func (q *Queries) UpsertNotificationPreferences(ctx context.Context, arg UpsertN
 		&i.QuietStart,
 		&i.QuietEnd,
 		&i.UpdatedAt,
+		&i.ReminderEnabled,
+		&i.ReminderAt,
 	)
 	return i, err
 }

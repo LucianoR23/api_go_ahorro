@@ -34,7 +34,15 @@ const (
 	// Invite: an invitation to a space. It can't be muted (it is rare and
 	// waits for an answer), but quiet hours still hold its push.
 	Invite Kind = "invite"
+	// DailyReminder: "¿Hoy no gastaste nada?" (plan 10.2). Opt-in and
+	// stored apart (Prefs.Reminder), so it is not in the catalog.
+	DailyReminder Kind = "daily_reminder"
 )
+
+// Expires reports whether a notice of kind only makes sense at the moment
+// it is sent: during quiet hours it is dropped instead of held until
+// morning.
+func (k Kind) Expires() bool { return k == DailyReminder }
 
 // Channel is where a notice reaches the person.
 type Channel string
@@ -133,16 +141,32 @@ func (q QuietHours) Until(now time.Time, loc *time.Location) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+// ReminderStep is the granularity of the reminder time: the job that sends
+// it runs every 15 minutes.
+const ReminderStep TimeOfDay = 15
+
+// Reminder is the optional daily push for days with nothing loaded (plan 10.2).
+type Reminder struct {
+	Enabled bool
+	At      TimeOfDay
+}
+
 // Prefs is one person's choices.
 type Prefs struct {
 	// Disabled holds the muted Key values.
 	Disabled []string
 	Quiet    QuietHours
+	Reminder Reminder
 }
 
-// Defaults: everything on, quiet hours from 23:00 to 08:00.
+// Defaults: everything on, quiet hours from 23:00 to 08:00, the daily
+// reminder off (set for 21:00 when turned on).
 func Defaults() Prefs {
-	return Prefs{Disabled: []string{}, Quiet: QuietHours{Enabled: true, Start: 23 * 60, End: 8 * 60}}
+	return Prefs{
+		Disabled: []string{},
+		Quiet:    QuietHours{Enabled: true, Start: 23 * 60, End: 8 * 60},
+		Reminder: Reminder{At: 21 * 60},
+	}
 }
 
 // Allows reports whether kind reaches the person on channel. Kinds outside
