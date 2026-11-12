@@ -35,7 +35,7 @@ RUN go build \
 # Minimal Alpine, no apk: the CA bundle is copied from the build stage and the
 # binary embeds the zone database (time/tzdata, plan 0.2), so TZ works without
 # the tzdata package. busybox provides adduser and the healthcheck's wget.
-FROM alpine:3.24.3
+FROM alpine:3.24.4
 ENV TZ=America/Argentina/Buenos_Aires
 
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt

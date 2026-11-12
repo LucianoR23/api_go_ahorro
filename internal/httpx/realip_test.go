@@ -49,3 +49,19 @@ func TestRealIP(t *testing.T) {
 		t.Errorf("single IP = %v, %v", ps, err)
 	}
 }
+
+func TestClientIPKey(t *testing.T) {
+	for addr, want := range map[string]string{
+		"203.0.113.7:51234":                "203.0.113.7",
+		"203.0.113.7":                      "203.0.113.7", // as RealIP leaves it
+		"[2001:db8:1:2:3:4:5:6]:443":       "2001:db8:1:2::",
+		"2001:db8:1:2:aaaa:bbbb:cccc:dddd": "2001:db8:1:2::",
+		"[::ffff:203.0.113.7]:80":          "203.0.113.7",
+	} {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = addr
+		if got, err := httpx.ClientIPKey(r); err != nil || got != want {
+			t.Errorf("%q -> %q, %v; want %q", addr, got, err, want)
+		}
+	}
+}

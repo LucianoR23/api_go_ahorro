@@ -12,7 +12,7 @@ Environments:
 
 ## 1. Database (once per environment)
 
-Create a Postgres 18 resource in Coolify (image `postgres:18.6-alpine3.24`, no public
+Create a Postgres 18 resource in Coolify (image `postgres:18.7-alpine3.24`, no public
 port). Postgres 18 images keep data in `/var/lib/postgresql`: make sure the volume is
 mounted there, not at `/var/lib/postgresql/data`.
 
@@ -465,7 +465,7 @@ are diagnostics, kept 30 days.
 ```yaml
 services:
   postgres:
-    image: postgres:18.6-alpine3.24
+    image: postgres:18.7-alpine3.24
     command: postgres -c max_locks_per_transaction=512
     environment:
       POSTGRES_DB: glitchtip
