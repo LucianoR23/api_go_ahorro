@@ -347,6 +347,9 @@ type Querier interface {
 	// Devuelve la última fila por (currency, source) usando DISTINCT ON.
 	// Útil para el endpoint /current y para rehidratar el caché al arrancar.
 	ListLatestExchangeRates(ctx context.Context) ([]ExchangeRate, error)
+	// The words that name each active payment method, for reading sentences
+	// such as "café 2500 visa galicia" (plan 3.1).
+	ListPaymentMatchNames(ctx context.Context, ownerUserID uuid.UUID) ([]ListPaymentMatchNamesRow, error)
 	// Lista los métodos activos del user. Orden: primero por kind (para
 	// agrupar visualmente), después por nombre.
 	ListPaymentMethodsByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]PaymentMethod, error)

@@ -25,6 +25,7 @@ type Handler struct {
 	logger *slog.Logger
 	authMW *auth.Middleware
 	hhMW   *households.Middleware
+	parser Parser
 }
 
 func NewHandler(svc *Service, authMW *auth.Middleware, hhMW *households.Middleware, logger *slog.Logger) *Handler {
@@ -40,6 +41,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Route("/expenses", func(r chi.Router) {
 			r.Get("/", h.List)
 			r.Get("/drafts", h.ListDrafts)
+			r.Post("/parse", h.Parse)
 			r.Post("/", h.Create)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", h.Get)

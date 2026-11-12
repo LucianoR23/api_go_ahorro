@@ -4,6 +4,16 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 3.1 (API part): natural-language entry
+- New `POST /expenses/parse {text}` in the current space: reads a sentence such as "zapatillas 120 mil en 6 cuotas con master" and returns the fields it understood (amount, currency, date, installments, description, payment method, shared, category), with nulls for the rest. Nothing is saved: the app shows the fields for the person to confirm. Always 200 unless the text is over 300 characters (422).
+- New `internal/expenseparse`. Rules first, free: amounts ("2.500", "2500,50", "120 mil", "15 lucas", "1.5 palos", "$", "u$s", "euros"), installments ("6 cuotas", "en doce cuotas sin interés"), dates ("hoy", "ayer", "antes de ayer", "el lunes", "el 15", "10/11", "3 de marzo", never in the future), "compartido" or "hogar", and the payment method from its name, bank, card alias and card network ("master", "mp").
+- A payment word that fits several methods picks none: "visa" with Visa Galicia and Visa Santander returns both as `paymentCandidates` and the person chooses (decided with the user, instead of guessing the most used one). "visa galicia" or a single Visa picks it.
+- The AI is asked only when the rules cannot tell the amount (none, or several bare numbers). It receives today's date and the sentence; payment method names never leave, since the matching happens here from the words it returns. The description and payment words it returns must come from the sentence, or they are dropped (plan §8.4). A sentence that is not an expense comes back as `notFinance`. Prompt `parse_expense.v1`, at most 300 output tokens; counts against the 8.1 limits of the person who asks.
+- The AI answers for identical sentences are kept for 24 hours per person and day, in memory only (decided with the user: no table holds what people typed). A deploy empties it.
+- The category comes from the 8.4 chain on the parsed description.
+- Eval set: `go test -tags aismoke -run Eval ./internal/expenseparse/` against the real provider; never in CI.
+- No migration: one new read query.
+
 ### 8.4 (API part): auto-categorization
 - New `POST /categories/suggest {description}` in the current space: returns `{categoryId, source}` with source `history` or `ai`, or nulls when nothing is confident. Always 200 unless the input is over 500 characters (422); an AI limit or a provider failure just gives no suggestion.
 - New `internal/categorize` chain. History first, free: the space's last 500 confirmed expenses with a category, matched on the normalized description (most frequent category, ties to the most recent), then on the first word ("Uber a casa" after "Uber al centro") when two thirds of those expenses agree. The rules of 3.8 will go first in the same chain.
