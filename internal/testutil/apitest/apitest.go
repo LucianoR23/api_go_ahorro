@@ -115,6 +115,13 @@ func New(t testing.TB, opts ...Option) *Server {
 		WaitlistFromEmail:      "TestBrand <waitlist@example.test>",
 		WaitlistContactEmail:   "hola@example.test",
 		APIPublicURL:           "https://api.test",
+		// AI layer (plan 8.1): off, with the shipped routes and limits.
+		AIRoutes:         config.DefaultAIRoutes,
+		AIPrices:         config.DefaultAIPrices,
+		AIDailyBudgetUSD: 3,
+		AIUserDailyUSD:   0.05,
+		AIUserPerMinute:  10,
+		AIUserPerDay:     100,
 	}
 	mail := &FakeMailer{}
 	g := &FakeGoogle{}

@@ -4,6 +4,15 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 8.1 (API part): AI platform layer
+- New `internal/ai` package, the only door to AI providers. There is no generic chat: each feature calls `Service.Run` with its task, prompt, input and JSON schema, and gets back its own struct, decoded strictly (unknown fields rejected) and checked by its `Validate`. An invalid or cut answer, a rate limit or an overloaded provider gets one retry; a timeout does not.
+- Providers: Claude (Haiku 5.5 by default) for text, images, PDFs and summaries, and Gemini (3.5 Flash-Lite) for audio only, since Claude takes no audio input. Both are small stdlib HTTP clients instead of the official SDKs: the Gemini SDK pulls in gRPC, OpenCensus and Google Cloud auth for one call, and the Anthropic one ships a release every few days; we use one endpoint each. Gemini goes through the Interactions API (Google's recommended interface since June 2026) with `store=false`.
+- Model per task, effort and prices live in config (`AI_ROUTES`, `AI_PRICES`), so one task can move to Sonnet without a code change. The API refuses to start if a route points to a model without a price.
+- Guardrails of plan §8, checked before every call: `AI_ENABLED` kill switch and `AI_DISABLED_TASKS`, verified email, 10 requests per minute and 100 per day per person, US$ 0.05 per person per day and US$ 3 per day in total (all configurable). At 50, 80 and 100% of the daily budget every superadmin gets an email; at 100% AI pauses until midnight and features fall back to manual entry. Input caps: 20 KB of text, one file up to 5 MB, at most 2000 output tokens.
+- Migration 000046 adds `ai_usage`: one row per provider call or blocked request, with task, channel, model, prompt version, status, tokens, audio seconds, cost in millionths of a dollar and latency. Metrics only: the text sent and received is never stored or logged (decided with the user).
+- `GET /admin/ai` (superadmin): spend today and this month, calls, errors, blocked requests and average latency, by task and the 20 people who spend the most.
+- `go test -tags aismoke -run Smoke ./internal/ai/` checks both providers with real keys; never in CI. No feature uses the layer yet: the first is 8.2.
+
 ### 10.2 (API part): daily logging reminder
 - Optional daily push "¿Hoy no gastaste nada?" at a time the person picks (15-minute steps, app timezone; 21:00 by default). Off by default. Sent only on days the person loaded nothing: no expense they created and no income they received, in any space. Movements generated from a recurring entry don't count. Only onboarded accounts with a device subscribed.
 - `GET` and `PUT /me/notification-preferences` gain `dailyReminder: {enabled, at}`. A `PUT` without it keeps the stored value, so an app from before 10.2 can't turn it off.

@@ -90,6 +90,17 @@ without superuser. Check with `\du`, `\l valuo_next` and `\ddp`.
 | `GLITCHTIP_DSN` | DSN of the environment's GlitchTip project (section 8); empty = no error reporting |
 | `COINGECKO_API_KEY` | CoinGecko demo key (free); prices bitcoin and ether for "Ver en", at most once an hour. Empty = no BTC/ETH |
 | `GLITCHTIP_ENVIRONMENT` | `staging` or `production` (defaults to `ENV`, which is `prod` in both) |
+| `AI_ENABLED` | `true` turns the AI features on (plan 8.1). Default `false` |
+| `ANTHROPIC_API_KEY` | key of the environment's workspace in the Claude Console organization linked to the Claude Max plan. Set a spend limit on that workspace |
+| `GEMINI_API_KEY` | Google AI Studio key, used for audio only. Staging: free tier is fine. Production: paid tier only (the free tier lets Google use the data) |
+| `AI_DAILY_BUDGET_USD` / `AI_USER_DAILY_USD` | global and per-person daily AI spend (default 3 and 0.05). At 50/80/100% of the global one every superadmin gets an email; at 100% AI pauses until midnight |
+| `AI_USER_PER_MINUTE` / `AI_USER_PER_DAY` | AI requests per person (default 10 and 100) |
+| `AI_ROUTES` / `AI_PRICES` / `AI_DISABLED_TASKS` | model per task, prices in USD per million tokens, tasks switched off. Defaults in `internal/config/env.go`; update `AI_PRICES` when a provider changes its prices, or the budget is computed wrong |
+
+Provider-side limits are the last line of defense (plan §8.2): in the Claude Console set a
+monthly spend limit on each workspace, and in Google AI Studio a budget alert on the
+production project. With only the Max plan's credits, Anthropic requests stop when they
+run out (the app then answers "AI unavailable" and people load by hand).
 
 `<DB_HOST>` is the internal hostname Coolify shows in "Postgres URL (internal)". The
 app and the database must be in the same Coolify project/environment to reach it.
@@ -343,6 +354,8 @@ gitleaks in CI). Rotation, one at a time:
 | `RESEND_API_KEY` | new key in Resend, update, redeploy, revoke the old one | none |
 | `SOPORTE_API_KEY` | new key from the support service, update, redeploy | none |
 | `COINGECKO_API_KEY` | new demo key in CoinGecko's dashboard, update, redeploy, revoke the old one | BTC/ETH stop updating until redeployed |
+| `ANTHROPIC_API_KEY` | new key in the workspace (Claude Console), update, redeploy, delete the old one | none |
+| `GEMINI_API_KEY` | new key in Google AI Studio, update, redeploy, delete the old one | none |
 | VAPID keys | avoid: new keys invalidate every push subscription | users enable push again |
 | `API_DEPLOY_KEY` (valuo_app CI) | new read-only deploy key on valuo_api, update the secret, delete the old key | none |
 

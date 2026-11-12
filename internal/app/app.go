@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/LucianoR23/valuo_api/internal/admin"
+	"github.com/LucianoR23/valuo_api/internal/ai"
 	"github.com/LucianoR23/valuo_api/internal/audit"
 	"github.com/LucianoR23/valuo_api/internal/auth"
 	"github.com/LucianoR23/valuo_api/internal/auth/google"
@@ -100,7 +101,11 @@ type App struct {
 	starters []func(context.Context) func()
 	realtime func(context.Context) func() // insights LISTEN/NOTIFY listener (also in starters)
 	jobs     Jobs
+	ai       *ai.Service
 }
+
+// AI returns the AI layer (plan 8.1) the features run their tasks through.
+func (a *App) AI() *ai.Service { return a.ai }
 
 // Jobs are the units of work behind the background workers, callable
 // directly for a given date without starting the schedulers (the test
@@ -458,6 +463,36 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	reportsMailer.SetPreferences(notifPrefsSvc)
 	a.jobs.MonthlyReports = reportsMailer.SendMonthly
 
+	// AI layer (plan 8.1): every AI call goes through ai.Service, which
+	// checks the guardrails and records ai_usage. Off unless AI_ENABLED.
+	aiSvc, err := ai.New(pool, ai.Config{
+		Enabled:       cfg.AIEnabled,
+		Routes:        cfg.AIRoutes,
+		Prices:        cfg.AIPrices,
+		DisabledTasks: cfg.AIDisabledTasks,
+		Limits: ai.Limits{
+			PerMinute:         cfg.AIUserPerMinute,
+			PerDay:            cfg.AIUserPerDay,
+			UserDailyMicroUSD: ai.MicroUSD(cfg.AIUserDailyUSD),
+			DailyMicroUSD:     ai.MicroUSD(cfg.AIDailyBudgetUSD),
+		},
+		Providers: []ai.Provider{
+			ai.NewAnthropic(cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, nil),
+			ai.NewGemini(cfg.GeminiAPIKey, cfg.GeminiBaseURL, nil),
+		},
+		Location: dates.Location(),
+		Now:      opts.Now,
+		Alert:    ai.EmailAlert(pool, reportsSender, cfg.BrandName, logger),
+		Logger:   logger,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("app: %w", err)
+	}
+	if cfg.AIEnabled && (cfg.AnthropicAPIKey == "" || cfg.GeminiAPIKey == "") {
+		logger.Warn("AI_ENABLED is on but ANTHROPIC_API_KEY or GEMINI_API_KEY is empty: those tasks will fail")
+	}
+	a.ai = aiSvc
+
 	// support: proxy al servicio centralizado Lemy Support. Stateless, sin
 	// repo ni migración — solo usa userRepo para resolver el email del
 	// reporter (el JWT solo trae el userID). Si SOPORTE_API_KEY no está, el
@@ -579,7 +614,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		// Endpoints: listar soft-deleted, restaurar, purgar (DELETE físico con CASCADE).
 		householdsAdminHandler.Mount(r)
 		// Superadmin panel (plan 1.11): counts, accounts, audit of every account.
-		admin.NewHandler(pool, authMW, dates.Location(), opts.Now, logger).Mount(r)
+		admin.NewHandler(pool, authMW, dates.Location(), opts.Now, logger).WithAI(aiSvc).Mount(r)
 
 		// Household invites: /invites/{token} es pública (preview pre-login).
 		// Create/List/Revoke/Accept aplican auth dentro del mount.

@@ -12,6 +12,13 @@ import (
 )
 
 type Querier interface {
+	AIAdminByTask(ctx context.Context, monthStart pgtype.Timestamptz) ([]AIAdminByTaskRow, error)
+	AIAdminTopUsers(ctx context.Context, monthStart pgtype.Timestamptz) ([]AIAdminTopUsersRow, error)
+	AIAdminTotals(ctx context.Context, arg AIAdminTotalsParams) (AIAdminTotalsRow, error)
+	AICostSince(ctx context.Context, since pgtype.Timestamptz) (int64, error)
+	// What one person spent since a moment: provider calls in the last minute
+	// and since the start of the day, and the day's cost.
+	AIUserUsageSince(ctx context.Context, arg AIUserUsageSinceParams) (AIUserUsageSinceRow, error)
 	// ============================================================
 	// household_members
 	// ============================================================
@@ -244,6 +251,10 @@ type Querier interface {
 	GetWaitlistEntryByConfirmHash(ctx context.Context, confirmTokenHash []byte) (WaitlistEntry, error)
 	// ===================== waitlist_entries (plan B.5) =====================
 	GetWaitlistEntryByEmail(ctx context.Context, email string) (WaitlistEntry, error)
+	// ===================== AI usage (plan 8.1) =====================
+	// Blocked statuses (disabled, rate_limited, user_budget, global_budget)
+	// never reached a provider: they count for the panel, not for limits.
+	InsertAIUsage(ctx context.Context, arg InsertAIUsageParams) error
 	// Al emitir un nuevo token, invalidamos los anteriores del user.
 	InvalidateActiveEmailVerificationsForUser(ctx context.Context, userID uuid.UUID) error
 	// Al emitir un nuevo token, invalidamos los anteriores del user (los
@@ -347,6 +358,7 @@ type Querier interface {
 	ListRecurringSuggestionDismissals(ctx context.Context, householdID uuid.UUID) ([]string, error)
 	ListSharesByExpense(ctx context.Context, expenseID uuid.UUID) ([]ExpenseInstallmentShare, error)
 	ListSplitRulesByHousehold(ctx context.Context, householdID uuid.UUID) ([]HouseholdSplitRule, error)
+	ListSuperadminEmails(ctx context.Context) ([]string, error)
 	// Serializes settlements per household (plan 0.8): the debt check and the
 	// insert run while this lock is held, so two payments cannot both pass the
 	// check. NO KEY UPDATE does not block inserts that reference the household.

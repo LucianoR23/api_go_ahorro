@@ -60,6 +60,24 @@ func (ns NullRiverJobState) Value() (driver.Value, error) {
 	return string(ns.RiverJobState), nil
 }
 
+type AiUsage struct {
+	ID            int64              `json:"id"`
+	UserID        *uuid.UUID         `json:"user_id"`
+	HouseholdID   *uuid.UUID         `json:"household_id"`
+	Task          string             `json:"task"`
+	Channel       string             `json:"channel"`
+	Provider      string             `json:"provider"`
+	Model         string             `json:"model"`
+	PromptVersion string             `json:"prompt_version"`
+	Status        string             `json:"status"`
+	InputTokens   int32              `json:"input_tokens"`
+	OutputTokens  int32              `json:"output_tokens"`
+	AudioSeconds  int32              `json:"audio_seconds"`
+	CostMicroUsd  int64              `json:"cost_micro_usd"`
+	LatencyMs     int32              `json:"latency_ms"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
 type AuditEvent struct {
 	ID        uuid.UUID          `json:"id"`
 	UserID    *uuid.UUID         `json:"user_id"`
