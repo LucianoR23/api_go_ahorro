@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -104,6 +105,22 @@ type Config struct {
 	// Empty leaves them out of "Ver en".
 	CoinGeckoAPIKey string
 
+	// AI layer (plan 8.1). Off unless AI_ENABLED=true. Routes and prices are
+	// parsed by internal/ai; defaults below are the 2026-11-11 choice:
+	// Claude Haiku 5.5 for everything, Gemini 3.5 Flash-Lite for audio.
+	AIEnabled        bool
+	AnthropicAPIKey  string
+	AnthropicBaseURL string
+	GeminiAPIKey     string
+	GeminiBaseURL    string
+	AIRoutes         string
+	AIPrices         string
+	AIDisabledTasks  []string
+	AIDailyBudgetUSD float64
+	AIUserDailyUSD   float64
+	AIUserPerMinute  int
+	AIUserPerDay     int
+
 	// Error monitoring (plan 0.12): GlitchTip, Sentry compatible. Empty DSN
 	// turns reporting off. GlitchTipEnvironment tells staging from prod in
 	// the dashboard (both run with ENV=prod); it defaults to Env.
@@ -114,6 +131,16 @@ type Config struct {
 // Load lee el archivo .env (si existe) al ambiente del proceso y construye
 // un Config validado. Las env vars reales del SO tienen prioridad sobre .env
 // — en producción .env no existe y las variables las inyecta Coolify.
+// Default AI routes and prices (USD per million tokens, checked on
+// 2026-11-11 at platform.claude.com and aistudio.google.com). Prices change:
+// override AI_PRICES in the environment rather than editing code.
+const (
+	DefaultAIRoutes = "default=anthropic:claude-haiku-5-5:low,summarize=anthropic:claude-haiku-5-5:medium," +
+		"parse_audio=gemini:gemini-3.5-flash-lite:minimal"
+	DefaultAIPrices = "claude-haiku-5-5=0.10/0.50,claude-sonnet-5-5=2/10," +
+		"gemini-3.5-flash-lite=0.30/2.50,gemini-3.1-flash-lite=0.25/1.50/0.50"
+)
+
 func Load() (*Config, error) {
 	// En dev existe .env; en prod no. Silenciamos el error si no está.
 	if err := loadDotEnv(".env"); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -126,6 +153,27 @@ func Load() (*Config, error) {
 	}
 
 	brand := getOrDefault("BRAND_NAME", "Valuo")
+
+	aiEnabled, err := parseBool("AI_ENABLED", false)
+	if err != nil {
+		return nil, err
+	}
+	aiBudget, err := parseFloat("AI_DAILY_BUDGET_USD", 3)
+	if err != nil {
+		return nil, err
+	}
+	aiUserBudget, err := parseFloat("AI_USER_DAILY_USD", 0.05)
+	if err != nil {
+		return nil, err
+	}
+	aiPerMinute, err := parseInt("AI_USER_PER_MINUTE", 10)
+	if err != nil {
+		return nil, err
+	}
+	aiPerDay, err := parseInt("AI_USER_PER_DAY", 100)
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &Config{
 		Port:                   getOrDefault("PORT", "8080"),
@@ -159,6 +207,18 @@ func Load() (*Config, error) {
 		SupportAPIKey:          os.Getenv("SOPORTE_API_KEY"),
 		GlitchTipDSN:           os.Getenv("GLITCHTIP_DSN"),
 		CoinGeckoAPIKey:        os.Getenv("COINGECKO_API_KEY"),
+		AIEnabled:              aiEnabled,
+		AnthropicAPIKey:        os.Getenv("ANTHROPIC_API_KEY"),
+		AnthropicBaseURL:       os.Getenv("ANTHROPIC_BASE_URL"),
+		GeminiAPIKey:           os.Getenv("GEMINI_API_KEY"),
+		GeminiBaseURL:          os.Getenv("GEMINI_BASE_URL"),
+		AIRoutes:               getOrDefault("AI_ROUTES", DefaultAIRoutes),
+		AIPrices:               getOrDefault("AI_PRICES", DefaultAIPrices),
+		AIDisabledTasks:        splitAndTrim(os.Getenv("AI_DISABLED_TASKS"), ","),
+		AIDailyBudgetUSD:       aiBudget,
+		AIUserDailyUSD:         aiUserBudget,
+		AIUserPerMinute:        aiPerMinute,
+		AIUserPerDay:           aiPerDay,
 	}
 
 	cfg.WaitlistAllowedOrigins = splitAndTrim(getOrDefault("WAITLIST_ALLOWED_ORIGINS", cfg.WaitlistSiteURL), ",")
@@ -282,6 +342,32 @@ func parseBool(key string, def bool) (bool, error) {
 		return false, fmt.Errorf("config: %s debe ser true o false, no %q", key, v)
 	}
 	return b, nil
+}
+
+// parseFloat reads a non-negative number env var. Empty means def.
+func parseFloat(key string, def float64) (float64, error) {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def, nil
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f < 0 || math.IsInf(f, 0) || math.IsNaN(f) {
+		return 0, fmt.Errorf("config: %s debe ser un número mayor o igual a 0, no %q", key, v)
+	}
+	return f, nil
+}
+
+// parseInt reads a non-negative integer env var. Empty means def.
+func parseInt(key string, def int) (int, error) {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("config: %s debe ser un entero mayor o igual a 0, no %q", key, v)
+	}
+	return n, nil
 }
 
 func splitAndTrim(s, sep string) []string {

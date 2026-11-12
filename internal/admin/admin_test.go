@@ -58,7 +58,7 @@ func TestOnlySuperadmins(t *testing.T) {
 	t.Parallel()
 	s := apitest.New(t)
 	u := s.Register(t)
-	for _, p := range []string{"/admin/overview", "/admin/users", "/admin/users/" + u.ID, "/admin/audit"} {
+	for _, p := range []string{"/admin/overview", "/admin/users", "/admin/users/" + u.ID, "/admin/audit", "/admin/ai"} {
 		s.Do(t, apitest.Req{Method: http.MethodGet, Path: p}).Status(t, http.StatusUnauthorized)
 		s.Do(t, apitest.Req{Method: http.MethodGet, Path: p, Token: u.Token}).Status(t, http.StatusForbidden)
 	}

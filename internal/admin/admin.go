@@ -39,6 +39,7 @@ type Handler struct {
 	loc    *time.Location
 	now    func() time.Time
 	logger *slog.Logger
+	ai     AIStatus
 }
 
 // NewHandler: loc cuts weeks and months; now is the clock (nil = time.Now).
@@ -57,6 +58,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/admin/users", h.Users)
 		r.Get("/admin/users/{id}", h.User)
 		r.Get("/admin/audit", h.Audit)
+		r.Get("/admin/ai", h.AI)
 	})
 }
 
