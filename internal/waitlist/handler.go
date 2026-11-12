@@ -29,8 +29,7 @@ type Handler struct {
 // IP (in memory, like the auth limits: one API instance).
 func NewHandler(svc *Service, allowedOrigins []string, limiter func(http.Handler) http.Handler, logger *slog.Logger) *Handler {
 	if limiter == nil {
-		limiter = httprate.Limit(5, 10*time.Minute,
-			httprate.WithKeyFuncs(httprate.KeyByIP),
+		limiter = httprate.LimitBy(5, 10*time.Minute, httpx.ClientIPKey,
 			httprate.WithLimitHandler(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Retry-After", strconv.Itoa(int((10 * time.Minute).Seconds())))
 				httpx.WriteJSON(w, http.StatusTooManyRequests, httpx.ErrorResponse{

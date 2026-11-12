@@ -4,6 +4,11 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 0.15d: version refresh
+- Minor and patch updates: pgx 5.13.0, river 0.51.2, testcontainers 0.45.0, `golang.org/x/crypto` 0.59.0 (clears govulncheck GO-2026-5932), `x/text` 0.44.0, `google.golang.org/api` 0.314.0, httprate 0.16.1. Replaces Dependabot #60.
+- httprate 0.16 deprecates `Limit` and `KeyByIP`: every limiter now uses `LimitBy` with the new `httpx.ClientIPKey`, which reads the client IP that `httpx.RealIP` already resolved into `RemoteAddr`. Same keys and limits as before.
+- Images: runtime `alpine:3.24.4`; Postgres `18.7-alpine3.24` for dev (docker-compose), tests (testcontainers) and the DEPLOY guide. Go stays on 1.27.4, the latest.
+
 ### 3.2 (API part): voice entry
 - New `POST /expenses/parse-audio` in the current space: the raw voice note as the body with its audio `Content-Type` (`audio/webm`, `audio/ogg`, `audio/mp4` from Safari, sent to Gemini as `audio/m4a`, and other formats Gemini takes), at most 1 MB. Returns the same fields as `/expenses/parse` plus `transcript`, what the person said. Nothing is saved and the audio is only held in memory for the call (plan §8b). 422 for another format, an empty body or over 1 MB.
 - One Gemini call (`parse_audio` route, prompt `parse_audio.v1`) returns the transcript, with amounts in digits, and the fields. The rules then read the transcript like a typed sentence and win where they are clear, so a correction typed in the box gives the same reading; the AI fills only what they miss, and its description and payment words must appear in the transcript. Payment method names never leave. Counts against the 8.1 limits of the person who asks; `ai_usage.audio_seconds` is filled from the audio tokens.

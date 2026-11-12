@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+
+	"github.com/go-chi/httprate"
 )
 
 // CloudflareRanges: Cloudflare's published edge ranges
@@ -111,4 +113,15 @@ func clientAddr(r *http.Request, trusted, cloudflare []netip.Prefix) netip.Addr 
 		}
 	}
 	return hop
+}
+
+// ClientIPKey is the rate-limit key for httprate.LimitBy: the client IP
+// that RealIP left in r.RemoteAddr (an IPv6 client counts by its /64).
+// RealIP must run first, or every client behind the proxy shares a key.
+func ClientIPKey(r *http.Request) (string, error) {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+	return httprate.CanonicalizeIP(ip), nil
 }

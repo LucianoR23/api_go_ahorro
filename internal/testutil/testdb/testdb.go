@@ -41,7 +41,7 @@ import (
 )
 
 // Image must match docker-compose.yml and the staging database.
-const Image = "postgres:18.6-alpine3.24"
+const Image = "postgres:18.7-alpine3.24"
 
 var (
 	once      sync.Once
