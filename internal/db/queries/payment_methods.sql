@@ -83,3 +83,14 @@ RETURNING *;
 -- name: PaymentMethodOwnedBy :one
 -- A payment method id sent by a client belongs to that user (plan 0.6).
 SELECT EXISTS (SELECT 1 FROM payment_methods WHERE id = $1 AND owner_user_id = $2)::bool;
+
+-- name: ListPaymentMatchNames :many
+-- The words that name each active payment method, for reading sentences
+-- such as "café 2500 visa galicia" (plan 3.1).
+SELECT pm.id, pm.name, pm.kind, COALESCE(b.name, '')::text AS bank_name, COALESCE(cc.alias, '')::text AS card_alias,
+       COALESCE(cc.network, '')::text AS card_network
+FROM payment_methods pm
+LEFT JOIN banks b ON b.id = pm.bank_id
+LEFT JOIN credit_cards cc ON cc.payment_method_id = pm.id
+WHERE pm.owner_user_id = $1 AND pm.is_active = true
+ORDER BY pm.name;

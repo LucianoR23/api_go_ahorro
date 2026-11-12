@@ -22,6 +22,7 @@ internal/
   balances/           cálculo de deudas entre miembros (read-only)
   categories/         CRUD de categorías por hogar
   categorize/         category suggestion: history, then AI (plan 8.4)
+  expenseparse/       natural-language entry: rules, then AI, 24 h cache (plan 3.1)
   config/             carga de .env + validación
   creditperiods/      closing_day / due_day overrides por mes y tarjeta
   db/                 pool pgx + helpers de pgtype.Numeric

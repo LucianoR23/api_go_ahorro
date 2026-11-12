@@ -37,6 +37,7 @@ import (
 	sqlcgen "github.com/LucianoR23/valuo_api/internal/db/sqlc"
 	"github.com/LucianoR23/valuo_api/internal/domain"
 	"github.com/LucianoR23/valuo_api/internal/email"
+	"github.com/LucianoR23/valuo_api/internal/expenseparse"
 	"github.com/LucianoR23/valuo_api/internal/expenses"
 	"github.com/LucianoR23/valuo_api/internal/exports"
 	"github.com/LucianoR23/valuo_api/internal/fxrates"
@@ -502,7 +503,16 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 
 	// Auto-categorization (plan 8.4): the expense form asks for a category
 	// from the description; history first, the AI only when needed.
-	categoriesHandler.WithSuggester(categorize.New(categorize.NewStore(pool), aiSvc, logger))
+	suggester := categorize.New(categorize.NewStore(pool), aiSvc, logger)
+	categoriesHandler.WithSuggester(suggester)
+
+	// Natural-language entry (plan 3.1): rules read the sentence, the AI
+	// only when they cannot tell the amount; the category comes from 8.4.
+	parseNow := opts.Now
+	if parseNow == nil {
+		parseNow = dates.Now
+	}
+	expensesHandler.WithParser(expenseparse.New(expenseparse.NewStore(pool), aiSvc, suggester, dates.Location(), parseNow, logger))
 	reportsMailer.SetIntro(func(ctx context.Context, hhID uuid.UUID, month time.Time) (string, bool) {
 		y, m, _ := month.Date()
 		body, ok, err := insightsRepo.AIBody(ctx, hhID, time.Date(y, m+1, 1, 0, 0, 0, 0, time.UTC), domain.InsightTypeMonthlyReview)

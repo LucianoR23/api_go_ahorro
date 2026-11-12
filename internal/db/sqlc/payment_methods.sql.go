@@ -156,6 +156,54 @@ func (q *Queries) ListAllPaymentMethodsByOwner(ctx context.Context, ownerUserID 
 	return items, nil
 }
 
+const listPaymentMatchNames = `-- name: ListPaymentMatchNames :many
+SELECT pm.id, pm.name, pm.kind, COALESCE(b.name, '')::text AS bank_name, COALESCE(cc.alias, '')::text AS card_alias,
+       COALESCE(cc.network, '')::text AS card_network
+FROM payment_methods pm
+LEFT JOIN banks b ON b.id = pm.bank_id
+LEFT JOIN credit_cards cc ON cc.payment_method_id = pm.id
+WHERE pm.owner_user_id = $1 AND pm.is_active = true
+ORDER BY pm.name
+`
+
+type ListPaymentMatchNamesRow struct {
+	ID          uuid.UUID `json:"id"`
+	Name        string    `json:"name"`
+	Kind        string    `json:"kind"`
+	BankName    string    `json:"bank_name"`
+	CardAlias   string    `json:"card_alias"`
+	CardNetwork string    `json:"card_network"`
+}
+
+// The words that name each active payment method, for reading sentences
+// such as "café 2500 visa galicia" (plan 3.1).
+func (q *Queries) ListPaymentMatchNames(ctx context.Context, ownerUserID uuid.UUID) ([]ListPaymentMatchNamesRow, error) {
+	rows, err := q.db.Query(ctx, listPaymentMatchNames, ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPaymentMatchNamesRow{}
+	for rows.Next() {
+		var i ListPaymentMatchNamesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Kind,
+			&i.BankName,
+			&i.CardAlias,
+			&i.CardNetwork,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPaymentMethodsByOwner = `-- name: ListPaymentMethodsByOwner :many
 SELECT id, owner_user_id, bank_id, name, kind, allows_installments, is_active, created_at FROM payment_methods
 WHERE owner_user_id = $1 AND is_active = true
