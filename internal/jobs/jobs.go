@@ -30,6 +30,9 @@ type Units struct {
 	WaitlistCleanup func(ctx context.Context) (deleted int64, err error)
 	// DeliverPush sends a push that waited for the end of quiet hours.
 	DeliverPush func(ctx context.Context, userID uuid.UUID, kind string, payload []byte) error
+	// DailyReminders sends the logging nudge of the 15-minute slot that
+	// starts at slot (plan 10.2).
+	DailyReminders func(ctx context.Context, slot time.Time) (sent int, err error)
 }
 
 // Queues. Generation jobs (recurring, insights, monthly email) run one at a
@@ -41,6 +44,7 @@ const (
 )
 
 const dateLayout = "2006-01-02"
+const slotLayout = "2006-01-02T15:04"
 const monthLayout = "2006-01"
 
 // generationOpts: one job per day (or month) ever, whichever replica or
@@ -138,4 +142,18 @@ type PushDeliveryArgs struct {
 func (PushDeliveryArgs) Kind() string { return "push_delivery" }
 func (PushDeliveryArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: queueMaintenance, MaxAttempts: 3}
+}
+
+// DailyRemindersArgs sends the daily reminders set in the 15-minute slot
+// starting at Slot (app timezone, plan 10.2). Unique per slot, so replicas
+// never send twice. Missed slots are not backfilled: a late "¿Hoy no
+// gastaste nada?" is noise.
+type DailyRemindersArgs struct {
+	Slot string `json:"slot"`
+}
+
+func (DailyRemindersArgs) Kind() string { return "daily_reminders" }
+func (DailyRemindersArgs) InsertOpts() river.InsertOpts {
+	// One attempt: a retry after a partial send would push twice.
+	return river.InsertOpts{Queue: queueMaintenance, MaxAttempts: 1, UniqueOpts: river.UniqueOpts{ByArgs: true}}
 }

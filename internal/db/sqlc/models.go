@@ -294,12 +294,14 @@ type Income struct {
 }
 
 type NotificationPreference struct {
-	UserID       uuid.UUID          `json:"user_id"`
-	Disabled     []string           `json:"disabled"`
-	QuietEnabled bool               `json:"quiet_enabled"`
-	QuietStart   pgtype.Time        `json:"quiet_start"`
-	QuietEnd     pgtype.Time        `json:"quiet_end"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	UserID          uuid.UUID          `json:"user_id"`
+	Disabled        []string           `json:"disabled"`
+	QuietEnabled    bool               `json:"quiet_enabled"`
+	QuietStart      pgtype.Time        `json:"quiet_start"`
+	QuietEnd        pgtype.Time        `json:"quiet_end"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	ReminderEnabled bool               `json:"reminder_enabled"`
+	ReminderAt      pgtype.Time        `json:"reminder_at"`
 }
 
 type PasswordReset struct {

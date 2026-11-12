@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -42,6 +43,7 @@ func fromRow(row sqlcgen.NotificationPreference) Prefs {
 	return Prefs{
 		Disabled: disabled,
 		Quiet:    QuietHours{Enabled: row.QuietEnabled, Start: fromTime(row.QuietStart), End: fromTime(row.QuietEnd)},
+		Reminder: Reminder{Enabled: row.ReminderEnabled, At: fromTime(row.ReminderAt)},
 	}
 }
 
@@ -81,6 +83,9 @@ func (s *Service) Save(ctx context.Context, userID uuid.UUID, p Prefs) (Prefs, e
 	if p.Quiet.Start == p.Quiet.End {
 		return Prefs{}, domain.NewValidationError("quietHours.end", "tiene que ser distinto del inicio")
 	}
+	if p.Reminder.At < 0 || p.Reminder.At >= minutesPerDay || p.Reminder.At%ReminderStep != 0 {
+		return Prefs{}, domain.NewValidationError("dailyReminder.at", "tiene que ser una hora en punto, y cuarto, y media o menos cuarto")
+	}
 	disabled := slices.Clone(p.Disabled)
 	slices.Sort(disabled)
 	disabled = slices.Compact(disabled)
@@ -88,14 +93,31 @@ func (s *Service) Save(ctx context.Context, userID uuid.UUID, p Prefs) (Prefs, e
 		disabled = []string{}
 	}
 	row, err := s.q.UpsertNotificationPreferences(ctx, sqlcgen.UpsertNotificationPreferencesParams{
-		UserID:       userID,
-		Disabled:     disabled,
-		QuietEnabled: p.Quiet.Enabled,
-		QuietStart:   toTime(p.Quiet.Start),
-		QuietEnd:     toTime(p.Quiet.End),
+		UserID:          userID,
+		Disabled:        disabled,
+		QuietEnabled:    p.Quiet.Enabled,
+		QuietStart:      toTime(p.Quiet.Start),
+		QuietEnd:        toTime(p.Quiet.End),
+		ReminderEnabled: p.Reminder.Enabled,
+		ReminderAt:      toTime(p.Reminder.At),
 	})
 	if err != nil {
 		return Prefs{}, fmt.Errorf("notifprefs.Save: %w", err)
 	}
 	return fromRow(row), nil
+}
+
+// DueReminders lists who gets the daily reminder in the slot [from, to)
+// of the day that starts at dayStart: reminder on, set in the slot, and
+// nothing loaded since dayStart (plan 10.2).
+func (s *Service) DueReminders(ctx context.Context, from, to TimeOfDay, dayStart time.Time) ([]uuid.UUID, error) {
+	ids, err := s.q.DueDailyReminders(ctx, sqlcgen.DueDailyRemindersParams{
+		FromTime: toTime(from),
+		ToTime:   toTime(to),
+		DayStart: pgtype.Timestamptz{Time: dayStart, Valid: true},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("notifprefs.DueReminders: %w", err)
+	}
+	return ids, nil
 }

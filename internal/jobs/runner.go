@@ -26,6 +26,7 @@ var (
 	cpiSchedule       = daily{5, 0}
 	reportsSchedule   = monthly{8, 0}
 	fxInterval        = 15 * time.Minute
+	remindersSchedule = every{15 * time.Minute}
 )
 
 // Backfill limits: how far back a restart recovers missed periods. Older
@@ -130,6 +131,20 @@ func newRunner(pool *pgxpool.Pool, u Units, logger *slog.Logger, testOnly bool) 
 	addWorker(workers, time.Minute, func(ctx context.Context, a PushDeliveryArgs) error {
 		return u.DeliverPush(ctx, a.UserID, a.NoticeKind, a.Payload)
 	})
+	addWorker(workers, 2*time.Minute, func(ctx context.Context, a DailyRemindersArgs) error {
+		slot, err := time.ParseInLocation(slotLayout, a.Slot, dates.Location())
+		if err != nil {
+			return river.JobCancel(err)
+		}
+		sent, err := u.DailyReminders(ctx, slot)
+		if err != nil {
+			return err
+		}
+		if sent > 0 {
+			logger.InfoContext(ctx, "daily reminders: ok", "slot", a.Slot, "sent", sent)
+		}
+		return nil
+	})
 	addWorker(workers, time.Minute, func(ctx context.Context, _ WaitlistCleanupArgs) error {
 		n, err := u.WaitlistCleanup(ctx)
 		if err != nil {
@@ -179,6 +194,12 @@ func newRunner(pool *pgxpool.Pool, u Units, logger *slog.Logger, testOnly bool) 
 		river.NewPeriodicJob(waitlistSchedule,
 			func() (river.JobArgs, *river.InsertOpts) { return WaitlistCleanupArgs{}, nil },
 			&river.PeriodicJobOpts{ID: "waitlist_cleanup", RunOnStart: true}),
+		// No RunOnStart: a restart mid-slot would send that slot late.
+		river.NewPeriodicJob(remindersSchedule,
+			func() (river.JobArgs, *river.InsertOpts) {
+				return DailyRemindersArgs{Slot: remindersSchedule.last(r.now()).Format(slotLayout)}, nil
+			},
+			&river.PeriodicJobOpts{ID: "daily_reminders"}),
 	}
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{

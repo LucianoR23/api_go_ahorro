@@ -49,6 +49,7 @@ import (
 	"github.com/LucianoR23/valuo_api/internal/paymethods"
 	"github.com/LucianoR23/valuo_api/internal/push"
 	"github.com/LucianoR23/valuo_api/internal/recurringexpenses"
+	"github.com/LucianoR23/valuo_api/internal/reminders"
 	"github.com/LucianoR23/valuo_api/internal/reports"
 	"github.com/LucianoR23/valuo_api/internal/settlements"
 	"github.com/LucianoR23/valuo_api/internal/simulations"
@@ -115,6 +116,8 @@ type Jobs struct {
 	MonthlyReports func(ctx context.Context, at time.Time) error
 	// DeliverPush sends a push that waited for the end of quiet hours.
 	DeliverPush func(ctx context.Context, userID uuid.UUID, kind string, payload []byte) error
+	// DailyReminders sends the logging nudge of the slot starting at slot.
+	DailyReminders func(ctx context.Context, slot time.Time) (sent int, err error)
 }
 
 // Jobs returns the background jobs' units of work.
@@ -270,6 +273,12 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	if opts.Now != nil {
 		pushSvc.SetClock(opts.Now)
 	}
+	// Daily logging nudge (plan 10.2), sent by a job every 15 minutes.
+	reminderNow := opts.Now
+	if reminderNow == nil {
+		reminderNow = dates.Now
+	}
+	remindersSvc := reminders.NewService(notifPrefsSvc, pushSvc, dates.Location(), reminderNow, logger)
 
 	// AccountService: account deletion (soft delete), one transaction in
 	// userRepo. Wired into authHandler through a setter.
@@ -432,6 +441,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		RecurringExpenses: recurringExpensesSvc.GenerateDue,
 		RecurringIncomes:  incomesSvc.GenerateDue,
 		Insights:          insightsSvc.GenerateAll,
+		DailyReminders:    remindersSvc.Run,
 	}
 
 	reportsRepo := reports.NewRepository(pool)
@@ -507,6 +517,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		DeliverPush:       pushSvc.DeliverDeferred,
 		AuditRetention:    func(ctx context.Context) error { return audit.ApplyRetention(ctx, pool, logger) },
 		WaitlistCleanup:   waitlistSvc.Cleanup,
+		DailyReminders:    a.jobs.DailyReminders,
 	}, logger)
 	if err != nil {
 		return nil, err

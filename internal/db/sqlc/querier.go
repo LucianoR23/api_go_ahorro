@@ -175,6 +175,11 @@ type Querier interface {
 	DeleteWaitlistEntry(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteWaitlistEntryByEmail(ctx context.Context, email string) (int64, error)
 	DismissRecurringSuggestion(ctx context.Context, arg DismissRecurringSuggestionParams) error
+	// People whose daily reminder (plan 10.2) falls in [from_time, to_time) and
+	// who loaded nothing since day_start: no expense they created and no income
+	// they received, leaving out the ones generated from a recurring entry.
+	// Only onboarded accounts with at least one device to push to.
+	DueDailyReminders(ctx context.Context, arg DueDailyRemindersParams) ([]uuid.UUID, error)
 	EnsureCardStatement(ctx context.Context, arg EnsureCardStatementParams) error
 	// The shared space ("Hogar") the user belongs to, if any (plan 1.2: at most
 	// one active). Oldest first so accounts from before the rule pick the same.

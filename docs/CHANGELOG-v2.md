@@ -4,6 +4,13 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 10.2 (API part): daily logging reminder
+- Optional daily push "¿Hoy no gastaste nada?" at a time the person picks (15-minute steps, app timezone; 21:00 by default). Off by default. Sent only on days the person loaded nothing: no expense they created and no income they received, in any space. Movements generated from a recurring entry don't count. Only onboarded accounts with a device subscribed.
+- `GET` and `PUT /me/notification-preferences` gain `dailyReminder: {enabled, at}`. A `PUT` without it keeps the stored value, so an app from before 10.2 can't turn it off.
+- A River job (`daily_reminders`) runs every 15 minutes and covers the reminders set in that slot. Unique per slot, one attempt, no backfill: a slot worked more than 30 minutes late is skipped, since a late reminder is noise.
+- Quiet hours drop the reminder instead of holding it until morning (new `Kind.Expires`). The push carries no amounts and opens `/agregar`.
+- Migration 000045 adds `reminder_enabled` and `reminder_at` to `notification_preferences`, with a 15-minute check and a partial index for the job.
+
 ### 1.11 (API part): superadmin panel
 - New `internal/admin` package, superadmin only (401 signed out, 403 for anyone else). Following plan §8b it returns counts and account metadata only: no amounts, no descriptions, nothing from inside a space.
 - `GET /admin/overview`: accounts (total, new in the last 7 days, new this month, verified, active in the last 30 days by session use), active and deleted hogares, confirmed waitlist entries, and expenses and incomes created per month for the last 6 months (by creation date, app time zone).
