@@ -28,7 +28,16 @@ type Mailer struct {
 	brand      string
 	logger     *slog.Logger
 	prefs      prefsSource
+	intro      IntroSource
 }
+
+// IntroSource returns the AI paragraph of a space's month (plan 8.2), or
+// false when there is none. The insights job writes it at 01:00 on the 1st,
+// before this email goes out at 08:00.
+type IntroSource func(ctx context.Context, householdID uuid.UUID, month time.Time) (string, bool)
+
+// SetIntro adds the month's AI paragraph to the email when there is one.
+func (w *Mailer) SetIntro(src IntroSource) { w.intro = src }
 
 // prefsSource reads who turned the monthly email off (plan 10.1).
 type prefsSource interface {
@@ -106,7 +115,11 @@ func (w *Mailer) sendForHousehold(ctx context.Context, householdID uuid.UUID, mo
 		return nil // nada que enviar
 	}
 
-	html, err := RenderMonthlyHTML(w.brand, hh.Name, rep)
+	intro := ""
+	if w.intro != nil {
+		intro, _ = w.intro(ctx, householdID, month)
+	}
+	html, err := RenderMonthlyHTML(w.brand, hh.Name, intro, rep)
 	if err != nil {
 		return err
 	}

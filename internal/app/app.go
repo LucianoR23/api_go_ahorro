@@ -56,6 +56,7 @@ import (
 	"github.com/LucianoR23/valuo_api/internal/simulations"
 	"github.com/LucianoR23/valuo_api/internal/splitrules"
 	"github.com/LucianoR23/valuo_api/internal/statements"
+	"github.com/LucianoR23/valuo_api/internal/summaries"
 	"github.com/LucianoR23/valuo_api/internal/support"
 	"github.com/LucianoR23/valuo_api/internal/users"
 	"github.com/LucianoR23/valuo_api/internal/waitlist"
@@ -493,6 +494,19 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	}
 	a.ai = aiSvc
 
+	// AI summaries (plan 8.2): the weekly and monthly reviews ask the AI to
+	// rewrite their text from our own figures; the monthly email reuses the
+	// paragraph. Rule-based text whenever the AI is off or fails.
+	insightsSvc.SetSummaries(summaries.New(aiSvc, logger), spaceMembers(householdsRepo), monthNumbers(reportsSvc))
+	reportsMailer.SetIntro(func(ctx context.Context, hhID uuid.UUID, month time.Time) (string, bool) {
+		y, m, _ := month.Date()
+		body, ok, err := insightsRepo.AIBody(ctx, hhID, time.Date(y, m+1, 1, 0, 0, 0, 0, time.UTC), domain.InsightTypeMonthlyReview)
+		if err != nil {
+			logger.WarnContext(ctx, "monthly report: AI paragraph lookup failed", "householdId", hhID.String(), "error", err)
+		}
+		return body, ok
+	})
+
 	// support: proxy al servicio centralizado Lemy Support. Stateless, sin
 	// repo ni migración — solo usa userRepo para resolver el email del
 	// reporter (el JWT solo trae el userID). Si SOPORTE_API_KEY no está, el
@@ -827,6 +841,53 @@ func (a pushNotifierAdapter) NotifyUsersWithAmounts(ctx context.Context, userIDs
 // on a date, for the due-soon reminder. Credit cards are left out: their
 // statement reminder covers them (plan 4.3). Direct query on the pool; it uses
 // idx_installments_household_due_unpaid (migration 000030).
+// spaceMembers: a space's owner (whom its AI summaries are charged to) and
+// all its members (who get the weekly push), for insights (plan 8.2).
+func spaceMembers(repo interface {
+	ListMembers(ctx context.Context, householdID uuid.UUID) ([]domain.HouseholdMemberDetail, error)
+}) insights.SpaceMembersAdapter {
+	return func(ctx context.Context, householdID uuid.UUID) (uuid.UUID, []uuid.UUID, error) {
+		list, err := repo.ListMembers(ctx, householdID)
+		if err != nil {
+			return uuid.Nil, nil, err
+		}
+		owner := uuid.Nil
+		ids := make([]uuid.UUID, 0, len(list))
+		for _, m := range list {
+			ids = append(ids, m.User.ID)
+			if m.Role == domain.RoleOwner && owner == uuid.Nil {
+				owner = m.User.ID
+			}
+		}
+		if owner == uuid.Nil {
+			return uuid.Nil, nil, fmt.Errorf("space %s has no owner", householdID)
+		}
+		return owner, ids, nil
+	}
+}
+
+// monthNumbers: a space's month in its base currency, from the reports
+// service, for the monthly review (plan 8.2).
+func monthNumbers(svc *reports.Service) insights.MonthNumbersAdapter {
+	return func(ctx context.Context, householdID uuid.UUID, month time.Time) (insights.MonthNumbers, error) {
+		rep, err := svc.Monthly(ctx, householdID, month, reports.ViewRequest{})
+		if err != nil {
+			return insights.MonthNumbers{}, err
+		}
+		out := insights.MonthNumbers{
+			Currency: rep.BaseCurrency, Spent: rep.Spent, Income: rep.Income,
+			FixedPct: rep.FixedVariable.FixedPct,
+		}
+		for _, c := range rep.ByCategory {
+			if c.CategoryID == nil {
+				continue // "Sin categoría" is not a category to name
+			}
+			out.Categories = append(out.Categories, insights.MonthCategory{Name: c.CategoryName, Total: c.Total, Pct: c.Pct})
+		}
+		return out, nil
+	}
+}
+
 func listInstallmentsDueOn(pool *pgxpool.Pool) func(ctx context.Context, householdID uuid.UUID, due time.Time) ([]insights.InstallmentDueForReminder, error) {
 	return func(ctx context.Context, householdID uuid.UUID, due time.Time) ([]insights.InstallmentDueForReminder, error) {
 		const q = `

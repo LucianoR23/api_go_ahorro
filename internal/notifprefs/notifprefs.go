@@ -27,9 +27,10 @@ const (
 	Goals Kind = "goals"
 	// Recurring: a recurring expense went up more than its alert.
 	Recurring Kind = "recurring"
-	// WeeklyReview: Sunday's summary of the week.
+	// WeeklyReview: Sunday's summary of the week (push since plan 8.2).
 	WeeklyReview Kind = "weekly_review"
-	// MonthlyReport: the email with last month's summary.
+	// MonthlyReport: last month's summary, by email and, since plan 8.2,
+	// as an in-app notice.
 	MonthlyReport Kind = "monthly_report"
 	// Invite: an invitation to a space. It can't be muted (it is rare and
 	// waits for an answer), but quiet hours still hold its push.
@@ -68,8 +69,8 @@ var Catalog = []Entry{
 	{Installments, []Channel{InApp, Push}},
 	{Goals, []Channel{InApp}},
 	{Recurring, []Channel{InApp}},
-	{WeeklyReview, []Channel{InApp}},
-	{MonthlyReport, []Channel{Email}},
+	{WeeklyReview, []Channel{InApp, Push}},
+	{MonthlyReport, []Channel{InApp, Email}},
 }
 
 // Key is the stored form of a muted kind and channel: "cards.push".

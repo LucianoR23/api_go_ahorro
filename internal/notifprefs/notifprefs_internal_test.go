@@ -58,7 +58,7 @@ func TestTimeOfDay(t *testing.T) {
 
 func TestCatalogKeys(t *testing.T) {
 	t.Parallel()
-	for _, ok := range []string{"shared_expense.push", "cards.in_app", "monthly_report.email", "weekly_review.in_app"} {
+	for _, ok := range []string{"shared_expense.push", "cards.in_app", "monthly_report.email", "weekly_review.in_app", "weekly_review.push", "monthly_report.in_app"} {
 		if !validKey(ok) {
 			t.Errorf("%q should be valid", ok)
 		}

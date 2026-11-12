@@ -4,6 +4,15 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 8.2 (API part): AI weekly and monthly summaries
+- First feature on `internal/ai`. The weekly review (Sundays) and a new monthly review (the 1st, for the month that ended) keep their rule-based text; when AI is on, Claude Haiku rewrites it into one short paragraph from the same figures. The server computes every number and sends only aggregates: totals, the change against the previous period, counts, what is still due, the income, the share of fixed expenses and up to three category names with their amounts. No descriptions, names or emails.
+- New `internal/summaries` writer. The answer must be one plain paragraph of up to 400 characters (no markdown, links or line breaks), and every number in it must appear in the facts: an invented or rounded figure throws the answer away. Rule-based text whenever AI is off, the owner's email is unverified, a limit is hit or the provider fails. An empty week asks nothing.
+- One summary per space, seen by every member; its AI cost counts against the space owner. A rerun the same day pays nothing (the job checks for the notice first).
+- Prompt templates now live in `internal/ai/prompts/<name>.v<N>.tmpl`, loaded with `ai.LoadPrompt`; the version (`weekly_summary.v1`) is stored with each call in `ai_usage`.
+- The weekly review now also goes out as a push to every member, without amounts on the lock screen; it can be muted (`weekly_review.push`). Empty weeks send no push.
+- The monthly review is a new in-app notice (`monthly_review`, "Tu octubre: $ 850.000"), skipped for a space with no spending and no income that month. The monthly email shows its paragraph under the header when the AI wrote it, so the email costs no second call. Migration 000047 maps `monthly_review` to the `monthly_report` preference, which gains an in-app switch.
+- Eval set in `internal/summaries/testdata/eval`: `go test -tags aismoke -run Eval ./internal/summaries/` runs it against the real provider after a prompt or model change; never in CI.
+
 ### 8.1 (API part): AI platform layer
 - New `internal/ai` package, the only door to AI providers. There is no generic chat: each feature calls `Service.Run` with its task, prompt, input and JSON schema, and gets back its own struct, decoded strictly (unknown fields rejected) and checked by its `Validate`. An invalid or cut answer, a rate limit or an overloaded provider gets one retry; a timeout does not.
 - Providers: Claude (Haiku 5.5 by default) for text, images, PDFs and summaries, and Gemini (3.5 Flash-Lite) for audio only, since Claude takes no audio input. Both are small stdlib HTTP clients instead of the official SDKs: the Gemini SDK pulls in gRPC, OpenCensus and Google Cloud auth for one call, and the Anthropic one ships a release every few days; we use one endpoint each. Gemini goes through the Interactions API (Google's recommended interface since June 2026) with `store=false`.

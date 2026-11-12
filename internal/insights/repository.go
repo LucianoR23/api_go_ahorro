@@ -300,25 +300,61 @@ func (r *Repository) SumDue(ctx context.Context, householdID uuid.UUID, from, to
 	return money.FromNumeric(n), nil
 }
 
-type TopCategory struct {
-	CategoryID *uuid.UUID
-	Total      decimal.Decimal
-	Found      bool
+// CategoryTotal is what a category added up in a range.
+type CategoryTotal struct {
+	Name  string
+	Total decimal.Decimal
 }
 
-func (r *Repository) TopCategory(ctx context.Context, householdID uuid.UUID, from, to time.Time) (TopCategory, error) {
-	row, err := r.q.TopCategorySpentAtRange(ctx, sqlcgen.TopCategorySpentAtRangeParams{
+// TopCategories returns up to n categories with the most spending between
+// from and to, largest first.
+func (r *Repository) TopCategories(ctx context.Context, householdID uuid.UUID, from, to time.Time, n int32) ([]CategoryTotal, error) {
+	rows, err := r.q.TopCategoriesSpentAtRange(ctx, sqlcgen.TopCategoriesSpentAtRangeParams{
 		HouseholdID: householdID,
-		Column2:     pgtype.Date{Time: from, Valid: true},
-		Column3:     pgtype.Date{Time: to, Valid: true},
+		FromDate:    pgtype.Date{Time: from, Valid: true},
+		ToDate:      pgtype.Date{Time: to, Valid: true},
+		MaxRows:     n,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("insights.TopCategories: %w", err)
+	}
+	out := make([]CategoryTotal, len(rows))
+	for i, row := range rows {
+		out[i] = CategoryTotal{Name: row.Name, Total: money.FromNumeric(row.TotalBase)}
+	}
+	return out, nil
+}
+
+// Exists reports whether the space already has a household-level insight
+// of that type on that day, so a rerun does not pay for the AI again.
+func (r *Repository) Exists(ctx context.Context, householdID uuid.UUID, day time.Time, insightType string) (bool, error) {
+	var ok bool
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM daily_insights
+		WHERE household_id = $1 AND user_id IS NULL AND ref_id IS NULL
+		  AND insight_date = $2 AND insight_type = $3)`,
+		householdID, pgtype.Date{Time: day, Valid: true}, insightType).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("insights.Exists: %w", err)
+	}
+	return ok, nil
+}
+
+// AIBody returns the body of a space's household-level insight when the AI
+// wrote it (metadata written_by = "ai"), for the monthly email.
+func (r *Repository) AIBody(ctx context.Context, householdID uuid.UUID, day time.Time, insightType string) (string, bool, error) {
+	var body string
+	err := r.pool.QueryRow(ctx, `SELECT body FROM daily_insights
+		WHERE household_id = $1 AND user_id IS NULL AND ref_id IS NULL
+		  AND insight_date = $2 AND insight_type = $3
+		  AND metadata ->> 'written_by' = 'ai'`,
+		householdID, pgtype.Date{Time: day, Valid: true}, insightType).Scan(&body)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return TopCategory{Found: false}, nil
+		return "", false, nil
 	}
 	if err != nil {
-		return TopCategory{}, fmt.Errorf("insights.TopCategory: %w", err)
+		return "", false, fmt.Errorf("insights.AIBody: %w", err)
 	}
-	return TopCategory{CategoryID: row.CategoryID, Total: money.FromNumeric(row.TotalBase), Found: true}, nil
+	return body, true, nil
 }
 
 // ===================== mappers =====================

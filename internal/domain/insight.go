@@ -11,6 +11,8 @@ const (
 	InsightTypeAlert        = "alert"
 	InsightTypeTip          = "tip"
 	InsightTypeWeeklyReview = "weekly_review"
+	// InsightTypeMonthlyReview: the summary of the month that ended (plan 8.2).
+	InsightTypeMonthlyReview = "monthly_review"
 	// Event-driven insights: viven al lado de los agregados diarios pero usan
 	// ref_id para de-duplicar contra la entidad origen.
 	InsightTypeSharedExpense = "shared_expense"

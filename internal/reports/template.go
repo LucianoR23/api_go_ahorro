@@ -20,6 +20,7 @@ var monthlyEmailTpl = template.Must(template.New("monthly").Parse(`<!DOCTYPE htm
   <div style="max-width:640px; margin:0 auto; background:#fff; border-radius:12px; padding:32px;">
     <h1 style="font-size:20px; margin:0 0 8px 0;">{{.Brand}} — Resumen mensual</h1>
     <p style="color:#666; margin:0 0 24px 0;">{{.HouseholdName}} · {{.Month}} · {{.BaseCurrency}}</p>
+    {{if .Intro}}<p style="margin:0 0 24px 0; font-size:15px; line-height:1.5;">{{.Intro}}</p>{{end}}
 
     <table style="width:100%; border-collapse:collapse; margin-bottom:24px;">
       <tr>
@@ -74,6 +75,7 @@ type emailData struct {
 	Brand         string
 	HouseholdName string
 	Month         string
+	Intro         string
 	BaseCurrency  string
 	Spent         string
 	Billed        string
@@ -87,8 +89,9 @@ type emailData struct {
 
 // RenderMonthlyHTML arma el HTML del email a partir del MonthlyReport.
 // Los números se formatean con el símbolo de la currency ya pegado para
-// que el template sea agnóstico.
-func RenderMonthlyHTML(brand, hhName string, rep MonthlyReport) (string, error) {
+// que el template sea agnóstico. intro is the AI paragraph of the month
+// (plan 8.2), shown under the header; empty leaves it out.
+func RenderMonthlyHTML(brand, hhName, intro string, rep MonthlyReport) (string, error) {
 	cur := rep.BaseCurrency
 	fmtMoney := func(v decimal.Decimal) string { return money.Format(v, cur) }
 	fmtPct := func(v float64) string { return fmt.Sprintf("%.1f", v) }
@@ -109,6 +112,7 @@ func RenderMonthlyHTML(brand, hhName string, rep MonthlyReport) (string, error) 
 		Brand:         brand,
 		HouseholdName: hhName,
 		Month:         rep.Month,
+		Intro:         intro,
 		BaseCurrency:  cur,
 		Spent:         fmtMoney(rep.Spent),
 		Billed:        fmtMoney(rep.Billed),

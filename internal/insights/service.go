@@ -101,6 +101,9 @@ type Service struct {
 	cardReminders   CardRemindersAdapter  // opcional; cableado via SetCardRemindersDep
 	push            pushNotifier          // opcional; cableado via SetPushNotifier
 	installmentsDue installmentsDueLister // opcional; cableado via SetInstallmentsDueDep
+	writer          SummaryWriter         // optional, SetSummaries (plan 8.2)
+	members         SpaceMembersAdapter
+	months          MonthNumbersAdapter
 }
 
 func NewService(repo *Repository, households householdsLister, goals goalsProgress, logger *slog.Logger) *Service {
@@ -267,6 +270,14 @@ func (s *Service) generateForHousehold(ctx context.Context, householdID uuid.UUI
 		}
 	}
 
+	// 2b. monthly_review — on the 1st, the month that ended (plan 8.2).
+	if c, err := s.genMonthlyReview(ctx, householdID, at); err != nil {
+		failed++
+		s.logWarn(ctx, "monthly_review falló", "householdId", householdID.String(), "error", err)
+	} else if c {
+		created++
+	}
+
 	// 3. card_closing_soon / card_due_soon — a card closes tomorrow or its
 	// statement is due in 3 days (plan 4.3). Personal spaces only.
 	cn, cf := s.genCardReminders(ctx, householdID, at)
@@ -341,6 +352,10 @@ func (s *Service) genGoalAlerts(ctx context.Context, householdID uuid.UUID, at t
 // agrega un resumen con cantidad de movimientos + total que falta pagar
 // este mes (lo que antes vivía en el daily_summary, ahora consolidado acá).
 func (s *Service) genWeeklyReview(ctx context.Context, householdID uuid.UUID, at time.Time) (bool, error) {
+	// A rerun must not pay for the AI again (plan 8.2).
+	if done, err := s.repo.Exists(ctx, householdID, dayStart(at), domain.InsightTypeWeeklyReview); err != nil || done {
+		return false, err
+	}
 	thisStart, thisEnd := weekRange(at)
 	prevEnd := thisStart.AddDate(0, 0, -1)
 	prevStart := prevEnd.AddDate(0, 0, -6)
@@ -370,6 +385,18 @@ func (s *Service) genWeeklyReview(ctx context.Context, householdID uuid.UUID, at
 
 	title := fmt.Sprintf("Semana cerrada: %s", money.Format(thisTotal, cur))
 	body := weeklyBody(thisTotal, prevTotal, counts, monthDue, cur)
+	writtenBy := "rules"
+	// An empty week keeps its one-line text: no AI call, no push.
+	var members []uuid.UUID
+	if counts.Total > 0 {
+		var owner uuid.UUID
+		var ok bool
+		if owner, members, ok = s.owner(ctx, householdID); ok {
+			if text, ok := s.weeklyAIBody(ctx, householdID, owner, thisTotal, prevTotal, counts, monthDue, cur, thisStart, thisEnd); ok {
+				body, writtenBy = text, "ai"
+			}
+		}
+	}
 	severity := domain.InsightSeverityInfo
 	if prevTotal.Sign() > 0 && thisTotal.GreaterThan(prevTotal.Mul(decimal.New(12, -1))) {
 		severity = domain.InsightSeverityWarning
@@ -388,10 +415,12 @@ func (s *Service) genWeeklyReview(ctx context.Context, householdID uuid.UUID, at
 			"this_week_count":      counts.Total,
 			"this_week_categories": counts.DistinctCategories,
 			"month_due":            monthDue,
+			"written_by":           writtenBy,
 		},
 	})
 	if created {
 		s.publish(ctx, ins)
+		s.pushWeekly(ctx, ins, members)
 	}
 	return created, err
 }
