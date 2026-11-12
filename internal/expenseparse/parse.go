@@ -47,6 +47,9 @@ type Result struct {
 	// NotFinance is true when the AI says the sentence is not an expense.
 	NotFinance bool
 	Source     Source
+	// Transcript is what the person said in a voice note (plan 3.2); empty
+	// for typed sentences and when the audio could not be heard.
+	Transcript string
 }
 
 // Store reads the person's active payment methods.
@@ -71,6 +74,7 @@ type Parser struct {
 	ai     Runner
 	cats   Categorizer
 	prompt ai.Prompt
+	audio  ai.Prompt
 	cache  *cache
 	now    func() time.Time
 	loc    *time.Location
@@ -90,6 +94,7 @@ func New(store Store, r Runner, cats Categorizer, loc *time.Location, now func()
 	}
 	return &Parser{
 		store: store, ai: r, cats: cats, prompt: ai.MustPrompt("parse_expense", nil),
+		audio: ai.MustPrompt("parse_audio", nil),
 		cache: newCache(cacheTTL, cacheSize, now), now: now, loc: loc, logger: logger,
 	}
 }
@@ -101,8 +106,7 @@ func (p *Parser) Parse(ctx context.Context, userID, householdID uuid.UUID, text 
 	if text == "" {
 		return Result{}, nil
 	}
-	y, m, d := p.now().In(p.loc).Date()
-	today := time.Date(y, m, d, 0, 0, 0, 0, p.loc)
+	today := p.today()
 
 	methods, err := p.store.Methods(ctx, userID)
 	if err != nil {
@@ -120,15 +124,27 @@ func (p *Parser) Parse(ctx context.Context, userID, householdID uuid.UUID, text 
 		}
 	}
 
-	if res.Description != "" && p.cats != nil {
-		s, ok, err := p.cats.Suggest(ctx, userID, householdID, res.Description)
-		if err != nil {
-			p.logger.WarnContext(ctx, "expenseparse: category suggestion failed", "householdId", householdID.String(), "error", err)
-		} else if ok {
-			res.CategoryID, res.CategorySource = s.CategoryID, s.Source
-		}
-	}
+	p.categorize(ctx, userID, householdID, &res)
 	return res, nil
+}
+
+// categorize fills the category from the description (plan 8.4).
+func (p *Parser) categorize(ctx context.Context, userID, householdID uuid.UUID, res *Result) {
+	if res.Description == "" || p.cats == nil {
+		return
+	}
+	s, ok, err := p.cats.Suggest(ctx, userID, householdID, res.Description)
+	if err != nil {
+		p.logger.WarnContext(ctx, "expenseparse: category suggestion failed", "householdId", householdID.String(), "error", err)
+	} else if ok {
+		res.CategoryID, res.CategorySource = s.CategoryID, s.Source
+	}
+}
+
+// today is the start of the current day in the app's time zone.
+func (p *Parser) today() time.Time {
+	y, m, d := p.now().In(p.loc).Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, p.loc)
 }
 
 const (
@@ -225,10 +241,10 @@ func (p *Parser) askAI(ctx context.Context, userID, householdID uuid.UUID, text 
 
 // merge fills what the rules missed with the AI's answer. Words the AI
 // returns must come from the sentence: it never writes a description of
-// its own (plan §8.4).
+// its own (plan §8.4). An amount the rules read clearly is kept.
 func merge(res Result, a answer, text string, today time.Time, methods []Method) Result {
 	res.Source = SourceAI
-	if a.Amount > 0 {
+	if !res.Understood && a.Amount > 0 {
 		res.Amount, res.Understood = a.Amount, true
 	}
 	if res.Currency == "" {

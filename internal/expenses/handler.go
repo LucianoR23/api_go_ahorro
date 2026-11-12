@@ -42,6 +42,7 @@ func (h *Handler) Mount(r chi.Router) {
 			r.Get("/", h.List)
 			r.Get("/drafts", h.ListDrafts)
 			r.Post("/parse", h.Parse)
+			r.Post("/parse-audio", h.ParseAudio)
 			r.Post("/", h.Create)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", h.Get)

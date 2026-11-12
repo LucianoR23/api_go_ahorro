@@ -4,6 +4,14 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 3.2 (API part): voice entry
+- New `POST /expenses/parse-audio` in the current space: the raw voice note as the body with its audio `Content-Type` (`audio/webm`, `audio/ogg`, `audio/mp4` from Safari, sent to Gemini as `audio/m4a`, and other formats Gemini takes), at most 1 MB. Returns the same fields as `/expenses/parse` plus `transcript`, what the person said. Nothing is saved and the audio is only held in memory for the call (plan §8b). 422 for another format, an empty body or over 1 MB.
+- One Gemini call (`parse_audio` route, prompt `parse_audio.v1`) returns the transcript, with amounts in digits, and the fields. The rules then read the transcript like a typed sentence and win where they are clear, so a correction typed in the box gives the same reading; the AI fills only what they miss, and its description and payment words must appear in the transcript. Payment method names never leave. Counts against the 8.1 limits of the person who asks; `ai_usage.audio_seconds` is filled from the audio tokens.
+- AI off, over a limit or failing: 200 with no transcript, and the app asks to type it.
+- At most 400 output tokens (300 for typed sentences) to fit the transcript. The 30 s limit is the app's; the server only caps the size.
+- `merge` no longer replaces an amount the rules read clearly (it was only called when they had not, so typed sentences read the same).
+- No migration.
+
 ### 3.1 (API part): natural-language entry
 - New `POST /expenses/parse {text}` in the current space: reads a sentence such as "zapatillas 120 mil en 6 cuotas con master" and returns the fields it understood (amount, currency, date, installments, description, payment method, shared, category), with nulls for the rest. Nothing is saved: the app shows the fields for the person to confirm. Always 200 unless the text is over 300 characters (422).
 - New `internal/expenseparse`. Rules first, free: amounts ("2.500", "2500,50", "120 mil", "15 lucas", "1.5 palos", "$", "u$s", "euros"), installments ("6 cuotas", "en doce cuotas sin interés"), dates ("hoy", "ayer", "antes de ayer", "el lunes", "el 15", "10/11", "3 de marzo", never in the future), "compartido" or "hogar", and the payment method from its name, bank, card alias and card network ("master", "mp").

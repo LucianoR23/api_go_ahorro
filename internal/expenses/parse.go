@@ -3,6 +3,7 @@ package expenses
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"unicode/utf8"
 
@@ -18,9 +19,10 @@ import (
 // Parser reads a sentence into expense fields (plan 3.1).
 type Parser interface {
 	Parse(ctx context.Context, userID, householdID uuid.UUID, text string) (expenseparse.Result, error)
+	ParseAudio(ctx context.Context, userID, householdID uuid.UUID, mimeType string, data []byte) (expenseparse.Result, error)
 }
 
-// WithParser enables POST /expenses/parse.
+// WithParser enables POST /expenses/parse and /expenses/parse-audio.
 func (h *Handler) WithParser(p Parser) *Handler {
 	h.parser = p
 	return h
@@ -47,6 +49,9 @@ type parseDTO struct {
 	Shared            bool     `json:"shared"`
 	CategoryID        *string  `json:"categoryId"`
 	CategorySource    *string  `json:"categorySource"`
+	// Transcript is what a voice note said (plan 3.2); null for text, and
+	// when the audio could not be heard.
+	Transcript *string `json:"transcript"`
 }
 
 func ptr[T any](v T) *T { return &v }
@@ -84,7 +89,48 @@ func toParseDTO(r expenseparse.Result) parseDTO {
 		out.CategoryID = ptr(r.CategoryID.String())
 		out.CategorySource = ptr(string(r.CategorySource))
 	}
+	if r.Transcript != "" {
+		out.Transcript = ptr(r.Transcript)
+	}
 	return out
+}
+
+// ParseAudio takes a voice note as the raw body, with its audio
+// Content-Type (plan 3.2). Like Parse, it answers 200 with whatever was
+// understood and saves nothing; the audio is not kept.
+func (h *Handler) ParseAudio(w http.ResponseWriter, r *http.Request) {
+	householdID, ok := households.HouseholdIDFrom(r.Context())
+	userID, okUser := auth.UserIDFrom(r.Context())
+	if !ok || !okUser {
+		httpx.WriteError(w, r, h.logger, errors.New("middleware faltante"))
+		return
+	}
+	contentType := r.Header.Get("Content-Type")
+	if _, ok := expenseparse.AudioType(contentType); !ok {
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("audio", "formato no soportado"))
+		return
+	}
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, expenseparse.MaxAudioBytes))
+	var tooBig *http.MaxBytesError
+	switch {
+	case errors.As(err, &tooBig):
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("audio", "es demasiado largo"))
+		return
+	case err != nil:
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	case len(data) == 0:
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("audio", "está vacío"))
+		return
+	}
+	var res expenseparse.Result
+	if h.parser != nil {
+		if res, err = h.parser.ParseAudio(r.Context(), userID, householdID, contentType, data); err != nil {
+			httpx.WriteError(w, r, h.logger, err)
+			return
+		}
+	}
+	httpx.WriteJSON(w, http.StatusOK, toParseDTO(res))
 }
 
 // Parse answers 200 with whatever was understood; nothing is saved. An AI
