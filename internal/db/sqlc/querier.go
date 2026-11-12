@@ -524,9 +524,9 @@ type Querier interface {
 	// Para gastos NO compartidos (is_shared=false): cuenta el total si el usuario
 	// es created_by, porque no hay filas de shares.
 	SumInstallmentsForUserGoal(ctx context.Context, arg SumInstallmentsForUserGoalParams) (pgtype.Numeric, error)
-	// Categoría con más gasto en el rango (spent_at). Devuelve también el total.
-	// Si no hay gastos, no devuelve filas (el caller lo maneja como "sin datos").
-	TopCategorySpentAtRange(ctx context.Context, arg TopCategorySpentAtRangeParams) (TopCategorySpentAtRangeRow, error)
+	// The categories with the most spending in the range (spent_at), for the
+	// AI summaries (plan 8.2). Base currency.
+	TopCategoriesSpentAtRange(ctx context.Context, arg TopCategoriesSpentAtRangeParams) ([]TopCategoriesSpentAtRangeRow, error)
 	// Solo permite cambiar el nombre (único campo editable del modelo).
 	UpdateBankName(ctx context.Context, arg UpdateBankNameParams) (Bank, error)
 	// No dejamos cambiar scope/user_id/goal_type — si hay que migrar, borrar y crear.

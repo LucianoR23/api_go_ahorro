@@ -246,35 +246,54 @@ func (q *Queries) SumInstallmentsDueInRange(ctx context.Context, arg SumInstallm
 	return total_base, err
 }
 
-const topCategorySpentAtRange = `-- name: TopCategorySpentAtRange :one
-SELECT e.category_id, COALESCE(SUM(e.amount_base), 0)::numeric AS total_base
+const topCategoriesSpentAtRange = `-- name: TopCategoriesSpentAtRange :many
+SELECT c.name, SUM(e.amount_base)::numeric AS total_base
 FROM expenses e
+JOIN categories c ON c.id = e.category_id
 WHERE e.household_id = $1
   AND e.status = 'confirmed'
   AND e.spent_at >= $2::date
   AND e.spent_at <= $3::date
-  AND e.category_id IS NOT NULL
-GROUP BY e.category_id
-ORDER BY total_base DESC
-LIMIT 1
+GROUP BY c.id, c.name
+ORDER BY total_base DESC, c.name
+LIMIT $4
 `
 
-type TopCategorySpentAtRangeParams struct {
+type TopCategoriesSpentAtRangeParams struct {
 	HouseholdID uuid.UUID   `json:"household_id"`
-	Column2     pgtype.Date `json:"column_2"`
-	Column3     pgtype.Date `json:"column_3"`
+	FromDate    pgtype.Date `json:"from_date"`
+	ToDate      pgtype.Date `json:"to_date"`
+	MaxRows     int32       `json:"max_rows"`
 }
 
-type TopCategorySpentAtRangeRow struct {
-	CategoryID *uuid.UUID     `json:"category_id"`
-	TotalBase  pgtype.Numeric `json:"total_base"`
+type TopCategoriesSpentAtRangeRow struct {
+	Name      string         `json:"name"`
+	TotalBase pgtype.Numeric `json:"total_base"`
 }
 
-// Categoría con más gasto en el rango (spent_at). Devuelve también el total.
-// Si no hay gastos, no devuelve filas (el caller lo maneja como "sin datos").
-func (q *Queries) TopCategorySpentAtRange(ctx context.Context, arg TopCategorySpentAtRangeParams) (TopCategorySpentAtRangeRow, error) {
-	row := q.db.QueryRow(ctx, topCategorySpentAtRange, arg.HouseholdID, arg.Column2, arg.Column3)
-	var i TopCategorySpentAtRangeRow
-	err := row.Scan(&i.CategoryID, &i.TotalBase)
-	return i, err
+// The categories with the most spending in the range (spent_at), for the
+// AI summaries (plan 8.2). Base currency.
+func (q *Queries) TopCategoriesSpentAtRange(ctx context.Context, arg TopCategoriesSpentAtRangeParams) ([]TopCategoriesSpentAtRangeRow, error) {
+	rows, err := q.db.Query(ctx, topCategoriesSpentAtRange,
+		arg.HouseholdID,
+		arg.FromDate,
+		arg.ToDate,
+		arg.MaxRows,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TopCategoriesSpentAtRangeRow{}
+	for rows.Next() {
+		var i TopCategoriesSpentAtRangeRow
+		if err := rows.Scan(&i.Name, &i.TotalBase); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

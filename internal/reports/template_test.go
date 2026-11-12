@@ -11,7 +11,7 @@ import (
 
 // Plan 1.10c: the monthly email writes amounts es-AR, like the app.
 func TestRenderMonthlyHTMLMoney(t *testing.T) {
-	html, err := reports.RenderMonthlyHTML("Valuo", "Casa", reports.MonthlyReport{
+	html, err := reports.RenderMonthlyHTML("Valuo", "Casa", "", reports.MonthlyReport{
 		BaseCurrency: "ARS",
 		Month:        "2026-10",
 		Spent:        decimal.RequireFromString("19450.00"),
@@ -31,5 +31,24 @@ func TestRenderMonthlyHTMLMoney(t *testing.T) {
 	}
 	if strings.Contains(html, "19450.00") || strings.Contains(html, "1050.50 ARS") {
 		t.Error("email still has the old amount format")
+	}
+}
+
+// Plan 8.2: the month's AI paragraph goes under the header, escaped.
+func TestRenderMonthlyHTMLIntro(t *testing.T) {
+	rep := reports.MonthlyReport{BaseCurrency: "ARS", Month: "2026-10"}
+	html, err := reports.RenderMonthlyHTML("Valuo", "Casa", "En octubre gastaste <b>$ 1</b>.", rep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, "En octubre gastaste &lt;b&gt;$ 1&lt;/b&gt;.") {
+		t.Error("intro missing or not escaped")
+	}
+	plain, err := reports.RenderMonthlyHTML("Valuo", "Casa", "", rep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(plain, "line-height:1.5") {
+		t.Error("empty intro still rendered a paragraph")
 	}
 }

@@ -83,16 +83,16 @@ WHERE i.household_id = $1
   AND COALESCE(i.due_date, i.billing_date) >= $2::date
   AND COALESCE(i.due_date, i.billing_date) <= $3::date;
 
--- name: TopCategorySpentAtRange :one
--- Categoría con más gasto en el rango (spent_at). Devuelve también el total.
--- Si no hay gastos, no devuelve filas (el caller lo maneja como "sin datos").
-SELECT e.category_id, COALESCE(SUM(e.amount_base), 0)::numeric AS total_base
+-- name: TopCategoriesSpentAtRange :many
+-- The categories with the most spending in the range (spent_at), for the
+-- AI summaries (plan 8.2). Base currency.
+SELECT c.name, SUM(e.amount_base)::numeric AS total_base
 FROM expenses e
+JOIN categories c ON c.id = e.category_id
 WHERE e.household_id = $1
   AND e.status = 'confirmed'
-  AND e.spent_at >= $2::date
-  AND e.spent_at <= $3::date
-  AND e.category_id IS NOT NULL
-GROUP BY e.category_id
-ORDER BY total_base DESC
-LIMIT 1;
+  AND e.spent_at >= sqlc.arg(from_date)::date
+  AND e.spent_at <= sqlc.arg(to_date)::date
+GROUP BY c.id, c.name
+ORDER BY total_base DESC, c.name
+LIMIT sqlc.arg(max_rows);

@@ -128,7 +128,7 @@ Ver [`.env.example`](./.env.example). Resumen:
 | `fx_refresh` | 15 min y al arrancar | rates from DolarAPI (every dollar, USDT at the crypto dollar, and the official euro, real, Chilean and Uruguayan peso), Bluelytics as fallback and for the blue euro, CoinGecko for bitcoin and ether at most once an hour (with `COINGECKO_API_KEY`) |
 | `recurring_incomes` | diario 00:30 | genera ingresos desde plantillas |
 | `recurring_expenses` | diario 00:30 | genera gastos desde plantillas |
-| `insights_daily` | diario 01:00 | arma daily_summary + alerts + weekly (domingos) |
+| `insights_daily` | diario 01:00 | alerts, card and installment reminders, weekly review (Sundays) and monthly review (the 1st); summaries rewritten by AI when on (plan 8.2) |
 | `monthly_report` | día 1 08:00 | envía el resumen del mes anterior por Resend |
 | `audit_retention` | diario 03:30 y al arrancar | borra IPs de más de 7 días y eventos de más de 12 meses |
 | `waitlist_cleanup` | diario 04:00 y al arrancar | borra altas sin confirmar de más de 30 días |
