@@ -4,6 +4,13 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 8.4 (API part): auto-categorization
+- New `POST /categories/suggest {description}` in the current space: returns `{categoryId, source}` with source `history` or `ai`, or nulls when nothing is confident. Always 200 unless the input is over 500 characters (422); an AI limit or a provider failure just gives no suggestion.
+- New `internal/categorize` chain. History first, free: the space's last 500 confirmed expenses with a category, matched on the normalized description (most frequent category, ties to the most recent), then on the first word ("Uber a casa" after "Uber al centro") when two thirds of those expenses agree. The rules of 3.8 will go first in the same chain.
+- AI only when history has nothing and the description has at least 3 letters. It receives only the description and the names of the space's categories (decided with the user: no amount, date, people or emails); the schema limits the answer to those names, and the model says "no match" rather than guess or fall back to "Otros". Counts against the 8.1 limits of the person who asks. Prompt `categorize.v1`.
+- Eval set: `go test -tags aismoke -run Eval ./internal/categorize/` against the real provider; never in CI.
+- No migration: one new read query.
+
 ### 8.2 (API part): AI weekly and monthly summaries
 - First feature on `internal/ai`. The weekly review (Sundays) and a new monthly review (the 1st, for the month that ended) keep their rule-based text; when AI is on, Claude Haiku rewrites it into one short paragraph from the same figures. The server computes every number and sends only aggregates: totals, the change against the previous period, counts, what is still due, the income, the share of fixed expenses and up to three category names with their amounts. No descriptions, names or emails.
 - New `internal/summaries` writer. The answer must be one plain paragraph of up to 400 characters (no markdown, links or line breaks), and every number in it must appear in the facts: an invented or rounded figure throws the answer away. Rule-based text whenever AI is off, the owner's email is unverified, a limit is hit or the provider fails. An empty week asks nothing.

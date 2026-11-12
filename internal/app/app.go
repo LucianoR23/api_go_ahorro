@@ -29,6 +29,7 @@ import (
 	"github.com/LucianoR23/valuo_api/internal/balances"
 	"github.com/LucianoR23/valuo_api/internal/calendar"
 	"github.com/LucianoR23/valuo_api/internal/categories"
+	"github.com/LucianoR23/valuo_api/internal/categorize"
 	"github.com/LucianoR23/valuo_api/internal/config"
 	"github.com/LucianoR23/valuo_api/internal/cpi"
 	"github.com/LucianoR23/valuo_api/internal/creditperiods"
@@ -498,6 +499,10 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	// rewrite their text from our own figures; the monthly email reuses the
 	// paragraph. Rule-based text whenever the AI is off or fails.
 	insightsSvc.SetSummaries(summaries.New(aiSvc, logger), spaceMembers(householdsRepo), monthNumbers(reportsSvc))
+
+	// Auto-categorization (plan 8.4): the expense form asks for a category
+	// from the description; history first, the AI only when needed.
+	categoriesHandler.WithSuggester(categorize.New(categorize.NewStore(pool), aiSvc, logger))
 	reportsMailer.SetIntro(func(ctx context.Context, hhID uuid.UUID, month time.Time) (string, bool) {
 		y, m, _ := month.Date()
 		body, ok, err := insightsRepo.AIBody(ctx, hhID, time.Date(y, m+1, 1, 0, 0, 0, 0, time.UTC), domain.InsightTypeMonthlyReview)

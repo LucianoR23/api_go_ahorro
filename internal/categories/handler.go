@@ -20,6 +20,8 @@ type Handler struct {
 	logger *slog.Logger
 	authMW *auth.Middleware
 	hhMW   *households.Middleware
+
+	suggester Suggester
 }
 
 func NewHandler(svc *Service, authMW *auth.Middleware, hhMW *households.Middleware, logger *slog.Logger) *Handler {
@@ -36,6 +38,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Route("/categories", func(r chi.Router) {
 			r.Get("/", h.List)
 			r.Post("/", h.Create)
+			r.Post("/suggest", h.Suggest)
 			r.Patch("/{id}", h.Update)
 			r.Delete("/{id}", h.Delete)
 		})
