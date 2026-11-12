@@ -30,3 +30,12 @@ SELECT EXISTS (SELECT 1 FROM categories WHERE id = $1 AND household_id = $2)::bo
 
 -- name: CategoryHasChildren :one
 SELECT EXISTS (SELECT 1 FROM categories WHERE parent_id = $1)::bool;
+
+-- name: ListCategorizedHistory :many
+-- Recent confirmed expenses with a category, newest first: the history the
+-- auto-categorization matches a new description against (plan 8.4).
+SELECT description, category_id
+FROM expenses
+WHERE household_id = $1 AND category_id IS NOT NULL AND status = 'confirmed'
+ORDER BY spent_at DESC, created_at DESC
+LIMIT 500;

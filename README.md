@@ -21,6 +21,7 @@ internal/
   auth/               login, register, refresh, JWT, middleware
   balances/           cálculo de deudas entre miembros (read-only)
   categories/         CRUD de categorías por hogar
+  categorize/         category suggestion: history, then AI (plan 8.4)
   config/             carga de .env + validación
   creditperiods/      closing_day / due_day overrides por mes y tarjeta
   db/                 pool pgx + helpers de pgtype.Numeric

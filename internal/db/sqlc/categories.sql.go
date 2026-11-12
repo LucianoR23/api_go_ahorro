@@ -139,6 +139,41 @@ func (q *Queries) ListCategoriesByHousehold(ctx context.Context, householdID uui
 	return items, nil
 }
 
+const listCategorizedHistory = `-- name: ListCategorizedHistory :many
+SELECT description, category_id
+FROM expenses
+WHERE household_id = $1 AND category_id IS NOT NULL AND status = 'confirmed'
+ORDER BY spent_at DESC, created_at DESC
+LIMIT 500
+`
+
+type ListCategorizedHistoryRow struct {
+	Description string     `json:"description"`
+	CategoryID  *uuid.UUID `json:"category_id"`
+}
+
+// Recent confirmed expenses with a category, newest first: the history the
+// auto-categorization matches a new description against (plan 8.4).
+func (q *Queries) ListCategorizedHistory(ctx context.Context, householdID uuid.UUID) ([]ListCategorizedHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listCategorizedHistory, householdID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCategorizedHistoryRow{}
+	for rows.Next() {
+		var i ListCategorizedHistoryRow
+		if err := rows.Scan(&i.Description, &i.CategoryID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateCategory = `-- name: UpdateCategory :one
 UPDATE categories
 SET name = $2,

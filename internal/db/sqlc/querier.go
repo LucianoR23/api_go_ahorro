@@ -297,6 +297,9 @@ type Querier interface {
 	ListCardStatementInstallments(ctx context.Context, arg ListCardStatementInstallmentsParams) ([]ListCardStatementInstallmentsRow, error)
 	ListCardStatementRecords(ctx context.Context, arg ListCardStatementRecordsParams) ([]CreditCardStatement, error)
 	ListCategoriesByHousehold(ctx context.Context, householdID uuid.UUID) ([]Category, error)
+	// Recent confirmed expenses with a category, newest first: the history the
+	// auto-categorization matches a new description against (plan 8.4).
+	ListCategorizedHistory(ctx context.Context, householdID uuid.UUID) ([]ListCategorizedHistoryRow, error)
 	ListConfirmedWaitlistEntries(ctx context.Context) ([]WaitlistEntry, error)
 	ListCreditCardPeriods(ctx context.Context, creditCardID uuid.UUID) ([]CreditCardPeriod, error)
 	ListCreditCardPeriodsInRange(ctx context.Context, arg ListCreditCardPeriodsInRangeParams) ([]CreditCardPeriod, error)
