@@ -20,9 +20,10 @@ import (
 type Parser interface {
 	Parse(ctx context.Context, userID, householdID uuid.UUID, text string) (expenseparse.Result, error)
 	ParseAudio(ctx context.Context, userID, householdID uuid.UUID, mimeType string, data []byte) (expenseparse.Result, error)
+	ParseReceipt(ctx context.Context, userID, householdID uuid.UUID, mimeType string, data []byte) (expenseparse.Result, error)
 }
 
-// WithParser enables POST /expenses/parse and /expenses/parse-audio.
+// WithParser enables POST /expenses/parse, /parse-audio and /parse-receipt.
 func (h *Handler) WithParser(p Parser) *Handler {
 	h.parser = p
 	return h
@@ -49,8 +50,9 @@ type parseDTO struct {
 	Shared            bool     `json:"shared"`
 	CategoryID        *string  `json:"categoryId"`
 	CategorySource    *string  `json:"categorySource"`
-	// Transcript is what a voice note said (plan 3.2); null for text, and
-	// when the audio could not be heard.
+	// Transcript is the sentence for the box: what a voice note said (plan
+	// 3.2) or what an image shows (plan 3.3). Null for text, and when
+	// nothing could be read.
 	Transcript *string `json:"transcript"`
 }
 
@@ -126,6 +128,49 @@ func (h *Handler) ParseAudio(w http.ResponseWriter, r *http.Request) {
 	var res expenseparse.Result
 	if h.parser != nil {
 		if res, err = h.parser.ParseAudio(r.Context(), userID, householdID, contentType, data); err != nil {
+			httpx.WriteError(w, r, h.logger, err)
+			return
+		}
+	}
+	httpx.WriteJSON(w, http.StatusOK, toParseDTO(res))
+}
+
+// ParseReceipt takes one image of a ticket or a payment screenshot as the
+// raw body, with its image Content-Type (plan 3.3). Like Parse, it answers
+// 200 with whatever was read and saves nothing; the image is not kept.
+func (h *Handler) ParseReceipt(w http.ResponseWriter, r *http.Request) {
+	householdID, ok := households.HouseholdIDFrom(r.Context())
+	userID, okUser := auth.UserIDFrom(r.Context())
+	if !ok || !okUser {
+		httpx.WriteError(w, r, h.logger, errors.New("middleware faltante"))
+		return
+	}
+	contentType := r.Header.Get("Content-Type")
+	if _, ok := expenseparse.ImageType(contentType); !ok {
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("image", "formato no soportado"))
+		return
+	}
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, expenseparse.MaxImageBytes))
+	var tooBig *http.MaxBytesError
+	switch {
+	case errors.As(err, &tooBig):
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("image", "es demasiado grande"))
+		return
+	case err != nil:
+		httpx.WriteError(w, r, h.logger, err)
+		return
+	case len(data) == 0:
+		httpx.WriteError(w, r, h.logger, domain.NewValidationError("image", "está vacía"))
+		return
+	}
+	var res expenseparse.Result
+	if h.parser != nil {
+		res, err = h.parser.ParseReceipt(r.Context(), userID, householdID, contentType, data)
+		switch {
+		case errors.Is(err, expenseparse.ErrImageType):
+			httpx.WriteError(w, r, h.logger, domain.NewValidationError("image", "formato no soportado"))
+			return
+		case err != nil:
 			httpx.WriteError(w, r, h.logger, err)
 			return
 		}

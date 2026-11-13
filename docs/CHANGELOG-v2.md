@@ -4,6 +4,14 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 3.3 (API part): receipt and screenshot reading
+- New `POST /expenses/parse-receipt` in the current space: one image as the raw body with its `Content-Type` (`image/jpeg`, `image/png` or `image/webp`), at most 5 MB. The bytes must match the declared type, so nothing else reaches the provider under an image label. Returns the same fields as `/expenses/parse` plus `transcript`, here the image written as a sentence for the box ("Carrefour 15430,50 visa galicia ayer"). Nothing is saved and the image is only held in memory for the call (plan §8b). 422 for another format, an empty body, a body that is not the image it claims, or over 5 MB.
+- Mounted outside the 1 MB JSON body cap, in its own group with the same 30 s timeout; the handler caps the body.
+- One Claude call (`parse_receipt`, default route, prompt `parse_receipt.v1`, at most 300 output tokens) reads paper tickets and Mercado Pago or bank transfer and payment screenshots: the total (never an item, subtotal or change), currency, date, installments, payment words (brand, type or bank, "mercado pago"; never card numbers) and the store or recipient as the description (decided with the user). Money received, balances and anything else come back as `notFinance`.
+- The server writes the sentence from those fields and the rules read it like a typed one, so a correction typed in the box gives the same reading without sending the image again. Payment method names never leave. Counts against the 8.1 limits of the person who asks.
+- AI off, over a limit or failing: 200 with nothing read, and the app asks to type it.
+- No migration.
+
 ### 0.15d: version refresh
 - Minor and patch updates: pgx 5.13.0, river 0.51.2, testcontainers 0.45.0, `golang.org/x/crypto` 0.59.0 (clears govulncheck GO-2026-5932), `x/text` 0.44.0, `google.golang.org/api` 0.314.0, httprate 0.16.1. Replaces Dependabot #60.
 - httprate 0.16 deprecates `Limit` and `KeyByIP`: every limiter now uses `LimitBy` with the new `httpx.ClientIPKey`, which reads the client IP that `httpx.RealIP` already resolved into `RemoteAddr`. Same keys and limits as before.
