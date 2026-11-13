@@ -32,6 +32,17 @@ func NewHandler(svc *Service, authMW *auth.Middleware, hhMW *households.Middlewa
 	return &Handler{svc: svc, logger: logger, authMW: authMW, hhMW: hhMW}
 }
 
+// MountUploads registers the routes that take a body over the JSON cap,
+// under auth + household member. The caller mounts it outside the 1 MB
+// limit; each handler sets its own.
+func (h *Handler) MountUploads(r chi.Router) {
+	r.Group(func(r chi.Router) {
+		r.Use(h.authMW.RequireAuth)
+		r.Use(h.hhMW.RequireHouseholdMember)
+		r.Post("/expenses/parse-receipt", h.ParseReceipt)
+	})
+}
+
 // Mount registra /expenses/* bajo auth + household member.
 func (h *Handler) Mount(r chi.Router) {
 	r.Group(func(r chi.Router) {

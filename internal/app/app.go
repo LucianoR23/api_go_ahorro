@@ -712,6 +712,14 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	waitlistHandler.Mount(r)
 	waitlist.NewAdminHandler(waitlistSvc, authMW, auditRec, logger).Mount(r)
 
+	// Receipt images (plan 3.3) take up to 5 MB, over the 1 MB JSON cap, so
+	// they get their own group with the same 30 s timeout; the handler caps
+	// the body itself.
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.Timeout(30 * time.Second))
+		expensesHandler.MountUploads(r)
+	})
+
 	// SSE stream of new insights: outside the 30 s timeout group (it lives as
 	// long as the page is open; the handler pushes the write deadline forward
 	// on each write). Opened with a single-use ticket from

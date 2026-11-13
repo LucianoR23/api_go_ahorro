@@ -47,8 +47,10 @@ type Result struct {
 	// NotFinance is true when the AI says the sentence is not an expense.
 	NotFinance bool
 	Source     Source
-	// Transcript is what the person said in a voice note (plan 3.2); empty
-	// for typed sentences and when the audio could not be heard.
+	// Transcript is the sentence for the box: what the person said in a
+	// voice note (plan 3.2), or what a receipt or screenshot shows written
+	// as a sentence (plan 3.3). Empty for typed sentences and when nothing
+	// could be read.
 	Transcript string
 }
 
@@ -70,15 +72,16 @@ type Categorizer interface {
 
 // Parser reads sentences.
 type Parser struct {
-	store  Store
-	ai     Runner
-	cats   Categorizer
-	prompt ai.Prompt
-	audio  ai.Prompt
-	cache  *cache
-	now    func() time.Time
-	loc    *time.Location
-	logger *slog.Logger
+	store   Store
+	ai      Runner
+	cats    Categorizer
+	prompt  ai.Prompt
+	audio   ai.Prompt
+	receipt ai.Prompt
+	cache   *cache
+	now     func() time.Time
+	loc     *time.Location
+	logger  *slog.Logger
 }
 
 // New builds a parser. A nil runner or categorizer turns that part off.
@@ -94,7 +97,7 @@ func New(store Store, r Runner, cats Categorizer, loc *time.Location, now func()
 	}
 	return &Parser{
 		store: store, ai: r, cats: cats, prompt: ai.MustPrompt("parse_expense", nil),
-		audio: ai.MustPrompt("parse_audio", nil),
+		audio: ai.MustPrompt("parse_audio", nil), receipt: ai.MustPrompt("parse_receipt", nil),
 		cache: newCache(cacheTTL, cacheSize, now), now: now, loc: loc, logger: logger,
 	}
 }
