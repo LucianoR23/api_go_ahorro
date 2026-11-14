@@ -110,9 +110,12 @@ type Config struct {
 	// InboundHMACKey signs the Email Worker's requests and hashes addresses
 	// (base64, at least 32 bytes), InboundEncKey encrypts what is shown back
 	// (base64, exactly 32 bytes). Empty: the feature answers 503.
-	InboundDomain  string
-	InboundHMACKey string
-	InboundEncKey  string
+	InboundDomain string
+	// InboundLocalPrefix goes before each user's token: "in+" makes
+	// in+u_xxx@<domain>, routed by one Cloudflare rule for in@<domain>.
+	InboundLocalPrefix string
+	InboundHMACKey     string
+	InboundEncKey      string
 
 	// AI layer (plan 8.1). Off unless AI_ENABLED=true. Routes and prices are
 	// parsed by internal/ai; defaults below are the 2026-11-11 choice:
@@ -218,6 +221,7 @@ func Load() (*Config, error) {
 		CoinGeckoAPIKey:        os.Getenv("COINGECKO_API_KEY"),
 		InboundDomain:          strings.ToLower(strings.TrimSpace(os.Getenv("INBOUND_DOMAIN"))),
 		InboundHMACKey:         os.Getenv("INBOUND_HMAC_KEY"),
+		InboundLocalPrefix:     strings.ToLower(strings.TrimSpace(getOrDefault("INBOUND_LOCAL_PREFIX", "in+"))),
 		InboundEncKey:          os.Getenv("INBOUND_ENC_KEY"),
 		AIEnabled:              aiEnabled,
 		AnthropicAPIKey:        os.Getenv("ANTHROPIC_API_KEY"),

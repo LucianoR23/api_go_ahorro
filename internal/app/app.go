@@ -528,7 +528,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		if cfg.InboundDomain == "" {
 			return nil, errors.New("config: INBOUND_DOMAIN es obligatorio con INBOUND_HMAC_KEY")
 		}
-		inboundSvc = inbound.NewService(sqlcgen.New(pool), keys, parser, cfg.InboundDomain, dates.Location(), parseNow, logger)
+		inboundSvc = inbound.NewService(sqlcgen.New(pool), keys, parser, cfg.InboundDomain, cfg.InboundLocalPrefix, dates.Location(), parseNow, logger)
 	}
 	inboundHandler := inbound.NewHandler(inboundSvc, authMW, parseNow, logger)
 	reportsMailer.SetIntro(func(ctx context.Context, hhID uuid.UUID, month time.Time) (string, bool) {

@@ -1,0 +1,20 @@
+// Cloudflare Email Worker (plan 3.5). Deployed with a pinned wrangler through
+// npx (see package.json); never installed globally. The routing rule
+// in@<INBOUND_DOMAIN> -> this Worker is created in the dashboard (README).
+// Secret, set once per environment, never committed:
+//   npx --yes wrangler@4.158.0 secret put INBOUND_HMAC_KEY --env staging
+{
+  "name": "inbound-email",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": false,
+  // Off: invocation logs would keep the senders and recipients of mails.
+  // Debug live with: npx --yes wrangler@4.158.0 tail --env staging
+  "observability": { "enabled": false },
+  "env": {
+    "staging": {
+      "name": "inbound-email-staging",
+      "vars": { "API_URL": "https://api-next.valuo.ar" }
+    }
+  }
+}

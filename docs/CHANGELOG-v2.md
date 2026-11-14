@@ -4,6 +4,12 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 3.5 (Worker part): Cloudflare Email Worker
+- Cloudflare has no catch-all on a subdomain, so addresses are now `in+u_xxx@<INBOUND_DOMAIN>` (decided with the user): one routing rule for `in@` sends everything to the Worker through subaddressing. New `INBOUND_LOCAL_PREFIX` (default `in+`); the API also takes the bare token, so the format can change by configuration.
+- `workers/inbound-email`: rejects mails over 768 KB, signs the raw mail and posts it to `POST /inbound/email`; throws on API errors so the sending server retries. No dependencies; `npm test` uses Node's runner. Deployed with `npx wrangler@4.158.0`, never installed globally. Invocation logs off (they would keep senders and recipients).
+- `TestSignVector` and the Worker's test pin the same signature.
+- Step-by-step staging setup (keys, Coolify env, Email Routing subdomain and subaddressing, Worker secret, routing rule, check) in `workers/inbound-email/README.md`. `/workers` is left out of the API image.
+
 ### 3.5 (API part): import expenses by forwarded email
 - Migration 000048 (schema approved by the user): `inbound_addresses` (one address per user, local part encrypted with AES-256-GCM and found by HMAC, accepted senders as HMACs) and `inbound_messages` (what was read from each mail, never the raw mail; `pending`, `sender_pending`, `confirmed`, `dismissed`, `unreadable`).
 - `POST /inbound/email` for the Cloudflare Email Worker: raw mail as the body, envelope recipient and sender in headers, HMAC-SHA256 signature over timestamp, recipient, sender and body, 5 minutes of skew, 768 KB cap. 204 for every valid signature, also for unknown addresses. A retry of the same Message-ID is ignored.

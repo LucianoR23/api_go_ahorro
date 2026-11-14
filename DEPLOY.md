@@ -91,6 +91,7 @@ without superuser. Check with `\du`, `\l valuo_next` and `\ddp`.
 | `COINGECKO_API_KEY` | CoinGecko demo key (free); prices bitcoin and ether for "Ver en", at most once an hour. Empty = no BTC/ETH |
 | `GLITCHTIP_ENVIRONMENT` | `staging` or `production` (defaults to `ENV`, which is `prod` in both) |
 | `INBOUND_DOMAIN` | host of the import addresses (plan 3.5): staging `in-next.valuo.ar`, production `in.valuo.ar`. Empty with the two keys = import by email off (503) |
+| `INBOUND_LOCAL_PREFIX` | default `in+`: addresses are `in+u_xxx@<INBOUND_DOMAIN>`, routed by one Cloudflare rule for `in@` with subaddressing (no catch-all on subdomains). Setup in `workers/inbound-email/README.md` |
 | `INBOUND_HMAC_KEY` | `openssl rand -base64 32`. Signs the Email Worker's requests and hashes addresses; the Worker gets the same value as its secret |
 | `INBOUND_ENC_KEY` | `openssl rand -base64 32` (exactly 32 bytes). Encrypts the import addresses and pending senders (plan §8b) |
 | `AI_ENABLED` | `true` turns the AI features on (plan 8.1). Default `false` |
