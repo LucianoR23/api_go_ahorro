@@ -6,6 +6,8 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -44,6 +46,7 @@ import (
 	"github.com/LucianoR23/valuo_api/internal/goals"
 	"github.com/LucianoR23/valuo_api/internal/households"
 	"github.com/LucianoR23/valuo_api/internal/httpx"
+	"github.com/LucianoR23/valuo_api/internal/inbound"
 	"github.com/LucianoR23/valuo_api/internal/incomes"
 	"github.com/LucianoR23/valuo_api/internal/insights"
 	"github.com/LucianoR23/valuo_api/internal/jobs"
@@ -512,7 +515,22 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 	if parseNow == nil {
 		parseNow = dates.Now
 	}
-	expensesHandler.WithParser(expenseparse.New(expenseparse.NewStore(pool), aiSvc, suggester, dates.Location(), parseNow, logger))
+	parser := expenseparse.New(expenseparse.NewStore(pool), aiSvc, suggester, dates.Location(), parseNow, logger)
+	expensesHandler.WithParser(parser)
+
+	// Import by forwarded email (plan 3.5): off unless INBOUND_* is set.
+	var inboundSvc *inbound.Service
+	if cfg.InboundDomain != "" || cfg.InboundHMACKey != "" || cfg.InboundEncKey != "" {
+		keys, err := inboundKeys(cfg.InboundHMACKey, cfg.InboundEncKey)
+		if err != nil {
+			return nil, err
+		}
+		if cfg.InboundDomain == "" {
+			return nil, errors.New("config: INBOUND_DOMAIN es obligatorio con INBOUND_HMAC_KEY")
+		}
+		inboundSvc = inbound.NewService(sqlcgen.New(pool), keys, parser, cfg.InboundDomain, dates.Location(), parseNow, logger)
+	}
+	inboundHandler := inbound.NewHandler(inboundSvc, authMW, parseNow, logger)
 	reportsMailer.SetIntro(func(ctx context.Context, hhID uuid.UUID, month time.Time) (string, bool) {
 		y, m, _ := month.Date()
 		body, ok, err := insightsRepo.AIBody(ctx, hhID, time.Date(y, m+1, 1, 0, 0, 0, 0, time.UTC), domain.InsightTypeMonthlyReview)
@@ -581,6 +599,7 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 		DeliverPush:       pushSvc.DeliverDeferred,
 		AuditRetention:    func(ctx context.Context) error { return audit.ApplyRetention(ctx, pool, logger) },
 		WaitlistCleanup:   waitlistSvc.Cleanup,
+		InboundCleanup:    inboundCleanup(inboundSvc),
 		DailyReminders:    a.jobs.DailyReminders,
 	}, logger)
 	if err != nil {
@@ -706,6 +725,8 @@ func New(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *sl
 
 		// Notification preferences (auth, per person).
 		notifPrefsHandler.Mount(r)
+		// Signed webhook from the Email Worker plus the app's routes (plan 3.5).
+		inboundHandler.Mount(r)
 	})
 
 	// Waitlist (plan B.5): public, its own CORS and limits.
@@ -1012,4 +1033,24 @@ func (h headerSender) SendWithHeaders(ctx context.Context, to []string, subject,
 		return hs.SendWithHeaders(ctx, to, subject, html, headers)
 	}
 	return h.Send(ctx, to, subject, html)
+}
+
+// inboundKeys decodes INBOUND_HMAC_KEY and INBOUND_ENC_KEY (base64).
+func inboundKeys(hmacKey, encKey string) (*inbound.Keys, error) {
+	h, err := base64.StdEncoding.DecodeString(strings.TrimSpace(hmacKey))
+	if err != nil {
+		return nil, fmt.Errorf("config: INBOUND_HMAC_KEY no es base64: %w", err)
+	}
+	e, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encKey))
+	if err != nil {
+		return nil, fmt.Errorf("config: INBOUND_ENC_KEY no es base64: %w", err)
+	}
+	return inbound.NewKeys(h, e)
+}
+
+func inboundCleanup(svc *inbound.Service) func(context.Context) (int64, error) {
+	if svc == nil {
+		return nil
+	}
+	return svc.Cleanup
 }

@@ -28,6 +28,8 @@ type Units struct {
 	MonthlyReports  func(ctx context.Context, at time.Time) error
 	AuditRetention  func(ctx context.Context) error
 	WaitlistCleanup func(ctx context.Context) (deleted int64, err error)
+	// InboundCleanup applies the retention of imported mails (plan 3.5).
+	InboundCleanup func(ctx context.Context) (deleted int64, err error)
 	// DeliverPush sends a push that waited for the end of quiet hours.
 	DeliverPush func(ctx context.Context, userID uuid.UUID, kind string, payload []byte) error
 	// DailyReminders sends the logging nudge of the 15-minute slot that
@@ -128,6 +130,14 @@ type WaitlistCleanupArgs struct{}
 
 func (WaitlistCleanupArgs) Kind() string { return "waitlist_cleanup" }
 func (WaitlistCleanupArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueMaintenance, MaxAttempts: 5}
+}
+
+// InboundCleanupArgs deletes old Gmail codes and resolved mails (daily).
+type InboundCleanupArgs struct{}
+
+func (InboundCleanupArgs) Kind() string { return "inbound_cleanup" }
+func (InboundCleanupArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: queueMaintenance, MaxAttempts: 5}
 }
 

@@ -19,6 +19,8 @@ type Querier interface {
 	// What one person spent since a moment: provider calls in the last minute
 	// and since the start of the day, and the day's cost.
 	AIUserUsageSince(ctx context.Context, arg AIUserUsageSinceParams) (AIUserUsageSinceRow, error)
+	AcceptInboundMessageSender(ctx context.Context, arg AcceptInboundMessageSenderParams) (int64, error)
+	AcceptInboundSender(ctx context.Context, arg AcceptInboundSenderParams) error
 	// ============================================================
 	// household_members
 	// ============================================================
@@ -88,6 +90,8 @@ type Querier interface {
 	// "Mi plata" goes with the account (plan 1.2).
 	CountHouseholdsOwnedByUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountIncomesByHousehold(ctx context.Context, arg CountIncomesByHouseholdParams) (int64, error)
+	// Caps what an unknown sender can pile up in someone's list.
+	CountSenderPending(ctx context.Context, userID uuid.UUID) (int32, error)
 	// Only what the viewer may see: household-level insights and their own
 	// personal ones (plan 0.6), minus the kinds the viewer muted in the app
 	// (plan 10.1).
@@ -119,6 +123,9 @@ type Querier interface {
 	CreateHousehold(ctx context.Context, arg CreateHouseholdParams) (Household, error)
 	// Queries de household_invites.
 	CreateHouseholdInvite(ctx context.Context, arg CreateHouseholdInviteParams) (HouseholdInvite, error)
+	// Lazily, the first time the user opens the screen. A concurrent first
+	// open keeps the row that won.
+	CreateInboundAddress(ctx context.Context, arg CreateInboundAddressParams) (InboundAddress, error)
 	// ===================== incomes =====================
 	CreateIncome(ctx context.Context, arg CreateIncomeParams) (Income, error)
 	// ===== installments =====
@@ -166,6 +173,9 @@ type Querier interface {
 	DeleteExpense(ctx context.Context, id uuid.UUID) error
 	DeleteIncome(ctx context.Context, id uuid.UUID) error
 	DeleteOldAuditEvents(ctx context.Context) (int64, error)
+	// Retention (plan §8b): Gmail codes after a day; resolved, unreadable and
+	// ignored mails after 30 days. Open ones stay until the user acts.
+	DeleteOldInboundMessages(ctx context.Context, arg DeleteOldInboundMessagesParams) (int64, error)
 	DeleteRecurringExpense(ctx context.Context, id uuid.UUID) error
 	DeleteRecurringIncome(ctx context.Context, id uuid.UUID) error
 	DeleteSettlement(ctx context.Context, id uuid.UUID) error
@@ -217,6 +227,9 @@ type Querier interface {
 	// antes de operaciones privilegiadas (editar/borrar hogar, invitar).
 	// Si no es miembro devuelve pgx.ErrNoRows (el repo lo mapea a ErrNotFound).
 	GetHouseholdMemberRole(ctx context.Context, arg GetHouseholdMemberRoleParams) (string, error)
+	// ===================== Inbound email (plan 3.5) =====================
+	GetInboundAddress(ctx context.Context, userID uuid.UUID) (InboundAddress, error)
+	GetInboundMessage(ctx context.Context, arg GetInboundMessageParams) (InboundMessage, error)
 	GetIncomeByID(ctx context.Context, id uuid.UUID) (Income, error)
 	GetInstallmentByExpenseAndNumber(ctx context.Context, arg GetInstallmentByExpenseAndNumberParams) (ExpenseInstallment, error)
 	GetLatestCreditCardPeriod(ctx context.Context, creditCardID uuid.UUID) (CreditCardPeriod, error)
@@ -251,10 +264,14 @@ type Querier interface {
 	GetWaitlistEntryByConfirmHash(ctx context.Context, confirmTokenHash []byte) (WaitlistEntry, error)
 	// ===================== waitlist_entries (plan B.5) =====================
 	GetWaitlistEntryByEmail(ctx context.Context, email string) (WaitlistEntry, error)
+	// The user a mail is for, with the account email (always an accepted sender).
+	InboundRecipient(ctx context.Context, localHash []byte) (InboundRecipientRow, error)
 	// ===================== AI usage (plan 8.1) =====================
 	// Blocked statuses (disabled, rate_limited, user_budget, global_budget)
 	// never reached a provider: they count for the panel, not for limits.
 	InsertAIUsage(ctx context.Context, arg InsertAIUsageParams) error
+	// A retry of the same mail (same Message-ID) is ignored: no row comes back.
+	InsertInboundMessage(ctx context.Context, arg InsertInboundMessageParams) (uuid.UUID, error)
 	// Al emitir un nuevo token, invalidamos los anteriores del user.
 	InvalidateActiveEmailVerificationsForUser(ctx context.Context, userID uuid.UUID) error
 	// Al emitir un nuevo token, invalidamos los anteriores del user (los
@@ -347,6 +364,8 @@ type Querier interface {
 	// Devuelve la última fila por (currency, source) usando DISTINCT ON.
 	// Útil para el endpoint /current y para rehidratar el caché al arrancar.
 	ListLatestExchangeRates(ctx context.Context) ([]ExchangeRate, error)
+	// What the app shows: open expense mails and Gmail codes of the last day.
+	ListOpenInboundMessages(ctx context.Context, arg ListOpenInboundMessagesParams) ([]InboundMessage, error)
 	// The words that name each active payment method, for reading sentences
 	// such as "café 2500 visa galicia" (plan 3.1).
 	ListPaymentMatchNames(ctx context.Context, ownerUserID uuid.UUID) ([]ListPaymentMatchNamesRow, error)
@@ -426,6 +445,8 @@ type Querier interface {
 	RemoveHouseholdMember(ctx context.Context, arg RemoveHouseholdMemberParams) error
 	// The dollar a report in dollars uses on a day; NULL without quotes.
 	ReportUSDRate(ctx context.Context, arg ReportUSDRateParams) (pgtype.Numeric, error)
+	// Confirm or dismiss an open message; the sender address is dropped.
+	ResolveInboundMessage(ctx context.Context, arg ResolveInboundMessageParams) (int64, error)
 	// Admin-only: limpia deleted_at y deja el hogar accesible de nuevo.
 	RestoreHousehold(ctx context.Context, id uuid.UUID) error
 	RevokeAllUserSessions(ctx context.Context, userID uuid.UUID) error

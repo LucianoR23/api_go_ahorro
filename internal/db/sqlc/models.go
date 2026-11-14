@@ -292,6 +292,30 @@ type HouseholdSplitRule struct {
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
+type InboundAddress struct {
+	UserID       uuid.UUID          `json:"user_id"`
+	LocalHash    []byte             `json:"local_hash"`
+	LocalEnc     []byte             `json:"local_enc"`
+	KeyID        int16              `json:"key_id"`
+	SenderHashes [][]byte           `json:"sender_hashes"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+type InboundMessage struct {
+	ID         uuid.UUID          `json:"id"`
+	UserID     uuid.UUID          `json:"user_id"`
+	DedupeHash []byte             `json:"dedupe_hash"`
+	Kind       string             `json:"kind"`
+	Status     string             `json:"status"`
+	Source     pgtype.Text        `json:"source"`
+	Parsed     []byte             `json:"parsed"`
+	SenderEnc  []byte             `json:"sender_enc"`
+	GmailCode  pgtype.Text        `json:"gmail_code"`
+	ExpenseID  *uuid.UUID         `json:"expense_id"`
+	ReceivedAt pgtype.Timestamptz `json:"received_at"`
+	ResolvedAt pgtype.Timestamptz `json:"resolved_at"`
+}
+
 type Income struct {
 	ID                uuid.UUID          `json:"id"`
 	HouseholdID       uuid.UUID          `json:"household_id"`

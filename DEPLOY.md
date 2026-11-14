@@ -90,6 +90,9 @@ without superuser. Check with `\du`, `\l valuo_next` and `\ddp`.
 | `GLITCHTIP_DSN` | DSN of the environment's GlitchTip project (section 8); empty = no error reporting |
 | `COINGECKO_API_KEY` | CoinGecko demo key (free); prices bitcoin and ether for "Ver en", at most once an hour. Empty = no BTC/ETH |
 | `GLITCHTIP_ENVIRONMENT` | `staging` or `production` (defaults to `ENV`, which is `prod` in both) |
+| `INBOUND_DOMAIN` | host of the import addresses (plan 3.5): staging `in-next.valuo.ar`, production `in.valuo.ar`. Empty with the two keys = import by email off (503) |
+| `INBOUND_HMAC_KEY` | `openssl rand -base64 32`. Signs the Email Worker's requests and hashes addresses; the Worker gets the same value as its secret |
+| `INBOUND_ENC_KEY` | `openssl rand -base64 32` (exactly 32 bytes). Encrypts the import addresses and pending senders (plan §8b) |
 | `AI_ENABLED` | `true` turns the AI features on (plan 8.1). Default `false` |
 | `ANTHROPIC_API_KEY` | key of the environment's workspace in the Claude Console organization linked to the Claude Max plan. Set a spend limit on that workspace |
 | `GEMINI_API_KEY` | Google AI Studio key, used for audio only. Staging: free tier is fine. Production: paid tier only (the free tier lets Google use the data) |
@@ -356,6 +359,8 @@ gitleaks in CI). Rotation, one at a time:
 | `COINGECKO_API_KEY` | new demo key in CoinGecko's dashboard, update, redeploy, revoke the old one | BTC/ETH stop updating until redeployed |
 | `ANTHROPIC_API_KEY` | new key in the workspace (Claude Console), update, redeploy, delete the old one | none |
 | `GEMINI_API_KEY` | new key in Google AI Studio, update, redeploy, delete the old one | none |
+| `INBOUND_HMAC_KEY` | avoid: addresses are found by an HMAC of this key, so a new one loses every user's address. If leaked: new key, delete `inbound_addresses` (people get a new address and update their Gmail forwarding), update the Worker secret | everyone forwards to a new address |
+| `INBOUND_ENC_KEY` | avoid until rotation by `key_id` is built; if leaked, same as `INBOUND_HMAC_KEY` | same |
 | VAPID keys | avoid: new keys invalidate every push subscription | users enable push again |
 | `API_DEPLOY_KEY` (valuo_app CI) | new read-only deploy key on valuo_api, update the secret, delete the old key | none |
 
