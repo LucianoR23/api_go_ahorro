@@ -78,6 +78,7 @@ type Parser struct {
 	prompt  ai.Prompt
 	audio   ai.Prompt
 	receipt ai.Prompt
+	email   ai.Prompt
 	cache   *cache
 	now     func() time.Time
 	loc     *time.Location
@@ -98,6 +99,7 @@ func New(store Store, r Runner, cats Categorizer, loc *time.Location, now func()
 	return &Parser{
 		store: store, ai: r, cats: cats, prompt: ai.MustPrompt("parse_expense", nil),
 		audio: ai.MustPrompt("parse_audio", nil), receipt: ai.MustPrompt("parse_receipt", nil),
+		email: ai.MustPrompt("parse_email", nil),
 		cache: newCache(cacheTTL, cacheSize, now), now: now, loc: loc, logger: logger,
 	}
 }

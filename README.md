@@ -23,6 +23,7 @@ internal/
   categories/         CRUD de categorías por hogar
   categorize/         category suggestion: history, then AI (plan 8.4)
   expenseparse/       natural-language, voice and receipt entry: rules, then AI, 24 h cache (plans 3.1-3.3)
+  inbound/            import by forwarded email: signed webhook, bank rules, AI fallback (plan 3.5)
   config/             carga de .env + validación
   creditperiods/      closing_day / due_day overrides por mes y tarjeta
   db/                 pool pgx + helpers de pgtype.Numeric
@@ -106,6 +107,7 @@ Ver [`.env.example`](./.env.example). Resumen:
 | `GLITCHTIP_DSN` | no | DSN del proyecto en GlitchTip. Vacía = no reporta errores |
 | `GLITCHTIP_ENVIRONMENT` | no (`ENV`) | `staging` / `production` en el dashboard de GlitchTip |
 | `COINGECKO_API_KEY` | no | key demo de CoinGecko (gratis). Precio de bitcoin y ether para "Ver en", como mucho una vez por hora. Vacía = sin BTC/ETH |
+| `INBOUND_DOMAIN` / `INBOUND_HMAC_KEY` / `INBOUND_ENC_KEY` | no | importar gastos reenviando mails (plan 3.5): dominio de las direcciones y dos claves base64 de 32 bytes. Vacías = `/inbound/*` responde 503 |
 | `AI_ENABLED` | no (`false`) | prende la IA (plan 8.1). Claude para todo salvo el audio, que va a Gemini |
 | `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` | no | keys de los proveedores de IA. Sin ellas las tareas que los usan fallan y la gente carga a mano |
 | `AI_DAILY_BUDGET_USD` / `AI_USER_DAILY_USD` / `AI_USER_PER_MINUTE` / `AI_USER_PER_DAY` | no (3 / 0.05 / 10 / 100) | topes de IA: gasto diario total y por persona, pedidos por minuto y por día |

@@ -23,6 +23,7 @@ var (
 	insightsSchedule  = daily{1, 0}
 	auditSchedule     = daily{3, 30}
 	waitlistSchedule  = daily{4, 0}
+	inboundSchedule   = daily{4, 15}
 	cpiSchedule       = daily{5, 0}
 	reportsSchedule   = monthly{8, 0}
 	fxInterval        = 15 * time.Minute
@@ -154,6 +155,18 @@ func newRunner(pool *pgxpool.Pool, u Units, logger *slog.Logger, testOnly bool) 
 		return nil
 	})
 
+	addWorker(workers, time.Minute, func(ctx context.Context, _ InboundCleanupArgs) error {
+		if u.InboundCleanup == nil {
+			return nil
+		}
+		n, err := u.InboundCleanup(ctx)
+		if err != nil {
+			return err
+		}
+		logger.InfoContext(ctx, "inbound cleanup: ok", "deleted", n)
+		return nil
+	})
+
 	periodic := []*river.PeriodicJob{
 		river.NewPeriodicJob(river.PeriodicInterval(fxInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return FXRefreshArgs{}, nil },
@@ -194,6 +207,9 @@ func newRunner(pool *pgxpool.Pool, u Units, logger *slog.Logger, testOnly bool) 
 		river.NewPeriodicJob(waitlistSchedule,
 			func() (river.JobArgs, *river.InsertOpts) { return WaitlistCleanupArgs{}, nil },
 			&river.PeriodicJobOpts{ID: "waitlist_cleanup", RunOnStart: true}),
+		river.NewPeriodicJob(inboundSchedule,
+			func() (river.JobArgs, *river.InsertOpts) { return InboundCleanupArgs{}, nil },
+			&river.PeriodicJobOpts{ID: "inbound_cleanup", RunOnStart: true}),
 		// No RunOnStart: a restart mid-slot would send that slot late.
 		river.NewPeriodicJob(remindersSchedule,
 			func() (river.JobArgs, *river.InsertOpts) {

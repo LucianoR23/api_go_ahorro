@@ -4,6 +4,17 @@ Entries reference item IDs from `AHORRA_V2_PLAN.md` (workspace repo).
 
 ## Unreleased
 
+### 3.5 (API part): import expenses by forwarded email
+- Migration 000048 (schema approved by the user): `inbound_addresses` (one address per user, local part encrypted with AES-256-GCM and found by HMAC, accepted senders as HMACs) and `inbound_messages` (what was read from each mail, never the raw mail; `pending`, `sender_pending`, `confirmed`, `dismissed`, `unreadable`).
+- `POST /inbound/email` for the Cloudflare Email Worker: raw mail as the body, envelope recipient and sender in headers, HMAC-SHA256 signature over timestamp, recipient, sender and body, 5 minutes of skew, 768 KB cap. 204 for every valid signature, also for unknown addresses. A retry of the same Message-ID is ignored.
+- New `internal/inbound`: MIME reading (multipart, quoted-printable, base64, charsets, HTML to text with `golang.org/x/net/html`, now a direct dependency, approved), the original sender of a mail forwarded by hand, fixed rules for Mercado Pago, Galicia, Santander, BBVA, Naranja X and Brubank (decided with the user), and the AI for any other mail (`expenseparse.ReadEmail`, task `parse_email`, prompt `parse_email.v1`, channel `email`). Money received, summaries, due dates and codes are ignored.
+- Drafts live in `inbound_messages`, not in `expenses` (decided with the user): mails often do not say the payment method. `GET /inbound/messages` returns each one with a sentence for the app's box, written when listed so "ayer" stays right; confirming links the expense saved from Cargar gasto (`POST /inbound/messages/{id}/confirm`), or it is dismissed.
+- The account email is always an accepted sender (Gmail's `+caf_` tag and dots ignored). A mail forwarded from another address waits as `sender_pending` with that address encrypted until the person accepts it, and never spends AI; at most 20 wait at once.
+- Gmail's forwarding confirmation code is kept for 24 hours and listed for the app.
+- `GET /inbound/address` creates the address on first use (`u_` and 16 random characters at `INBOUND_DOMAIN`).
+- Daily job `inbound_cleanup` (04:15): codes after 24 h, resolved mails after 30 days.
+- New env: `INBOUND_DOMAIN`, `INBOUND_HMAC_KEY`, `INBOUND_ENC_KEY` (README, `.env.example`, DEPLOY.md with rotation notes). Without them every `/inbound/*` route answers 503.
+
 ### 3.3 (API part): receipt and screenshot reading
 - New `POST /expenses/parse-receipt` in the current space: one image as the raw body with its `Content-Type` (`image/jpeg`, `image/png` or `image/webp`), at most 5 MB. The bytes must match the declared type, so nothing else reaches the provider under an image label. Returns the same fields as `/expenses/parse` plus `transcript`, here the image written as a sentence for the box ("Carrefour 15430,50 visa galicia ayer"). Nothing is saved and the image is only held in memory for the call (plan §8b). 422 for another format, an empty body, a body that is not the image it claims, or over 5 MB.
 - Mounted outside the 1 MB JSON body cap, in its own group with the same 30 s timeout; the handler caps the body.

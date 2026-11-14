@@ -105,6 +105,15 @@ type Config struct {
 	// Empty leaves them out of "Ver en".
 	CoinGeckoAPIKey string
 
+	// Import by forwarded email (plan 3.5). All three set turn it on:
+	// InboundDomain is the host of the addresses ("in-next.valuo.ar"),
+	// InboundHMACKey signs the Email Worker's requests and hashes addresses
+	// (base64, at least 32 bytes), InboundEncKey encrypts what is shown back
+	// (base64, exactly 32 bytes). Empty: the feature answers 503.
+	InboundDomain  string
+	InboundHMACKey string
+	InboundEncKey  string
+
 	// AI layer (plan 8.1). Off unless AI_ENABLED=true. Routes and prices are
 	// parsed by internal/ai; defaults below are the 2026-11-11 choice:
 	// Claude Haiku 5.5 for everything, Gemini 3.5 Flash-Lite for audio.
@@ -207,6 +216,9 @@ func Load() (*Config, error) {
 		SupportAPIKey:          os.Getenv("SOPORTE_API_KEY"),
 		GlitchTipDSN:           os.Getenv("GLITCHTIP_DSN"),
 		CoinGeckoAPIKey:        os.Getenv("COINGECKO_API_KEY"),
+		InboundDomain:          strings.ToLower(strings.TrimSpace(os.Getenv("INBOUND_DOMAIN"))),
+		InboundHMACKey:         os.Getenv("INBOUND_HMAC_KEY"),
+		InboundEncKey:          os.Getenv("INBOUND_ENC_KEY"),
 		AIEnabled:              aiEnabled,
 		AnthropicAPIKey:        os.Getenv("ANTHROPIC_API_KEY"),
 		AnthropicBaseURL:       os.Getenv("ANTHROPIC_BASE_URL"),
