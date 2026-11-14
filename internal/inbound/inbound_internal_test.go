@@ -2,6 +2,7 @@ package inbound
 
 import (
 	"bytes"
+	"encoding/hex"
 	"strings"
 	"testing"
 	"time"
@@ -181,3 +182,18 @@ func TestGmailCode(t *testing.T) {
 		t.Errorf("no code %q", c)
 	}
 }
+
+// TestSignVector pins the webhook signature; workers/inbound-email's test
+// checks the same value, so the Worker and the API cannot drift apart.
+func TestSignVector(t *testing.T) {
+	k, err := NewKeys([]byte("0123456789abcdef0123456789abcdef"), bytes.Repeat([]byte("e"), 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := hex.EncodeToString(k.Sign("1763049600", "in+u_abc@in.example.test", "ana@gmail.com", []byte("Subject: hola\r\n\r\ncuerpo")))
+	if got != signVector {
+		t.Errorf("signature %s, want %s", got, signVector)
+	}
+}
+
+const signVector = "f177b1952de961cef12086989b66fcb36b6c8c1978ef82931f042afa69590cd7"

@@ -39,14 +39,19 @@ type Service struct {
 	keys   *Keys
 	reader Reader
 	domain string
+	prefix string
 	loc    *time.Location
 	now    func() time.Time
 	logger *slog.Logger
 }
 
-// NewService: domain is INBOUND_DOMAIN ("in-next.valuo.ar").
-func NewService(q *sqlcgen.Queries, keys *Keys, reader Reader, domain string, loc *time.Location, now func() time.Time, logger *slog.Logger) *Service {
-	return &Service{q: q, keys: keys, reader: reader, domain: strings.ToLower(domain), loc: loc, now: now, logger: logger}
+// NewService: domain is INBOUND_DOMAIN ("in-next.valuo.ar"); prefix is
+// INBOUND_LOCAL_PREFIX ("in+"). Cloudflare has no catch-all on a subdomain,
+// so one rule for in@<domain> sends every in+<token>@<domain> to the Worker
+// through subaddressing (decided with the user on 2026-11-14).
+func NewService(q *sqlcgen.Queries, keys *Keys, reader Reader, domain, prefix string, loc *time.Location, now func() time.Time, logger *slog.Logger) *Service {
+	return &Service{q: q, keys: keys, reader: reader, domain: strings.ToLower(domain), prefix: strings.ToLower(prefix),
+		loc: loc, now: now, logger: logger}
 }
 
 // Keys is the key set, used by the handler to check signatures.
@@ -68,7 +73,7 @@ func (s *Service) Address(ctx context.Context, userID uuid.UUID) (string, error)
 	if err != nil {
 		return "", err
 	}
-	return local + "@" + s.domain, nil
+	return s.prefix + local + "@" + s.domain, nil
 }
 
 var lowerBase32 = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)
@@ -111,7 +116,16 @@ func (s *Service) Receive(ctx context.Context, to, from string, raw []byte) erro
 	if at <= 0 || to[at+1:] != s.domain {
 		return nil
 	}
-	rcpt, err := s.q.InboundRecipient(ctx, s.keys.Hash(to[:at]))
+	// The token is what follows the prefix; a bare token is taken too, so
+	// the address format can change without losing anyone's address.
+	token := strings.TrimPrefix(to[:at], s.prefix)
+	if i := strings.IndexByte(token, '+'); i >= 0 {
+		token = token[i+1:]
+	}
+	if i := strings.IndexByte(token, '+'); i >= 0 {
+		token = token[:i]
+	}
+	rcpt, err := s.q.InboundRecipient(ctx, s.keys.Hash(token))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}

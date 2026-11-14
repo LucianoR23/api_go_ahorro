@@ -1,0 +1,10 @@
+{
+  "name": "inbound-email-worker",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Email Worker that signs forwarded mails and posts them to the API (plan 3.5)",
+  "scripts": {
+    "test": "node --test",
+    "deploy:staging": "npx --yes wrangler@4.158.0 deploy --env staging"
+  }
+}

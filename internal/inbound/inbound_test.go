@@ -79,6 +79,7 @@ func TestInboundEmail(t *testing.T) {
 	now := time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC)
 	s := apitest.New(t, apitest.WithNow(func() time.Time { return now }), apitest.WithConfig(func(c *config.Config) {
 		c.InboundDomain = domain
+		c.InboundLocalPrefix = "in+"
 		c.InboundHMACKey = base64.StdEncoding.EncodeToString(hmacKey)
 		c.InboundEncKey = base64.StdEncoding.EncodeToString(encKey)
 		c.AIEnabled = true
@@ -96,7 +97,7 @@ func TestInboundEmail(t *testing.T) {
 		Address string `json:"address"`
 	}
 	s.Do(t, apitest.Req{Method: http.MethodGet, Path: "/inbound/address", Token: u.Token}).Status(t, http.StatusOK).JSON(t, &addr)
-	if !strings.HasPrefix(addr.Address, "u_") || !strings.HasSuffix(addr.Address, "@"+domain) {
+	if !strings.HasPrefix(addr.Address, "in+u_") || !strings.HasSuffix(addr.Address, "@"+domain) {
 		t.Fatalf("address %q", addr.Address)
 	}
 	var again struct{ Address string }
@@ -135,10 +136,23 @@ func TestInboundEmail(t *testing.T) {
 		big := append(bytes.Clone(raw), bytes.Repeat([]byte("a"), inbound.MaxMailBytes)...)
 		post(t, addr.Address, gmailFrom, big, now, nil).Status(t, http.StatusRequestEntityTooLarge)
 		// Unknown address or other domain: accepted and dropped.
-		post(t, "u_nobody@"+domain, gmailFrom, raw, now, nil).Status(t, http.StatusNoContent)
+		post(t, "in+u_nobody@"+domain, gmailFrom, raw, now, nil).Status(t, http.StatusNoContent)
 		post(t, "u_x@other.test", gmailFrom, raw, now, nil).Status(t, http.StatusNoContent)
 		if got := list(t, u.Token); len(got) != 0 {
 			t.Errorf("messages %+v", got)
+		}
+	})
+
+	t.Run("the bare token reaches the same person", func(t *testing.T) {
+		bare := strings.TrimPrefix(addr.Address, "in+")
+		raw := mail("Gmail <forwarding-noreply@google.com>", "(#111111111) Gmail Forwarding Confirmation", "x", "gm-bare@google")
+		post(t, strings.ToUpper(bare), "forwarding-noreply@google.com", raw, now, nil).Status(t, http.StatusNoContent)
+		got := list(t, u.Token)
+		if len(got) != 1 || *got[0].GmailCode != "111111111" {
+			t.Fatalf("got %+v", got)
+		}
+		if _, err := s.Pool.Exec(context.Background(), `DELETE FROM inbound_messages WHERE user_id = $1`, u.ID); err != nil {
+			t.Fatal(err)
 		}
 	})
 

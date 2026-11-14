@@ -24,6 +24,7 @@ internal/
   categorize/         category suggestion: history, then AI (plan 8.4)
   expenseparse/       natural-language, voice and receipt entry: rules, then AI, 24 h cache (plans 3.1-3.3)
   inbound/            import by forwarded email: signed webhook, bank rules, AI fallback (plan 3.5)
+workers/inbound-email/  Cloudflare Email Worker that signs mails and posts them to /inbound/email (plan 3.5)
   config/             carga de .env + validación
   creditperiods/      closing_day / due_day overrides por mes y tarjeta
   db/                 pool pgx + helpers de pgtype.Numeric

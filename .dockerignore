@@ -13,6 +13,9 @@
 README.md
 LICENSE
 
+# The Cloudflare Email Worker is deployed on its own (plan 3.5)
+/workers
+
 # Binarios locales
 /api
 /tmp
